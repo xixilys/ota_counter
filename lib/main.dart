@@ -3,6 +3,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'models/counter_model.dart';
 import 'widgets/counter_card.dart';
 import 'widgets/add_counter_dialog.dart';
+import 'widgets/counter_count_sheet.dart';
 import 'services/database_service.dart';
 import 'services/settings_service.dart';
 import 'services/export_import_service.dart';
@@ -79,6 +80,7 @@ class _MyHomePageState extends State<MyHomePage> {
       setState(() {
         _counters.clear();
         _counters.addAll(counters);
+        _applySort(_counters);
       });
     } catch (e) {
       if (mounted) {
@@ -91,6 +93,16 @@ class _MyHomePageState extends State<MyHomePage> {
 
   int get _total => _counters.fold<int>(0, (sum, counter) => sum + counter.count);
 
+  Map<CounterCountField, int> get _typeTotals {
+    return {
+      for (final field in CounterCountField.values)
+        field: _counters.fold<int>(
+          0,
+          (sum, counter) => sum + counter.countForField(field),
+        ),
+    };
+  }
+
   double _getPercentage(int count) {
     return _total == 0 ? 0 : count / _total;
   }
@@ -102,19 +114,31 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
-  void _incrementCounter(int index) async {
-    if (_isLocked) return;  // 如果锁定则不执行计数
-
-    final counter = _counters[index];
-    final updatedCounter = counter.copyWith(count: counter.count + 1);
-    
+  Future<void> _saveCounterAt(int index, CounterModel updatedCounter) async {
     setState(() {
       _counters[index] = updatedCounter;
+      _applySort(_counters);
     });
 
-    if (counter.id != null) {
-      await DatabaseService.updateCounter(counter.id!, updatedCounter);
+    if (updatedCounter.id != null) {
+      await DatabaseService.updateCounter(updatedCounter.id!, updatedCounter);
     }
+  }
+
+  void _openCounterSheet(int index) {
+    if (_isLocked) return;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => CounterCountSheet(
+        counter: _counters[index],
+        onCounterChanged: (updatedCounter) async {
+          await _saveCounterAt(index, updatedCounter);
+        },
+      ),
+    );
   }
 
   Future<void> _addCounter() async {
@@ -234,37 +258,40 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
+  void _applySort(List<CounterModel> counters) {
+    switch (_sortType) {
+      case SettingsService.sortByCount:
+        counters.sort((a, b) => _sortAscending
+            ? a.count.compareTo(b.count)
+            : b.count.compareTo(a.count));
+      case SettingsService.sortByName:
+        counters.sort((a, b) => _sortAscending
+            ? a.namePinyin.compareTo(b.namePinyin)
+            : b.namePinyin.compareTo(a.namePinyin));
+      case SettingsService.sortByColor:
+        counters.sort((a, b) {
+          final aHsv = a.hsvColor;
+          final bHsv = b.hsvColor;
+          final hueCompare = aHsv.hue.compareTo(bHsv.hue);
+          if (hueCompare != 0) return _sortAscending ? hueCompare : -hueCompare;
+
+          final satCompare = aHsv.saturation.compareTo(bHsv.saturation);
+          if (satCompare != 0) return _sortAscending ? satCompare : -satCompare;
+
+          return _sortAscending
+              ? aHsv.value.compareTo(bHsv.value)
+              : bHsv.value.compareTo(aHsv.value);
+        });
+      default:
+        counters.sort((a, b) => _sortAscending
+            ? a.count.compareTo(b.count)
+            : b.count.compareTo(a.count));
+    }
+  }
+
   void _sortCounters() {
     setState(() {
-      switch (_sortType) {
-        case SettingsService.sortByCount:
-          _counters.sort((a, b) => _sortAscending
-              ? a.count.compareTo(b.count)
-              : b.count.compareTo(a.count));
-        case SettingsService.sortByName:
-          _counters.sort((a, b) => _sortAscending
-              ? a.namePinyin.compareTo(b.namePinyin)
-              : b.namePinyin.compareTo(a.namePinyin));
-        case SettingsService.sortByColor:
-          _counters.sort((a, b) {
-            final aHsv = a.hsvColor;
-            final bHsv = b.hsvColor;
-            // 首先按色相排序
-            final hueCompare = aHsv.hue.compareTo(bHsv.hue);
-            if (hueCompare != 0) return _sortAscending ? hueCompare : -hueCompare;
-            // 色相相同时按饱和度排序
-            final satCompare = aHsv.saturation.compareTo(bHsv.saturation);
-            if (satCompare != 0) return _sortAscending ? satCompare : -satCompare;
-            // 最后按明度排序
-            return _sortAscending
-                ? aHsv.value.compareTo(bHsv.value)
-                : bHsv.value.compareTo(aHsv.value);
-          });
-        default:
-          _counters.sort((a, b) => _sortAscending
-              ? a.count.compareTo(b.count)
-              : b.count.compareTo(a.count));
-      }
+      _applySort(_counters);
     });
   }
 
@@ -361,15 +388,96 @@ class _MyHomePageState extends State<MyHomePage> {
   // 修改宽高比计算方法
   double _calculateAspectRatio(double gridSize) {
     final ratio = switch (gridSize.toInt()) {
-      1 => 0.95,  // 1列
-      2 => 0.85,  // 2列
-      3 => 0.75,  // 3列
-      4 => 0.65,  // 4列
-      5 => 0.55,  // 5列
-      _ => 0.85,  // 默认
+      1 => 0.92,
+      2 => 0.72,
+      3 => 0.64,
+      4 => 0.58,
+      5 => 0.54,
+      _ => 0.72,
     };
     
     return ratio;
+  }
+
+  Widget _buildOverviewCard(BuildContext context) {
+    final typeTotals = _typeTotals;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Theme.of(context).colorScheme.primary.withAlpha(36),
+            Theme.of(context).colorScheme.secondary.withAlpha(26),
+          ],
+        ),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.primary.withAlpha(26),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '切奇总览',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '已配置 ${_counters.length} 个成员 / 项目',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.color
+                                ?.withValues(alpha: 0.7),
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    '$_total',
+                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                  Text(
+                    '总张数',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: CounterCountField.values.map((field) {
+              return _OverviewChip(
+                label: field.label,
+                value: typeTotals[field] ?? 0,
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -515,6 +623,12 @@ class _MyHomePageState extends State<MyHomePage> {
           physics: const BouncingScrollPhysics(),
           slivers: [
             SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              sliver: SliverToBoxAdapter(
+                child: _buildOverviewCard(context),
+              ),
+            ),
+            SliverPadding(
               padding: const EdgeInsets.all(16),
               sliver: SliverGrid(
                 delegate: SliverChildBuilderDelegate(
@@ -525,7 +639,7 @@ class _MyHomePageState extends State<MyHomePage> {
                         key: ValueKey(counter.id),
                         counter: counter,
                         percentage: _getPercentage(counter.count),
-                        onTap: () => _incrementCounter(index),
+                        onTap: () => _openCounterSheet(index),
                         onEdit: () => _editCounter(index),
                         onDelete: () => _deleteCounter(index),
                         isLocked: _isLocked,  // 传递锁定状态
@@ -558,6 +672,44 @@ class _MyHomePageState extends State<MyHomePage> {
             onPressed: _addCounter,
             heroTag: 'add',  // 添加 heroTag 避免冲突
         child: const Icon(Icons.add),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OverviewChip extends StatelessWidget {
+  final String label;
+  final int value;
+
+  const _OverviewChip({
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface.withAlpha(200),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 2),
+          Text(
+            '$value',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
           ),
         ],
       ),

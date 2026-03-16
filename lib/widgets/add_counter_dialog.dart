@@ -16,18 +16,26 @@ class AddCounterDialog extends StatefulWidget {
 
 class _AddCounterDialogState extends State<AddCounterDialog> {
   final _nameController = TextEditingController();
-  final _countController = TextEditingController();
+  late final Map<String, TextEditingController> _countControllers;
   Color _selectedColor = const Color(0xFFFFE135);
   String? _nameError;
-  String? _countError;
+  final Map<String, String?> _countErrors = {};
 
   @override
   void initState() {
     super.initState();
+    _countControllers = {
+      for (final field in CounterCountField.values)
+        field.key: TextEditingController(),
+    };
+
     if (widget.initialData != null) {
       _nameController.text = widget.initialData!.name;
-      _countController.text = widget.initialData!.count.toString();
       _selectedColor = widget.initialData!.colorValue;
+      for (final field in CounterCountField.values) {
+        _countControllers[field.key]!.text =
+            widget.initialData!.countForField(field).toString();
+      }
     }
   }
 
@@ -54,7 +62,9 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
   @override
   void dispose() {
     _nameController.dispose();
-    _countController.dispose();
+    for (final controller in _countControllers.values) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
@@ -62,7 +72,7 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
     bool isValid = true;
     setState(() {
       _nameError = null;
-      _countError = null;
+      _countErrors.clear();
 
       final name = _nameController.text.trim();
       if (name.isEmpty) {
@@ -70,19 +80,24 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
         isValid = false;
       }
 
-      final countText = _countController.text.trim();
-      if (countText.isEmpty) {
-        _countError = '请输入数值';
-        isValid = false;
-      } else {
+      for (final field in CounterCountField.values) {
+        final countText = _countControllers[field.key]!.text.trim();
+        if (countText.isEmpty) {
+          continue;
+        }
+
         final count = int.tryParse(countText);
         if (count == null || count < 0) {
-          _countError = '请输入有效的数值';
+          _countErrors[field.key] = '请输入有效的数值';
           isValid = false;
         }
       }
     });
     return isValid;
+  }
+
+  int _parseCount(CounterCountField field) {
+    return int.tryParse(_countControllers[field.key]!.text.trim()) ?? 0;
   }
 
   @override
@@ -104,14 +119,39 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
               ),
             ),
             const SizedBox(height: 16),
-            TextField(
-              controller: _countController,
-              decoration: InputDecoration(
-                labelText: '数值',
-                hintText: '请输入数字',
-                errorText: _countError,
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '规格计数（留空默认 0）',
+                style: Theme.of(context).textTheme.titleSmall,
               ),
-              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 16),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final fieldWidth = constraints.maxWidth > 360
+                    ? (constraints.maxWidth - 12) / 2
+                    : constraints.maxWidth;
+
+                return Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: CounterCountField.values.map((field) {
+                    return SizedBox(
+                      width: fieldWidth,
+                      child: TextField(
+                        controller: _countControllers[field.key],
+                        decoration: InputDecoration(
+                          labelText: field.label,
+                          hintText: '0',
+                          errorText: _countErrors[field.key],
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                    );
+                  }).toList(),
+                );
+              },
             ),
             const SizedBox(height: 16),
             const Text('选择颜色:'),
@@ -142,13 +182,21 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
             if (!_validate()) return;
 
             final name = _nameController.text.trim();
-            final count = int.parse(_countController.text.trim());
 
             Navigator.of(context).pop(
               CounterModel(
+                id: widget.initialData?.id,
                 name: name,
-                count: count,
                 color: _colorToHex(_selectedColor),
+                threeInchCount: _parseCount(CounterCountField.threeInch),
+                fiveInchCount: _parseCount(CounterCountField.fiveInch),
+                groupCutCount: _parseCount(CounterCountField.groupCut),
+                threeInchShukudaiCount: _parseCount(
+                  CounterCountField.threeInchShukudai,
+                ),
+                fiveInchShukudaiCount: _parseCount(
+                  CounterCountField.fiveInchShukudai,
+                ),
               ),
             );
           },

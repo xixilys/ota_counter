@@ -46,7 +46,8 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
   }
 
   String _colorToHex(Color color) {
-    final hex = '#${(color.value & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
+    final hex =
+        '#${(color.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
     return hex.toUpperCase();
   }
 
@@ -87,7 +88,7 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.initialData != null;
-    
+
     return AlertDialog(
       title: Text(isEditing ? '编辑计数器' : '添加新计数器'),
       content: SingleChildScrollView(
@@ -139,10 +140,10 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
         TextButton(
           onPressed: () {
             if (!_validate()) return;
-            
+
             final name = _nameController.text.trim();
             final count = int.parse(_countController.text.trim());
-            
+
             Navigator.of(context).pop(
               CounterModel(
                 name: name,
@@ -156,4 +157,4 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
       ],
     );
   }
-} 
+}

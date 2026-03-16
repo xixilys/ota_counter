@@ -1,4 +1,3 @@
-import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:flutter/foundation.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -23,7 +22,7 @@ class DatabaseService {
       // Android 平台
       final databasesPath = await getDatabasesPath();
       final path = join(databasesPath, _dbName);
-      
+
       return await openDatabase(
         path,
         version: _version,
@@ -43,7 +42,7 @@ class DatabaseService {
       sqfliteFfiInit();
       final databaseFactory = databaseFactoryFfi;
       final path = join(await getDatabasesPath(), _dbName);
-      
+
       return await databaseFactory.openDatabase(
         path,
         options: OpenDatabaseOptions(
@@ -111,4 +110,4 @@ class DatabaseService {
       whereArgs: [id],
     );
   }
-} 
+}

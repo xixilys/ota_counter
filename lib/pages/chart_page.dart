@@ -14,7 +14,7 @@ class ChartPage extends StatelessWidget {
 
   List<CounterModel> get _sortedCounters {
     final sorted = List<CounterModel>.from(counters);
-    sorted.sort((a, b) => b.count.compareTo(a.count));  // 降序排序
+    sorted.sort((a, b) => b.count.compareTo(a.count)); // 降序排序
     return sorted;
   }
 
@@ -23,7 +23,8 @@ class ChartPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('统计分布'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary.withAlpha(204),
+        backgroundColor:
+            Theme.of(context).colorScheme.inversePrimary.withAlpha(204),
       ),
       body: Column(
         children: [
@@ -32,7 +33,7 @@ class ChartPage extends StatelessWidget {
             flex: 4,
             child: Center(
               child: Padding(
-                padding: const EdgeInsets.all(16),  // 四周都加上内边距
+                padding: const EdgeInsets.all(16), // 四周都加上内边距
                 child: CounterPieChart(
                   counters: counters,
                   total: total,
@@ -45,15 +46,16 @@ class ChartPage extends StatelessWidget {
           const Divider(height: 1, thickness: 1),
           // 列表部分
           Expanded(
-            flex: 2,  // 占据下部分空间
+            flex: 2, // 占据下部分空间
             child: ListView.separated(
               padding: const EdgeInsets.symmetric(vertical: 8),
               itemCount: _sortedCounters.length,
               separatorBuilder: (context, index) => const Divider(height: 1),
               itemBuilder: (context, index) {
                 final counter = _sortedCounters[index];
-                final percentage = (counter.count / total * 100).toStringAsFixed(1);
-                
+                final percentage =
+                    (counter.count / total * 100).toStringAsFixed(1);
+
                 return ListTile(
                   leading: Container(
                     width: 24,
@@ -70,9 +72,13 @@ class ChartPage extends StatelessWidget {
                     ),
                   ),
                   trailing: Text(
-                    '${counter.count} (${percentage}%)',
+                    '${counter.count} ($percentage%)',
                     style: TextStyle(
-                      color: Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(0.6),
+                      color: Theme.of(context)
+                          .textTheme
+                          .bodyMedium
+                          ?.color
+                          ?.withValues(alpha: 0.6),
                     ),
                   ),
                 );
@@ -83,4 +89,4 @@ class ChartPage extends StatelessWidget {
       ),
     );
   }
-} 
+}

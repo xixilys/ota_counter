@@ -73,3 +73,14 @@ flutter {
 dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
 }
+
+// Flutter 3.41 injects empty CMake tasks only to force an NDK download.
+// This project has no native sources to build, so skipping those tasks keeps
+// release APK builds working on machines without a full Android native toolchain.
+afterEvaluate {
+    tasks.matching { task ->
+        task.name.startsWith("configureCMake") || task.name.startsWith("buildCMake")
+    }.configureEach {
+        enabled = false
+    }
+}

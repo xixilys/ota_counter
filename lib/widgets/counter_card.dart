@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../models/counter_model.dart';
 
@@ -27,8 +26,8 @@ class CounterCard extends StatelessWidget {
 
   // 获取文本颜色
   Color _getTextColor(Color backgroundColor) {
-    return _isDarkColor(backgroundColor) 
-        ? Colors.white.withOpacity(0.9)
+    return _isDarkColor(backgroundColor)
+        ? Colors.white.withValues(alpha: 0.9)
         : Colors.black87;
   }
 
@@ -36,7 +35,7 @@ class CounterCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cardColor = counter.colorValue;
     final textColor = _getTextColor(cardColor);
-    final secondaryTextColor = textColor.withOpacity(0.7);
+    final secondaryTextColor = textColor.withValues(alpha: 0.7);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -44,7 +43,7 @@ class CounterCard extends StatelessWidget {
         final buttonHeight = (totalHeight * 0.12).clamp(24.0, 36.0);
         final buttonIconSize = (buttonHeight * 0.5).clamp(14.0, 18.0);
         final buttonPadding = (buttonHeight * 0.15).clamp(4.0, 6.0);
-        
+
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -60,11 +59,11 @@ class CounterCard extends StatelessWidget {
                           vertical: 8,
                         ),
                         decoration: BoxDecoration(
-                          color: cardColor.withOpacity(0.9),
+                          color: cardColor.withValues(alpha: 0.9),
                           borderRadius: BorderRadius.circular(15),
                           boxShadow: [
                             BoxShadow(
-                              color: cardColor.withOpacity(0.3),
+                              color: cardColor.withValues(alpha: 0.3),
                               blurRadius: 8,
                               spreadRadius: 0.5,
                               offset: const Offset(0, 2),
@@ -76,21 +75,28 @@ class CounterCard extends StatelessWidget {
                             builder: (context, constraints) {
                               // 将容器高度分成三份，分别给数字、百分比和名称
                               final containerHeight = constraints.maxHeight;
-                              final numberHeight = containerHeight * 0.5;  // 数字占50%
-                              final percentageHeight = containerHeight * 0.25;  // 百分比占25%
-                              final nameHeight = containerHeight * 0.25;  // 名称占25%
+                              final numberHeight =
+                                  containerHeight * 0.5; // 数字占50%
+                              final percentageHeight =
+                                  containerHeight * 0.25; // 百分比占25%
+                              final nameHeight =
+                                  containerHeight * 0.25; // 名称占25%
 
                               // 计算字体大小
                               final numberStr = counter.count.toString();
-                              final numberSize = (numberHeight * 0.6).clamp(20.0, 48.0);
-                              final adjustedNumberSize = numberStr.length > 3 
+                              final numberSize =
+                                  (numberHeight * 0.6).clamp(20.0, 48.0);
+                              final adjustedNumberSize = numberStr.length > 3
                                   ? numberSize * (3 / numberStr.length)
                                   : numberSize;
-                              final percentageSize = (percentageHeight * 0.5).clamp(12.0, 16.0);
-                              final nameSize = (nameHeight * 0.5).clamp(14.0, 18.0);
+                              final percentageSize =
+                                  (percentageHeight * 0.5).clamp(12.0, 16.0);
+                              final nameSize =
+                                  (nameHeight * 0.5).clamp(14.0, 18.0);
 
                               return Column(
-                                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceEvenly,
                                 children: [
                                   SizedBox(
                                     height: numberHeight,
@@ -230,17 +236,17 @@ class _ActionButton extends StatelessWidget {
           child: Container(
             padding: EdgeInsets.all(padding),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.15),
+              color: color.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(size / 2),
             ),
             child: Icon(
               icon,
               size: iconSize,
-              color: textColor.withOpacity(0.8),
+              color: textColor.withValues(alpha: 0.8),
             ),
           ),
         ),
       ),
     );
   }
-} 
+}

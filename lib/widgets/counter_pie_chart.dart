@@ -6,13 +6,13 @@ import 'dart:math';
 class CounterPieChart extends StatefulWidget {
   final List<CounterModel> counters;
   final int total;
-  final bool showLegend;  // 添加控制图例显示的参数
+  final bool showLegend; // 添加控制图例显示的参数
 
   const CounterPieChart({
     super.key,
     required this.counters,
     required this.total,
-    this.showLegend = true,  // 默认显示图例
+    this.showLegend = true, // 默认显示图例
   });
 
   @override
@@ -21,11 +21,9 @@ class CounterPieChart extends StatefulWidget {
 
 class _CounterPieChartState extends State<CounterPieChart> {
   int? _touchedIndex;
-  bool _showName = true;    // 显示名称
-  bool _showCount = true;   // 显示数量
+  bool _showName = true; // 显示名称
+  bool _showCount = true; // 显示数量
   bool _showPercent = true; // 显示百分比
-  final double _textScaleFactor = 0.8;
-
   // 计算文字位置，确保在屏幕内
   Offset _calculateTextPosition(
     double centerX,
@@ -38,7 +36,7 @@ class _CounterPieChartState extends State<CounterPieChart> {
   ) {
     // 计算扇形中心角度
     final angle = startAngle + sweepAngle / 2;
-    
+
     // 计算基础位置（比半径远一点）
     final distance = radius * 1.3;
     var x = centerX + distance * cos(angle);
@@ -46,7 +44,7 @@ class _CounterPieChartState extends State<CounterPieChart> {
 
     // 调整文字位置确保在屏幕内
     final padding = 8.0;
-    
+
     // 左边界
     if (x - textSize.width / 2 < padding) {
       x = padding + textSize.width / 2;
@@ -76,11 +74,11 @@ class _CounterPieChartState extends State<CounterPieChart> {
     // 获取屏幕尺寸
     final screenSize = MediaQuery.of(context).size;
     final isPortrait = screenSize.height > screenSize.width;
-    
+
     // 使用父组件传入的尺寸，或者使用默认计算
-    final chartSize = isPortrait 
-        ? screenSize.width * 0.95  // 从0.9增加到0.95
-        : screenSize.height * 0.85;  // 从0.7增加到0.85
+    final chartSize = isPortrait
+        ? screenSize.width * 0.95 // 从0.9增加到0.95
+        : screenSize.height * 0.85; // 从0.7增加到0.85
 
     return SingleChildScrollView(
       child: Column(
@@ -102,7 +100,8 @@ class _CounterPieChartState extends State<CounterPieChart> {
                             _touchedIndex = -1;
                             return;
                           }
-                          _touchedIndex = pieTouchResponse.touchedSection!.touchedSectionIndex;
+                          _touchedIndex = pieTouchResponse
+                              .touchedSection!.touchedSectionIndex;
                         });
                       },
                     ),
@@ -163,14 +162,15 @@ class _CounterPieChartState extends State<CounterPieChart> {
               ),
             ],
           ),
-          if (widget.showLegend) ...[  // 根据参数决定是否显示图例
+          if (widget.showLegend) ...[
+            // 根据参数决定是否显示图例
             const SizedBox(height: 10),
             SizedBox(
               width: chartSize * 0.6,
               child: Wrap(
                 direction: isPortrait ? Axis.vertical : Axis.horizontal,
-                spacing: 10,  // 从 12 减小到 10
-                runSpacing: 6,  // 从 8 减小到 6
+                spacing: 10, // 从 12 减小到 10
+                runSpacing: 6, // 从 8 减小到 6
                 alignment: WrapAlignment.center,
                 children: _buildLegends(),
               ),
@@ -184,16 +184,17 @@ class _CounterPieChartState extends State<CounterPieChart> {
   List<PieChartSectionData> _generateSections(Size chartSize) {
     double startAngle = -pi / 2;
     const minPercentageForLabel = 0.05;
-    
+
     return List.generate(widget.counters.length, (i) {
       final counter = widget.counters[i];
       final percentage = counter.count / widget.total;
       final sweepAngle = 2 * pi * percentage;
       final isTouched = i == _touchedIndex;
-      final radius = isTouched ? chartSize.width * 0.38 : chartSize.width * 0.35;
-      
+      final radius =
+          isTouched ? chartSize.width * 0.38 : chartSize.width * 0.35;
+
       final shouldShowLabel = percentage >= minPercentageForLabel;
-      
+
       final textPos = _calculateTextPosition(
         chartSize.width / 2,
         chartSize.height / 2,
@@ -205,11 +206,15 @@ class _CounterPieChartState extends State<CounterPieChart> {
       );
 
       String getLabelText() {
-        if (!shouldShowLabel) return '';
+        if (!shouldShowLabel) {
+          return '';
+        }
         List<String> parts = [];
         if (_showName) parts.add(counter.name);
         if (_showCount) parts.add('${counter.count}');
-        if (_showPercent) parts.add('(${(percentage * 100).toStringAsFixed(1)}%)');
+        if (_showPercent) {
+          parts.add('(${(percentage * 100).toStringAsFixed(1)}%)');
+        }
         return parts.join('\n');
       }
 
@@ -219,7 +224,7 @@ class _CounterPieChartState extends State<CounterPieChart> {
         radius: radius,
         title: isTouched ? '' : getLabelText(),
         titleStyle: TextStyle(
-          fontSize: 12,  // 减小字号
+          fontSize: 12, // 减小字号
           fontWeight: FontWeight.bold,
           color: _isDarkColor(counter.colorValue) ? Colors.white : Colors.black,
         ),
@@ -228,52 +233,55 @@ class _CounterPieChartState extends State<CounterPieChart> {
           color: Colors.white,
           width: 1,
         ),
-        badgeWidget: isTouched ? Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 8,
-            vertical: 6,
-          ),
-          constraints: BoxConstraints(  // 添加最大宽度限制
-            maxWidth: chartSize.width * 0.4,  // 限制为饼图宽度的40%
-          ),
-          decoration: BoxDecoration(
-            color: Colors.black87,
-            borderRadius: BorderRadius.circular(6),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.2),
-                blurRadius: 4,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                counter.name,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 14,  // 减小字号
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
+        badgeWidget: isTouched
+            ? Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 6,
                 ),
-                softWrap: true,  // 允许换行
-                overflow: TextOverflow.visible,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${counter.count}\n(${(percentage * 100).toStringAsFixed(1)}%)',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 12,  // 减小字号
-                  color: Colors.white,
-                  height: 1.2,
+                constraints: BoxConstraints(
+                  // 添加最大宽度限制
+                  maxWidth: chartSize.width * 0.4, // 限制为饼图宽度的40%
                 ),
-              ),
-            ],
-          ),
-        ) : null,
+                decoration: BoxDecoration(
+                  color: Colors.black87,
+                  borderRadius: BorderRadius.circular(6),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.2),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      counter.name,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 14, // 减小字号
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      softWrap: true, // 允许换行
+                      overflow: TextOverflow.visible,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${counter.count}\n(${(percentage * 100).toStringAsFixed(1)}%)',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 12, // 减小字号
+                        color: Colors.white,
+                        height: 1.2,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : null,
         badgePositionPercentageOffset: _calculateBadgeOffset(
           textPos,
           chartSize,
@@ -315,11 +323,10 @@ class _LegendItem extends StatelessWidget {
   final Color color;
 
   const _LegendItem({
-    Key? key,
     required this.name,
     required this.value,
     required this.color,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -350,4 +357,4 @@ class _LegendItem extends StatelessWidget {
       ],
     );
   }
-} 
+}

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import '../models/idol_database_models.dart';
 import '../models/counter_model.dart';
+import '../services/idol_database_service.dart';
 import 'color_picker_dialog.dart';
 
 class AddCounterDialog extends StatefulWidget {
@@ -16,10 +18,17 @@ class AddCounterDialog extends StatefulWidget {
 
 class _AddCounterDialogState extends State<AddCounterDialog> {
   final _nameController = TextEditingController();
+  final _groupController = TextEditingController();
   late final Map<String, TextEditingController> _countControllers;
   Color _selectedColor = const Color(0xFFFFE135);
   String? _nameError;
   final Map<String, String?> _countErrors = {};
+  List<IdolGroup> _idolGroups = [];
+  List<IdolMember> _idolMembers = [];
+  bool _idolLoading = false;
+  bool _useIdolDatabase = true;
+  int? _selectedIdolGroupId;
+  int? _selectedIdolMemberId;
 
   @override
   void initState() {
@@ -31,12 +40,15 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
 
     if (widget.initialData != null) {
       _nameController.text = widget.initialData!.name;
+      _groupController.text = widget.initialData!.groupName;
       _selectedColor = widget.initialData!.colorValue;
       for (final field in CounterCountField.values) {
         _countControllers[field.key]!.text =
             widget.initialData!.countForField(field).toString();
       }
     }
+
+    _loadIdolDatabase();
   }
 
   void _showColorPicker() {
@@ -62,10 +74,100 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
   @override
   void dispose() {
     _nameController.dispose();
+    _groupController.dispose();
     for (final controller in _countControllers.values) {
       controller.dispose();
     }
     super.dispose();
+  }
+
+  Future<void> _loadIdolDatabase() async {
+    setState(() {
+      _idolLoading = true;
+    });
+
+    await IdolDatabaseService.initializeBuiltInDataIfNeeded();
+    final groups = await IdolDatabaseService.getGroups();
+    final members = await IdolDatabaseService.getMembers();
+
+    int? selectedGroupId;
+    int? selectedMemberId;
+
+    _idolGroups = groups;
+    _idolMembers = members;
+
+    if (widget.initialData != null && widget.initialData!.groupName.isNotEmpty) {
+      final matchedGroup = _findGroupByName(widget.initialData!.groupName);
+      selectedGroupId = matchedGroup?.id;
+
+      final matchedMember = _findMemberByNames(
+        widget.initialData!.groupName,
+        widget.initialData!.name,
+      );
+      selectedMemberId = matchedMember?.id;
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _selectedIdolGroupId = selectedGroupId;
+      _selectedIdolMemberId = selectedMemberId;
+      _useIdolDatabase = groups.isNotEmpty;
+      _idolLoading = false;
+    });
+  }
+
+  List<IdolMember> get _filteredIdolMembers {
+    return _idolMembers
+        .where(
+          (member) =>
+              _selectedIdolGroupId == null ||
+              member.groupId == _selectedIdolGroupId,
+        )
+        .toList();
+  }
+
+  IdolGroup? _findGroupById(int? id) {
+    for (final group in _idolGroups) {
+      if (group.id == id) {
+        return group;
+      }
+    }
+    return null;
+  }
+
+  IdolGroup? _findGroupByName(String name) {
+    for (final group in _idolGroups) {
+      if (group.name == name) {
+        return group;
+      }
+    }
+    return null;
+  }
+
+  IdolMember? _findMemberById(int? id) {
+    for (final member in _filteredIdolMembers) {
+      if (member.id == id) {
+        return member;
+      }
+    }
+    return null;
+  }
+
+  IdolMember? _findMemberByNames(String groupName, String memberName) {
+    for (final member in _idolMembers) {
+      if (member.groupName == groupName && member.name == memberName) {
+        return member;
+      }
+    }
+    return null;
+  }
+
+  void _applySelectedIdol(IdolMember member) {
+    _nameController.text = member.name;
+    _groupController.text = member.groupName;
   }
 
   bool _validate() {
@@ -113,12 +215,116 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
             TextField(
               controller: _nameController,
               decoration: InputDecoration(
-                labelText: '名称',
-                hintText: '请输入名称',
+                labelText: '成员名称',
+                hintText: '请输入成员名称',
                 errorText: _nameError,
               ),
             ),
             const SizedBox(height: 16),
+            TextField(
+              controller: _groupController,
+              decoration: const InputDecoration(
+                labelText: '所属团体',
+                hintText: '可选，便于区分同名成员',
+              ),
+            ),
+            const SizedBox(height: 16),
+            if (_idolLoading)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 16),
+                child: LinearProgressIndicator(),
+              )
+            else if (_idolGroups.isNotEmpty) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('从内置偶像库快速选择'),
+                      subtitle: const Text('可从中国偶像 Wiki 快照中选择成员'),
+                      value: _useIdolDatabase,
+                      onChanged: (value) {
+                        setState(() {
+                          _useIdolDatabase = value;
+                        });
+                      },
+                    ),
+                    if (_useIdolDatabase) ...[
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<int?>(
+                        initialValue: _selectedIdolGroupId,
+                        decoration: const InputDecoration(
+                          labelText: '偶像库团体',
+                        ),
+                        items: [
+                          const DropdownMenuItem<int?>(
+                            value: null,
+                            child: Text('先选择团体'),
+                          ),
+                          ..._idolGroups.where((group) => group.id != null).map(
+                                (group) => DropdownMenuItem<int?>(
+                                  value: group.id!,
+                                  child: Text(group.name),
+                                ),
+                              ),
+                        ],
+                        onChanged: (value) {
+                          setState(() {
+                            _selectedIdolGroupId = value;
+                            _selectedIdolMemberId = null;
+                          });
+
+                          final group = _findGroupById(value);
+                          _groupController.text = group?.name ?? '';
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<int?>(
+                        initialValue: _selectedIdolMemberId,
+                        decoration: const InputDecoration(
+                          labelText: '偶像库成员',
+                        ),
+                        items: [
+                          const DropdownMenuItem<int?>(
+                            value: null,
+                            child: Text('再选择成员'),
+                          ),
+                          ..._filteredIdolMembers
+                              .where((member) => member.id != null)
+                              .map(
+                                (member) => DropdownMenuItem<int?>(
+                                  value: member.id!,
+                                  child: Text(
+                                    member.status.isEmpty
+                                        ? member.name
+                                        : '${member.name} · ${member.status}',
+                                  ),
+                                ),
+                              ),
+                        ],
+                        onChanged: (value) {
+                          setState(() {
+                            _selectedIdolMemberId = value;
+                          });
+
+                          final member = _findMemberById(value);
+                          if (member != null) {
+                            _applySelectedIdol(member);
+                          }
+                        },
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
             Align(
               alignment: Alignment.centerLeft,
               child: Text(
@@ -187,6 +393,7 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
               CounterModel(
                 id: widget.initialData?.id,
                 name: name,
+                groupName: _groupController.text.trim(),
                 color: _colorToHex(_selectedColor),
                 threeInchCount: _parseCount(CounterCountField.threeInch),
                 fiveInchCount: _parseCount(CounterCountField.fiveInch),

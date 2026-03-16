@@ -6,7 +6,7 @@ import '../models/counter_model.dart';
 class DatabaseService {
   static const String _dbName = 'counter_app.db';
   static const String tableName = 'counters';
-  static const int _version = 2;
+  static const int _version = 3;
 
   static Database? _database;
 
@@ -49,6 +49,9 @@ class DatabaseService {
     if (oldVersion < 2) {
       await _migrateToV2(db);
     }
+    if (oldVersion < 3) {
+      await _migrateToV3(db);
+    }
   }
 
   static Future<void> _createSchema(DatabaseExecutor db) async {
@@ -56,6 +59,7 @@ class DatabaseService {
       CREATE TABLE $tableName(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
+        group_name TEXT NOT NULL DEFAULT '',
         count INTEGER NOT NULL,
         color TEXT NOT NULL,
         three_inch_count INTEGER NOT NULL DEFAULT 0,
@@ -89,9 +93,16 @@ class DatabaseService {
     );
   }
 
+  static Future<void> _migrateToV3(Database db) async {
+    await db.execute(
+      "ALTER TABLE $tableName ADD COLUMN group_name TEXT NOT NULL DEFAULT ''",
+    );
+  }
+
   static Map<String, dynamic> _toDatabaseMap(CounterModel counter) {
     return {
       'name': counter.name,
+      'group_name': counter.groupName,
       'count': counter.count,
       'color': counter.color,
       'three_inch_count': counter.threeInchCount,

@@ -39,8 +39,7 @@ class CounterCard extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final totalHeight = constraints.maxHeight;
-        final buttonHeight = (totalHeight * 0.12).clamp(24.0, 36.0);
+        final buttonHeight = (constraints.maxHeight * 0.12).clamp(24.0, 36.0);
         final buttonIconSize = (buttonHeight * 0.5).clamp(14.0, 18.0);
         final buttonPadding = (buttonHeight * 0.15).clamp(4.0, 6.0);
 
@@ -75,66 +74,81 @@ class CounterCard extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Expanded(
-                                    child: Text(
-                                      counter.name,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.w700,
-                                        color: textColor,
-                                      ),
-                                    ),
-                                  ),
-                                  if (isLocked)
-                                    Padding(
-                                      padding: const EdgeInsets.only(left: 8),
-                                      child: Icon(
-                                        Icons.lock,
-                                        size: 16,
-                                        color: Colors.grey[600],
-                                      ),
-                                    ),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                              Expanded(
-                                child: Center(
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      FittedBox(
-                                        fit: BoxFit.scaleDown,
-                                        child: Text(
-                                          counter.count.toString(),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          counter.name,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
                                           style: TextStyle(
-                                            fontSize: 44,
-                                            fontWeight: FontWeight.bold,
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.w700,
                                             color: textColor,
                                           ),
+                                        ),
+                                        if (counter.groupName.isNotEmpty) ...[
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            counter.groupName,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: secondaryTextColor,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      if (isLocked)
+                                        Padding(
+                                          padding:
+                                              const EdgeInsets.only(bottom: 4),
+                                          child: Icon(
+                                            Icons.lock,
+                                            size: 16,
+                                            color: Colors.grey[600],
+                                          ),
+                                        ),
+                                      Text(
+                                        counter.count.toString(),
+                                        style: TextStyle(
+                                          fontSize: 36,
+                                          fontWeight: FontWeight.bold,
+                                          color: textColor,
+                                          height: 1,
                                         ),
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        '占比 ${(percentage * 100).toStringAsFixed(1)}%',
+                                        '${(percentage * 100).toStringAsFixed(1)}%',
                                         style: TextStyle(
-                                          fontSize: 13,
+                                          fontSize: 12,
                                           color: secondaryTextColor,
-                                          fontWeight: FontWeight.w500,
+                                          fontWeight: FontWeight.w600,
                                         ),
                                       ),
                                     ],
                                   ),
-                                ),
+                                ],
                               ),
-                              const SizedBox(height: 10),
-                              _CountGrid(
-                                counter: counter,
-                                backgroundColor: cardColor,
-                                textColor: textColor,
+                              const SizedBox(height: 14),
+                              Expanded(
+                                child: _CountGrid(
+                                  counter: counter,
+                                  backgroundColor: cardColor,
+                                  textColor: textColor,
+                                ),
                               ),
                             ],
                           ),
@@ -150,7 +164,7 @@ class CounterCard extends StatelessWidget {
               height: buttonHeight,
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: [
+                                children: [
                   _ActionButton(
                     icon: Icons.edit,
                     onPressed: onEdit,
@@ -194,42 +208,28 @@ class _CountGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final entries = counter.countEntries;
-    final rows = <Widget>[];
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth > 300 ? 3 : 2;
+        final itemWidth =
+            (constraints.maxWidth - ((columns - 1) * 6)) / columns;
 
-    for (var i = 0; i < entries.length; i += 2) {
-      rows.add(
-        Padding(
-          padding: EdgeInsets.only(bottom: i + 2 < entries.length ? 6 : 0),
-          child: Row(
-            children: [
-              Expanded(
-                child: _CountBadge(
-                  field: entries[i].key,
-                  value: entries[i].value,
-                  backgroundColor: backgroundColor,
-                  textColor: textColor,
-                ),
+        return Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: entries.map((entry) {
+            return SizedBox(
+              width: itemWidth,
+              child: _CountBadge(
+                field: entry.key,
+                value: entry.value,
+                backgroundColor: backgroundColor,
+                textColor: textColor,
               ),
-              if (i + 1 < entries.length) ...[
-                const SizedBox(width: 6),
-                Expanded(
-                  child: _CountBadge(
-                    field: entries[i + 1].key,
-                    value: entries[i + 1].value,
-                    backgroundColor: backgroundColor,
-                    textColor: textColor,
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: rows,
+            );
+          }).toList(),
+        );
+      },
     );
   }
 }

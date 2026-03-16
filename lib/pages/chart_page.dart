@@ -108,11 +108,14 @@ class ChartPage extends StatelessWidget {
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 subtitle: Text(
-                  counter.countEntries
-                      .where((entry) => entry.value > 0)
-                      .map((entry) => '${entry.key.shortLabel} ${entry.value}')
-                      .join(' / ')
-                      .ifEmpty('暂无规格记录'),
+                  [
+                    if (counter.groupName.isNotEmpty) counter.groupName,
+                    counter.countEntries
+                        .where((entry) => entry.value > 0)
+                        .map((entry) => '${entry.key.shortLabel} ${entry.value}')
+                        .join(' / ')
+                        .ifEmpty('暂无规格记录'),
+                  ].join(' · '),
                 ),
                 trailing: Text(
                   '${counter.count} ($percentage%)',

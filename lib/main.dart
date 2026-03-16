@@ -5,11 +5,13 @@ import 'widgets/counter_card.dart';
 import 'widgets/add_counter_dialog.dart';
 import 'widgets/counter_count_sheet.dart';
 import 'services/database_service.dart';
+import 'services/idol_database_service.dart';
 import 'services/settings_service.dart';
 import 'services/export_import_service.dart';
 import 'pages/image_page.dart';
 import 'package:flutter/foundation.dart';
 import 'pages/chart_page.dart';
+import 'pages/idol_database_page.dart';
 
 void main() async {
   // 确保 Flutter 绑定初始化
@@ -59,6 +61,11 @@ class _MyHomePageState extends State<MyHomePage> {
     super.initState();
     _loadCounters();
     _loadSettings();
+    _initializeIdolDatabase();
+  }
+
+  Future<void> _initializeIdolDatabase() async {
+    await IdolDatabaseService.initializeBuiltInDataIfNeeded();
   }
 
   Future<void> _loadSettings() async {
@@ -385,18 +392,15 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
-  // 修改宽高比计算方法
-  double _calculateAspectRatio(double gridSize) {
-    final ratio = switch (gridSize.toInt()) {
-      1 => 0.92,
-      2 => 0.72,
-      3 => 0.64,
-      4 => 0.58,
-      5 => 0.54,
-      _ => 0.72,
+  double _calculateCardHeight(double gridSize) {
+    return switch (gridSize.toInt()) {
+      1 => 260,
+      2 => 238,
+      3 => 222,
+      4 => 204,
+      5 => 194,
+      _ => 238,
     };
-    
-    return ratio;
   }
 
   Widget _buildOverviewCard(BuildContext context) {
@@ -551,6 +555,14 @@ class _MyHomePageState extends State<MyHomePage> {
                     MaterialPageRoute(builder: (context) => const ImagePage()),
                   );
                   break;
+                case 'idolDb':
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const IdolDatabasePage(),
+                    ),
+                  );
+                  break;
               }
             },
             itemBuilder: (context) => [
@@ -604,6 +616,16 @@ class _MyHomePageState extends State<MyHomePage> {
                   ],
                 ),
               ),
+              const PopupMenuItem(
+                value: 'idolDb',
+                child: Row(
+                  children: [
+                    Icon(Icons.groups_2),
+                    SizedBox(width: 8),
+                    Text('偶像数据库'),
+                  ],
+                ),
+              ),
             ],
           ),
         ],
@@ -650,7 +672,7 @@ class _MyHomePageState extends State<MyHomePage> {
                 ),
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: _gridSize.toInt(),
-                  childAspectRatio: _calculateAspectRatio(_gridSize),
+                  mainAxisExtent: _calculateCardHeight(_gridSize),
                   crossAxisSpacing: 12,
                   mainAxisSpacing: 16,
                 ),

@@ -48,6 +48,7 @@ class CounterCountField {
 class CounterModel {
   final int? id;
   final String name;
+  final String groupName;
   final String color;
   final int threeInchCount;
   final int fiveInchCount;
@@ -59,6 +60,7 @@ class CounterModel {
   CounterModel({
     this.id,
     required this.name,
+    this.groupName = '',
     required this.color,
     this.threeInchCount = 0,
     this.fiveInchCount = 0,
@@ -81,6 +83,7 @@ class CounterModel {
   CounterModel copyWith({
     int? id,
     String? name,
+    String? groupName,
     String? color,
     int? threeInchCount,
     int? fiveInchCount,
@@ -91,6 +94,7 @@ class CounterModel {
     return CounterModel(
       id: id ?? this.id,
       name: name ?? this.name,
+      groupName: groupName ?? this.groupName,
       color: color ?? this.color,
       threeInchCount: threeInchCount ?? this.threeInchCount,
       fiveInchCount: fiveInchCount ?? this.fiveInchCount,
@@ -163,6 +167,7 @@ class CounterModel {
     return {
       'id': id,
       'name': name,
+      'groupName': groupName,
       'count': count,
       'color': color,
       'threeInchCount': threeInchCount,
@@ -179,6 +184,7 @@ class CounterModel {
     return CounterModel(
       id: _readNullableInt(map, ['id']),
       name: (map['name'] ?? '') as String,
+      groupName: (map['groupName'] ?? map['group_name'] ?? '') as String,
       color: (map['color'] ?? '#FFE135') as String,
       threeInchCount: _readInt(
         map,

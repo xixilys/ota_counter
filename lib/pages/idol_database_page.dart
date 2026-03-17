@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/idol_database_models.dart';
 import '../services/idol_database_service.dart';
+import '../widgets/no_autofill_text_field.dart';
 
 class IdolDatabasePage extends StatefulWidget {
   const IdolDatabasePage({super.key});
@@ -91,7 +92,7 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(initialGroup == null ? '添加团体' : '编辑团体'),
-        content: TextField(
+        content: NoAutofillTextField(
           controller: controller,
           autofocus: true,
           decoration: const InputDecoration(
@@ -135,12 +136,13 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
   }
 
   Future<void> _showMemberDialog({IdolMember? initialMember}) async {
-    final nameController = TextEditingController(text: initialMember?.name ?? '');
+    final nameController =
+        TextEditingController(text: initialMember?.name ?? '');
     final statusController = TextEditingController(
       text: initialMember?.status ?? '',
     );
-    var selectedGroupId =
-        initialMember?.groupId ?? (_groups.isNotEmpty ? _groups.first.id : null);
+    var selectedGroupId = initialMember?.groupId ??
+        (_groups.isNotEmpty ? _groups.first.id : null);
 
     await showDialog<void>(
       context: context,
@@ -171,20 +173,26 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
                   },
                 ),
                 const SizedBox(height: 12),
-                TextField(
+                NoAutofillTextField(
                   controller: nameController,
                   decoration: const InputDecoration(
                     labelText: '成员名称',
                     hintText: '请输入成员名称',
                   ),
+                  textInputAction: TextInputAction.next,
                 ),
                 const SizedBox(height: 12),
-                TextField(
+                NoAutofillTextField(
                   controller: statusController,
                   decoration: const InputDecoration(
                     labelText: '状态',
                     hintText: '例如：正式成员 / 研修生 / 前成员',
                   ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '提示：状态或名称里写“蓝色担当 / 紫色担当”等字样，会自动识别成员担当色。',
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
             ),
@@ -298,6 +306,18 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
     await _loadData();
   }
 
+  Color? _colorFromHex(String? hex) {
+    if (hex == null || !hex.startsWith('#') || hex.length != 7) {
+      return null;
+    }
+
+    try {
+      return Color(int.parse('FF${hex.substring(1)}', radix: 16));
+    } catch (_) {
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final sourceLabel = _meta['source_label'];
@@ -343,18 +363,18 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(20),
-                      color: Theme.of(context)
-                          .colorScheme
-                          .surfaceContainerHighest,
+                      color:
+                          Theme.of(context).colorScheme.surfaceContainerHighest,
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           '共 ${_groups.length} 个团体 / $totalMembers 名成员',
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
+                          style:
+                              Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                  ),
                         ),
                         const SizedBox(height: 6),
                         Text(
@@ -399,7 +419,7 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Column(
                       children: [
-                        TextField(
+                        NoAutofillTextField(
                           controller: _searchController,
                           decoration: InputDecoration(
                             prefixIcon: const Icon(Icons.search),
@@ -450,16 +470,41 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
                       ? ListView.separated(
                           padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
                           itemCount: _members.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 8),
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 8),
                           itemBuilder: (context, index) {
                             final member = _members[index];
+                            final memberColor = _colorFromHex(
+                              member.themeColorHex,
+                            );
+                            final themeColorLabel = member.themeColorLabel;
+                            final subtitleParts = <String>[
+                              member.groupName,
+                              if (member.status.isNotEmpty) member.status,
+                              if (themeColorLabel != null &&
+                                  !member.status.contains(themeColorLabel))
+                                themeColorLabel,
+                            ];
                             return Card(
                               child: ListTile(
-                                title: Text(member.name),
+                                leading: CircleAvatar(
+                                  backgroundColor: memberColor ??
+                                      Theme.of(context)
+                                          .colorScheme
+                                          .surfaceContainerHighest,
+                                  foregroundColor: memberColor == null ||
+                                          memberColor.computeLuminance() > 0.55
+                                      ? Colors.black87
+                                      : Colors.white,
+                                  child: Text(
+                                    member.displayName.isEmpty
+                                        ? '?'
+                                        : member.displayName.substring(0, 1),
+                                  ),
+                                ),
+                                title: Text(member.displayName),
                                 subtitle: Text(
-                                  member.status.isEmpty
-                                      ? member.groupName
-                                      : '${member.groupName} · ${member.status}',
+                                  subtitleParts.join(' · '),
                                 ),
                                 trailing: Wrap(
                                   spacing: 4,
@@ -483,7 +528,8 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
                       : ListView.separated(
                           padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
                           itemCount: _groups.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 8),
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 8),
                           itemBuilder: (context, index) {
                             final group = _groups[index];
                             return Card(

@@ -6,7 +6,8 @@ import '../models/counter_model.dart';
 
 class CounterCountSheet extends StatefulWidget {
   final CounterModel counter;
-  final Future<void> Function(CounterModel updatedCounter) onCounterChanged;
+  final Future<void> Function(CounterModel updatedCounter, DateTime occurredAt)
+      onCounterChanged;
 
   const CounterCountSheet({
     super.key,
@@ -20,11 +21,38 @@ class CounterCountSheet extends StatefulWidget {
 
 class _CounterCountSheetState extends State<CounterCountSheet> {
   late CounterModel _counter;
+  late DateTime _occurredAt;
 
   @override
   void initState() {
     super.initState();
     _counter = widget.counter;
+    _occurredAt = DateTime.now();
+  }
+
+  Future<void> _pickDateTime() async {
+    final date = await showDatePicker(
+      context: context,
+      initialDate: _occurredAt,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+    );
+    if (date == null || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _occurredAt = DateTime(
+        date.year,
+        date.month,
+        date.day,
+      );
+    });
+  }
+
+  String _formatDate(DateTime value) {
+    String twoDigits(int number) => number.toString().padLeft(2, '0');
+    return '${value.year}-${twoDigits(value.month)}-${twoDigits(value.day)}';
   }
 
   void _changeCount(CounterCountField field, int delta) {
@@ -36,7 +64,7 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
     setState(() {
       _counter = updatedCounter;
     });
-    unawaited(widget.onCounterChanged(updatedCounter));
+    unawaited(widget.onCounterChanged(updatedCounter, _occurredAt));
   }
 
   @override
@@ -74,8 +102,17 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
             ),
             const SizedBox(height: 8),
             Text(
-              '点按 +/- 会立即保存当前规格数量。',
+              '点按 +/- 会立即按下方时间保存当前规格数量。',
               style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.schedule_outlined),
+              title: const Text('记录日期'),
+              subtitle: Text(_formatDate(_occurredAt)),
+              trailing: const Icon(Icons.edit_calendar_outlined),
+              onTap: _pickDateTime,
             ),
             const SizedBox(height: 16),
             ...CounterCountField.values.map((field) {

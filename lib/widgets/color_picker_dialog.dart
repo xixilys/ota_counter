@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'no_autofill_text_field.dart';
+
 class ColorPickerDialog extends StatefulWidget {
   final Color initialColor;
   final ValueChanged<Color> onColorChanged;
@@ -225,7 +227,7 @@ class _ColorPickerDialogState extends State<ColorPickerDialog> {
                                 child: Row(
                                   children: [
                                     Expanded(
-                                      child: TextField(
+                                      child: NoAutofillTextField(
                                         controller: _redController,
                                         keyboardType: TextInputType.number,
                                         decoration: const InputDecoration(
@@ -238,7 +240,7 @@ class _ColorPickerDialogState extends State<ColorPickerDialog> {
                                     ),
                                     const SizedBox(width: 8),
                                     Expanded(
-                                      child: TextField(
+                                      child: NoAutofillTextField(
                                         controller: _greenController,
                                         keyboardType: TextInputType.number,
                                         decoration: const InputDecoration(
@@ -251,7 +253,7 @@ class _ColorPickerDialogState extends State<ColorPickerDialog> {
                                     ),
                                     const SizedBox(width: 8),
                                     Expanded(
-                                      child: TextField(
+                                      child: NoAutofillTextField(
                                         controller: _blueController,
                                         keyboardType: TextInputType.number,
                                         decoration: const InputDecoration(

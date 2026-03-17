@@ -1,0 +1,4 @@
+storeFile=/absolute/path/to/ota_counter-release.jks
+storePassword=replace-with-your-store-password
+keyAlias=ota_counter_release
+keyPassword=replace-with-your-key-password

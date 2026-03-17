@@ -5,9 +5,11 @@ class SettingsService {
   static const String _sortDirectionKey = 'sort_direction';
   static const String _sortTypeKey = 'sort_type';
   static const String _isLockedKey = 'is_locked';
+  static const String _showHiddenCountersKey = 'show_hidden_counters';
+  static const String _otaAdminKey = 'ota_admin_key';
 
   static const double defaultGridSize = 2;
-  
+
   static const String sortByCount = 'count';
   static const String sortByName = 'name';
   static const String sortByCreated = 'created';
@@ -17,7 +19,7 @@ class SettingsService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_gridSizeKey, size);
   }
-  
+
   static Future<double> getGridSize() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getDouble(_gridSizeKey) ?? defaultGridSize;
@@ -52,4 +54,24 @@ class SettingsService {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(_isLockedKey) ?? false;
   }
-} 
+
+  static Future<void> saveShowHiddenCounters(bool showHidden) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_showHiddenCountersKey, showHidden);
+  }
+
+  static Future<bool> getShowHiddenCounters() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_showHiddenCountersKey) ?? false;
+  }
+
+  static Future<void> saveOtaAdminKey(String key) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_otaAdminKey, key);
+  }
+
+  static Future<String> getOtaAdminKey() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_otaAdminKey) ?? '';
+  }
+}

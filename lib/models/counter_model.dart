@@ -50,6 +50,7 @@ class CounterModel {
   final String name;
   final String groupName;
   final String color;
+  final bool isHidden;
   final int threeInchCount;
   final int fiveInchCount;
   final int groupCutCount;
@@ -62,16 +63,17 @@ class CounterModel {
     required this.name,
     this.groupName = '',
     required this.color,
+    this.isHidden = false,
     this.threeInchCount = 0,
     this.fiveInchCount = 0,
     this.groupCutCount = 0,
     this.threeInchShukudaiCount = 0,
     this.fiveInchShukudaiCount = 0,
   }) : namePinyin = PinyinHelper.getPinyinE(
-        name,
-        defPinyin: '#', 
-        format: PinyinFormat.WITHOUT_TONE,
-      );
+          name,
+          defPinyin: '#',
+          format: PinyinFormat.WITHOUT_TONE,
+        );
 
   int get count =>
       threeInchCount +
@@ -85,6 +87,7 @@ class CounterModel {
     String? name,
     String? groupName,
     String? color,
+    bool? isHidden,
     int? threeInchCount,
     int? fiveInchCount,
     int? groupCutCount,
@@ -96,6 +99,7 @@ class CounterModel {
       name: name ?? this.name,
       groupName: groupName ?? this.groupName,
       color: color ?? this.color,
+      isHidden: isHidden ?? this.isHidden,
       threeInchCount: threeInchCount ?? this.threeInchCount,
       fiveInchCount: fiveInchCount ?? this.fiveInchCount,
       groupCutCount: groupCutCount ?? this.groupCutCount,
@@ -170,6 +174,7 @@ class CounterModel {
       'groupName': groupName,
       'count': count,
       'color': color,
+      'isHidden': isHidden,
       'threeInchCount': threeInchCount,
       'fiveInchCount': fiveInchCount,
       'groupCutCount': groupCutCount,
@@ -186,6 +191,7 @@ class CounterModel {
       name: (map['name'] ?? '') as String,
       groupName: (map['groupName'] ?? map['group_name'] ?? '') as String,
       color: (map['color'] ?? '#FFE135') as String,
+      isHidden: _readBool(map, ['isHidden', 'is_hidden']),
       threeInchCount: _readInt(
         map,
         ['threeInchCount', 'three_inch_count'],
@@ -254,5 +260,33 @@ class CounterModel {
       }
     }
     return null;
+  }
+
+  static bool _readBool(Map<String, dynamic> map, List<String> keys) {
+    for (final key in keys) {
+      final value = map[key];
+      if (value == null) {
+        continue;
+      }
+      if (value is bool) {
+        return value;
+      }
+      if (value is int) {
+        return value != 0;
+      }
+      if (value is num) {
+        return value.toInt() != 0;
+      }
+      if (value is String) {
+        final normalized = value.trim().toLowerCase();
+        if (normalized == 'true' || normalized == '1') {
+          return true;
+        }
+        if (normalized == 'false' || normalized == '0') {
+          return false;
+        }
+      }
+    }
+    return false;
   }
 }

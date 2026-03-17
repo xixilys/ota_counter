@@ -95,10 +95,131 @@ class IdolDatabaseService {
     );
 
     if ((count ?? 0) > 0) {
+      final bundle = await _loadSeedBundle();
+      final meta = await getMeta();
+      final isLatestBundle =
+          meta['source_label'] == bundle.sourceLabel &&
+          meta['generated_at'] == bundle.generatedAt;
+
+      if (!isLatestBundle) {
+        await syncBuiltInData();
+      }
       return;
     }
 
     await restoreBuiltInData();
+  }
+
+  static Future<void> syncBuiltInData() async {
+    final db = await database;
+    final bundle = await _loadSeedBundle();
+
+    await db.transaction((txn) async {
+      final existingGroups = await txn.query('idol_groups');
+      final groupsByName = <String, Map<String, Object?>>{
+        for (final row in existingGroups) (row['name'] ?? '') as String: row,
+      };
+
+      for (final group in bundle.groups) {
+        final existingGroup = groupsByName[group.name];
+        late final int groupId;
+
+        if (existingGroup == null) {
+          groupId = await txn.insert('idol_groups', {
+            'name': group.name,
+            'source': bundle.sourceLabel,
+            'is_builtin': 1,
+          });
+          groupsByName[group.name] = {
+            'id': groupId,
+            'name': group.name,
+            'source': bundle.sourceLabel,
+            'is_builtin': 1,
+          };
+        } else {
+          groupId = ((existingGroup['id'] ?? 0) as num).toInt();
+          final isBuiltIn =
+              ((existingGroup['is_builtin'] ?? 0) as num).toInt() == 1;
+
+          if (isBuiltIn) {
+            await txn.update(
+              'idol_groups',
+              {
+                'source': bundle.sourceLabel,
+                'is_builtin': 1,
+              },
+              where: 'id = ?',
+              whereArgs: [groupId],
+            );
+          }
+        }
+
+        final memberRows = await txn.query(
+          'idol_members',
+          columns: ['id', 'name', 'is_builtin'],
+          where: 'group_id = ?',
+          whereArgs: [groupId],
+        );
+        final membersByName = <String, Map<String, Object?>>{
+          for (final row in memberRows) (row['name'] ?? '') as String: row,
+        };
+        final seedNames = <String>{};
+
+        for (final member in group.members) {
+          final name = member.name.trim();
+          if (name.isEmpty) {
+            continue;
+          }
+
+          seedNames.add(name);
+          final existingMember = membersByName[name];
+
+          if (existingMember == null) {
+            await txn.insert('idol_members', {
+              'group_id': groupId,
+              'name': name,
+              'status': member.status.trim(),
+              'source': bundle.sourceLabel,
+              'is_builtin': 1,
+            });
+            continue;
+          }
+
+          final isBuiltIn =
+              ((existingMember['is_builtin'] ?? 0) as num).toInt() == 1;
+          if (!isBuiltIn) {
+            continue;
+          }
+
+          await txn.update(
+            'idol_members',
+            {
+              'status': member.status.trim(),
+              'source': bundle.sourceLabel,
+              'is_builtin': 1,
+            },
+            where: 'id = ?',
+            whereArgs: [existingMember['id']],
+          );
+        }
+
+        final deleteWhere = StringBuffer('group_id = ? AND is_builtin = 1');
+        final deleteArgs = <Object?>[groupId];
+        if (seedNames.isNotEmpty) {
+          final placeholders = List.filled(seedNames.length, '?').join(', ');
+          deleteWhere.write(' AND name NOT IN ($placeholders)');
+          deleteArgs.addAll(seedNames);
+        }
+
+        await txn.delete(
+          'idol_members',
+          where: deleteWhere.toString(),
+          whereArgs: deleteArgs,
+        );
+      }
+
+      await _writeMeta(txn, bundle);
+    });
   }
 
   static Future<void> restoreBuiltInData() async {
@@ -118,31 +239,73 @@ class IdolDatabaseService {
           'is_builtin': 1,
         });
 
+        // Some upstream sources may list the same member multiple times with
+        // different status (e.g. current vs past roster). We keep a single row
+        // per (group, member) and merge distinct status strings.
+        final membersByName = <String, Set<String>>{};
         for (final member in group.members) {
-          memberBatch.insert('idol_members', {
-            'group_id': groupId,
-            'name': member.name,
-            'status': member.status,
-            'source': bundle.sourceLabel,
-            'is_builtin': 1,
-          });
+          final name = member.name.trim();
+          if (name.isEmpty) {
+            continue;
+          }
+          final status = member.status.trim();
+          membersByName.putIfAbsent(name, () => <String>{}).add(status);
+        }
+
+        for (final entry in membersByName.entries) {
+          final statuses =
+              entry.value.where((value) => value.isNotEmpty).toList()..sort();
+          final mergedStatus = statuses.join(' / ');
+
+          memberBatch.insert(
+            'idol_members',
+            {
+              'group_id': groupId,
+              'name': entry.key,
+              'status': mergedStatus,
+              'source': bundle.sourceLabel,
+              'is_builtin': 1,
+            },
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
         }
       }
       await memberBatch.commit(noResult: true);
 
-      await txn.insert('idol_meta', {
+      await _writeMeta(txn, bundle);
+    });
+  }
+
+  static Future<void> _writeMeta(
+    DatabaseExecutor db,
+    IdolSeedBundle bundle,
+  ) async {
+    final batch = db.batch();
+    batch.insert(
+      'idol_meta',
+      {
         'key': 'source_url',
         'value': bundle.sourceUrl,
-      });
-      await txn.insert('idol_meta', {
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    batch.insert(
+      'idol_meta',
+      {
         'key': 'source_label',
         'value': bundle.sourceLabel,
-      });
-      await txn.insert('idol_meta', {
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    batch.insert(
+      'idol_meta',
+      {
         'key': 'generated_at',
         'value': bundle.generatedAt,
-      });
-    });
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    await batch.commit(noResult: true);
   }
 
   static Future<IdolSeedBundle> _loadSeedBundle() async {

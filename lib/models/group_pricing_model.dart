@@ -7,6 +7,7 @@ class GroupPricingModel {
   final double threeInchPrice;
   final double fiveInchPrice;
   final double groupCutPrice;
+  final double doubleCutPrice;
   final double threeInchShukudaiPrice;
   final double fiveInchShukudaiPrice;
   final DateTime updatedAt;
@@ -18,6 +19,7 @@ class GroupPricingModel {
     this.threeInchPrice = 0,
     this.fiveInchPrice = 0,
     this.groupCutPrice = 0,
+    this.doubleCutPrice = 0,
     this.threeInchShukudaiPrice = 0,
     this.fiveInchShukudaiPrice = 0,
     required this.updatedAt,
@@ -38,6 +40,7 @@ class GroupPricingModel {
     double? threeInchPrice,
     double? fiveInchPrice,
     double? groupCutPrice,
+    double? doubleCutPrice,
     double? threeInchShukudaiPrice,
     double? fiveInchShukudaiPrice,
     DateTime? updatedAt,
@@ -49,6 +52,7 @@ class GroupPricingModel {
       threeInchPrice: threeInchPrice ?? this.threeInchPrice,
       fiveInchPrice: fiveInchPrice ?? this.fiveInchPrice,
       groupCutPrice: groupCutPrice ?? this.groupCutPrice,
+      doubleCutPrice: doubleCutPrice ?? this.doubleCutPrice,
       threeInchShukudaiPrice:
           threeInchShukudaiPrice ?? this.threeInchShukudaiPrice,
       fiveInchShukudaiPrice:
@@ -82,6 +86,7 @@ class GroupPricingModel {
       'three_inch_price': threeInchPrice,
       'five_inch_price': fiveInchPrice,
       'group_cut_price': groupCutPrice,
+      'double_cut_price': doubleCutPrice,
       'three_inch_shukudai_price': threeInchShukudaiPrice,
       'five_inch_shukudai_price': fiveInchShukudaiPrice,
       'updated_at': updatedAt.toIso8601String(),
@@ -96,6 +101,7 @@ class GroupPricingModel {
       threeInchPrice: _readDouble(map, 'three_inch_price'),
       fiveInchPrice: _readDouble(map, 'five_inch_price'),
       groupCutPrice: _readDouble(map, 'group_cut_price'),
+      doubleCutPrice: _readDouble(map, 'double_cut_price'),
       threeInchShukudaiPrice: _readDouble(map, 'three_inch_shukudai_price'),
       fiveInchShukudaiPrice: _readDouble(map, 'five_inch_shukudai_price'),
       updatedAt: DateTime.tryParse((map['updated_at'] ?? '') as String) ??

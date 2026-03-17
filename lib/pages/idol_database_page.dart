@@ -15,11 +15,12 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
   final TextEditingController _searchController = TextEditingController();
 
   List<IdolGroup> _groups = [];
-  List<IdolMember> _members = [];
+  List<IdolMember> _allMembers = [];
   Map<String, String> _meta = {};
   int? _selectedGroupId;
   bool _showMembers = true;
   bool _loading = true;
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -40,10 +41,7 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
 
     await IdolDatabaseService.initializeBuiltInDataIfNeeded();
     final groups = await IdolDatabaseService.getGroups();
-    final members = await IdolDatabaseService.getMembers(
-      groupId: _selectedGroupId,
-      query: _searchController.text,
-    );
+    final members = await IdolDatabaseService.getMembers();
     final meta = await IdolDatabaseService.getMeta();
 
     if (!mounted) {
@@ -52,10 +50,22 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
 
     setState(() {
       _groups = groups;
-      _members = members;
+      _allMembers = members;
       _meta = meta;
       _loading = false;
     });
+  }
+
+  List<IdolMember> get _filteredMembers {
+    return _allMembers.where((member) {
+      final matchesGroup =
+          _selectedGroupId == null || member.groupId == _selectedGroupId;
+      if (!matchesGroup) {
+        return false;
+      }
+
+      return member.matchesQuery(_searchQuery);
+    }).toList();
   }
 
   Future<void> _restoreBuiltInData() async {
@@ -423,18 +433,24 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
                           controller: _searchController,
                           decoration: InputDecoration(
                             prefixIcon: const Icon(Icons.search),
-                            suffixIcon: _searchController.text.isEmpty
+                            suffixIcon: _searchQuery.isEmpty
                                 ? null
                                 : IconButton(
                                     onPressed: () {
                                       _searchController.clear();
-                                      _loadData();
+                                      setState(() {
+                                        _searchQuery = '';
+                                      });
                                     },
                                     icon: const Icon(Icons.clear),
                                   ),
                             labelText: '搜索成员 / 团体 / 拼音',
                           ),
-                          onChanged: (_) => _loadData(),
+                          onChanged: (value) {
+                            setState(() {
+                              _searchQuery = value;
+                            });
+                          },
                         ),
                         const SizedBox(height: 12),
                         DropdownButtonFormField<int?>(
@@ -458,7 +474,6 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
                             setState(() {
                               _selectedGroupId = value;
                             });
-                            _loadData();
                           },
                         ),
                       ],
@@ -469,11 +484,11 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
                   child: _showMembers
                       ? ListView.separated(
                           padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
-                          itemCount: _members.length,
+                          itemCount: _filteredMembers.length,
                           separatorBuilder: (_, __) =>
                               const SizedBox(height: 8),
                           itemBuilder: (context, index) {
-                            final member = _members[index];
+                            final member = _filteredMembers[index];
                             final memberColor = _colorFromHex(
                               member.themeColorHex,
                             );

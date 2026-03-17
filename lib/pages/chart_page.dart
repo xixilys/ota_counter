@@ -201,6 +201,26 @@ class _ChartPageState extends State<ChartPage> {
           note: draft.note,
         ),
       );
+    } else if (draft.type == ActivityRecordType.duo) {
+      final pricing = await DatabaseService.getGroupPricingByName(
+        draft.duoGroupName,
+      );
+      final resolvedPrice = draft.duoUnitPrice > 0
+          ? draft.duoUnitPrice
+          : (pricing?.doubleCutPrice ?? 0);
+
+      await DatabaseService.insertActivityRecord(
+        ActivityRecordModel.duoCut(
+          groupName: draft.duoGroupName,
+          primaryMemberName: draft.primaryMemberName,
+          secondaryMemberName: draft.secondaryMemberName,
+          occurredAt: draft.occurredAt,
+          note: draft.note,
+          pricingLabel: pricing?.label ?? '未配置价格',
+          quantity: draft.duoQuantity,
+          unitPrice: resolvedPrice,
+        ),
+      );
     } else if (draft.type == ActivityRecordType.ticket) {
       await DatabaseService.insertActivityRecord(
         ActivityRecordModel.ticket(
@@ -217,16 +237,27 @@ class _ChartPageState extends State<ChartPage> {
     await _loadData();
   }
 
+  String _memberStatKey(String groupName, String subjectName) {
+    final normalizedGroup = groupName.trim().toLowerCase();
+    final normalizedSubject = subjectName.trim().toLowerCase();
+    return '$normalizedGroup|$normalizedSubject';
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final filteredRecords = _filteredRecords;
-    final counterRecords = filteredRecords.where((record) => !record.isTicket);
+    final counterRecords = filteredRecords.where((record) => record.isCounter);
+    final duoRecords = filteredRecords.where((record) => record.isDuo);
     final ticketRecords = filteredRecords.where((record) => record.isTicket);
     final recordCount = filteredRecords.length;
     final counterCountTotal = counterRecords.fold<int>(
       0,
       (sum, record) => sum + record.counterCountTotal,
+    );
+    final duoCountTotal = duoRecords.fold<int>(
+      0,
+      (sum, record) => sum + record.doubleCutQuantity,
     );
     final ticketCountTotal = ticketRecords.fold<int>(
       0,
@@ -245,18 +276,20 @@ class _ChartPageState extends State<ChartPage> {
         ),
     };
 
-    final memberTotals = <String, int>{};
-    final memberSubtitle = <String, String>{};
+    final memberTotals = <String, _MemberStatEntry>{};
     for (final record in counterRecords) {
-      memberTotals.update(
-        record.subjectName,
-        (value) => value + record.counterCountTotal,
-        ifAbsent: () => record.counterCountTotal,
+      final key = _memberStatKey(record.groupName, record.subjectName);
+      final entry = memberTotals.putIfAbsent(
+        key,
+        () => _MemberStatEntry(
+          name: record.subjectName,
+          groupName: record.groupName,
+        ),
       );
-      memberSubtitle[record.subjectName] = record.groupName;
+      entry.count += record.counterCountTotal;
     }
-    final memberEntries = memberTotals.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
+    final memberEntries = memberTotals.values.toList()
+      ..sort((a, b) => b.count.compareTo(a.count));
 
     final groupSummaries = <String, _GroupSummary>{};
     for (final record in counterRecords) {
@@ -272,8 +305,41 @@ class _ChartPageState extends State<ChartPage> {
             (summary.counts[field] ?? 0) + record.countForField(field);
       }
     }
+    for (final record in duoRecords) {
+      final key = record.groupName.trim().isEmpty ? '未分组' : record.groupName;
+      final summary = groupSummaries.putIfAbsent(
+        key,
+        () => _GroupSummary(groupName: key),
+      );
+      summary.amount += record.totalAmount;
+      summary.recordCount += 1;
+      summary.duoCount += record.doubleCutQuantity;
+    }
     final sortedGroupSummaries = groupSummaries.values.toList()
       ..sort((a, b) => b.totalCount.compareTo(a.totalCount));
+
+    final duoSummaries = <String, _DuoSummary>{};
+    for (final record in duoRecords) {
+      final dateKey = _formatDate(record.occurredAt);
+      final groupKey = record.groupName.trim();
+      final pairKey = record.duoDisplayName;
+      final key = '$dateKey|$groupKey|$pairKey';
+      final summary = duoSummaries.putIfAbsent(
+        key,
+        () => _DuoSummary(
+          pairName: pairKey,
+          groupName: groupKey,
+          date: dateKey,
+        ),
+      );
+      summary.quantity += record.doubleCutQuantity;
+      summary.amount += record.totalAmount;
+      if (record.note.trim().isNotEmpty) {
+        summary.notes.add(record.note.trim());
+      }
+    }
+    final sortedDuoSummaries = duoSummaries.values.toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
 
     final ticketSummaries = <String, _TicketSummary>{};
     for (final record in ticketRecords) {
@@ -310,19 +376,19 @@ class _ChartPageState extends State<ChartPage> {
     final visibleMembers = memberEntries.take(6).toList();
     for (var index = 0; index < visibleMembers.length; index++) {
       final entry = visibleMembers[index];
-      if (entry.value <= 0) {
+      if (entry.count <= 0) {
         continue;
       }
       memberPieData.add(
         _PieDatum(
-          label: entry.key,
-          value: entry.value.toDouble(),
+          label: entry.chartLabel,
+          value: entry.count.toDouble(),
           color: piePalette[index % piePalette.length],
         ),
       );
     }
     final remainingMemberTotal =
-        memberEntries.skip(6).fold<int>(0, (sum, entry) => sum + entry.value);
+        memberEntries.skip(6).fold<int>(0, (sum, entry) => sum + entry.count);
     if (remainingMemberTotal > 0) {
       memberPieData.add(
         _PieDatum(
@@ -500,8 +566,17 @@ class _ChartPageState extends State<ChartPage> {
                               child: _SummaryCard(
                                 label: '拍切总数',
                                 value: '$counterCountTotal',
-                                hint: '成员记录规格求和',
+                                hint: '单人切规格求和',
                                 icon: Icons.photo_library_outlined,
+                              ),
+                            ),
+                            SizedBox(
+                              width: itemWidth,
+                              child: _SummaryCard(
+                                label: '双人切总数',
+                                value: '$duoCountTotal',
+                                hint: '按双人切记录统计',
+                                icon: Icons.people_alt_outlined,
                               ),
                             ),
                             SizedBox(
@@ -622,17 +697,51 @@ class _ChartPageState extends State<ChartPage> {
                                         Wrap(
                                           spacing: 8,
                                           runSpacing: 8,
-                                          children: CounterCountField.values
-                                              .map((field) {
+                                        children: CounterCountField.values
+                                            .map((field) {
                                             return _MetricChip(
                                               label: field.shortLabel,
                                               value:
                                                   '${summary.counts[field] ?? 0}',
                                             );
-                                          }).toList(),
+                                          }).toList()
+                                          ..add(
+                                            _MetricChip(
+                                              label: '双人切',
+                                              value: '${summary.duoCount}',
+                                            ),
+                                          ),
                                         ),
                                       ],
                                     ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                    ),
+                    const SizedBox(height: 16),
+                    _SectionCard(
+                      title: '双人切',
+                      child: sortedDuoSummaries.isEmpty
+                          ? const Text('当前周期内还没有双人切记录。')
+                          : Column(
+                              children: sortedDuoSummaries.map((summary) {
+                                return ListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: const Icon(Icons.people_alt_outlined),
+                                  title: Text(summary.pairName),
+                                  subtitle: Text(
+                                    [
+                                      summary.date,
+                                      if (summary.groupName.isNotEmpty)
+                                        summary.groupName,
+                                      if (summary.notes.isNotEmpty)
+                                        summary.notes.last,
+                                    ].join(' · '),
+                                  ),
+                                  trailing: Text(
+                                    '${summary.quantity} 张\n¥${_formatAmount(summary.amount)}',
+                                    textAlign: TextAlign.right,
                                   ),
                                 );
                               }).toList(),
@@ -675,11 +784,9 @@ class _ChartPageState extends State<ChartPage> {
                           ? const Text('当前周期内还没有成员记录。')
                           : Column(
                               children: memberEntries.take(20).map((entry) {
-                                final subtitle =
-                                    memberSubtitle[entry.key] ?? '';
                                 final percent = counterCountTotal == 0
                                     ? 0.0
-                                    : entry.value / counterCountTotal;
+                                    : entry.count / counterCountTotal;
                                 return Padding(
                                   padding: const EdgeInsets.only(bottom: 12),
                                   child: Column(
@@ -694,16 +801,16 @@ class _ChartPageState extends State<ChartPage> {
                                                   CrossAxisAlignment.start,
                                               children: [
                                                 Text(
-                                                  entry.key,
+                                                  entry.name,
                                                   style: theme
                                                       .textTheme.titleMedium
                                                       ?.copyWith(
                                                     fontWeight: FontWeight.w700,
                                                   ),
                                                 ),
-                                                if (subtitle.isNotEmpty)
+                                                if (entry.groupName.isNotEmpty)
                                                   Text(
-                                                    subtitle,
+                                                    entry.groupName,
                                                     style: theme
                                                         .textTheme.bodySmall,
                                                   ),
@@ -711,7 +818,7 @@ class _ChartPageState extends State<ChartPage> {
                                             ),
                                           ),
                                           Text(
-                                            '${entry.value}',
+                                            '${entry.count}',
                                             style: theme.textTheme.titleMedium
                                                 ?.copyWith(
                                               fontWeight: FontWeight.w800,
@@ -754,6 +861,17 @@ class _ChartPageState extends State<ChartPage> {
                                         '门票 ${record.ticketQuantity} 张',
                                         if (record.note.isNotEmpty) record.note,
                                       ].join(' · ')
+                                    : record.isDuo
+                                        ? [
+                                            _formatOccurredAtLabel(
+                                                record.occurredAt),
+                                            if (record.groupName.isNotEmpty)
+                                              record.groupName,
+                                            record.pricingLabel,
+                                            '双人切 ${record.doubleCutQuantity}',
+                                            if (record.note.isNotEmpty)
+                                              record.note,
+                                          ].join(' · ')
                                     : [
                                         _formatOccurredAtLabel(
                                             record.occurredAt),
@@ -779,9 +897,15 @@ class _ChartPageState extends State<ChartPage> {
                                   leading: Icon(
                                     record.isTicket
                                         ? Icons.confirmation_num_outlined
-                                        : Icons.photo_library_outlined,
+                                        : record.isDuo
+                                            ? Icons.people_alt_outlined
+                                            : Icons.photo_library_outlined,
                                   ),
-                                  title: Text(record.subjectName),
+                                  title: Text(
+                                    record.isDuo
+                                        ? record.duoDisplayName
+                                        : record.subjectName,
+                                  ),
                                   subtitle: Text(subtitle),
                                   trailing: Text(trailingAmount),
                                 );
@@ -1115,12 +1239,43 @@ class _GroupSummary {
   final Map<CounterCountField, int> counts = {};
   double amount = 0;
   int recordCount = 0;
+  int duoCount = 0;
 
   _GroupSummary({
     required this.groupName,
   });
 
-  int get totalCount => counts.values.fold(0, (sum, value) => sum + value);
+  int get totalCount =>
+      counts.values.fold(0, (sum, value) => sum + value) + duoCount;
+}
+
+class _MemberStatEntry {
+  final String name;
+  final String groupName;
+  int count = 0;
+
+  _MemberStatEntry({
+    required this.name,
+    required this.groupName,
+  });
+
+  String get chartLabel =>
+      groupName.trim().isEmpty ? name : '$name · $groupName';
+}
+
+class _DuoSummary {
+  final String pairName;
+  final String groupName;
+  final String date;
+  int quantity = 0;
+  double amount = 0;
+  final List<String> notes = [];
+
+  _DuoSummary({
+    required this.pairName,
+    required this.groupName,
+    required this.date,
+  });
 }
 
 class _TicketSummary {

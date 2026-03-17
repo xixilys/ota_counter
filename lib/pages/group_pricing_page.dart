@@ -240,14 +240,20 @@ class _GroupPricingPageState extends State<GroupPricingPage> {
                               Wrap(
                                 spacing: 10,
                                 runSpacing: 10,
-                                children: CounterCountField.values.map((field) {
-                                  final value =
-                                      pricing?.priceForField(field) ?? 0;
-                                  return _PriceChip(
-                                    label: field.label,
-                                    value: value,
-                                  );
-                                }).toList(),
+                                children: [
+                                  ...CounterCountField.values.map((field) {
+                                    final value =
+                                        pricing?.priceForField(field) ?? 0;
+                                    return _PriceChip(
+                                      label: field.label,
+                                      value: value,
+                                    );
+                                  }),
+                                  _PriceChip(
+                                    label: '双人切',
+                                    value: pricing?.doubleCutPrice ?? 0,
+                                  ),
+                                ],
                               ),
                             ],
                           ),
@@ -320,6 +326,8 @@ class _PricingEditorDialog extends StatefulWidget {
 }
 
 class _PricingEditorDialogState extends State<_PricingEditorDialog> {
+  static const String _doubleCutPriceKey = 'doubleCutPrice';
+
   late final TextEditingController _groupController;
   late final TextEditingController _labelController;
   late final Map<String, TextEditingController> _priceControllers;
@@ -343,6 +351,9 @@ class _PricingEditorDialogState extends State<_PricingEditorDialog> {
       ),
       CounterCountField.groupCut.key: TextEditingController(
         text: _formatPrice(pricing?.groupCutPrice ?? 0),
+      ),
+      _doubleCutPriceKey: TextEditingController(
+        text: _formatPrice(pricing?.doubleCutPrice ?? 0),
       ),
       CounterCountField.threeInchShukudai.key: TextEditingController(
         text: _formatPrice(pricing?.threeInchShukudaiPrice ?? 0),
@@ -371,6 +382,11 @@ class _PricingEditorDialogState extends State<_PricingEditorDialog> {
 
   double _parsePrice(CounterCountField field) {
     return double.tryParse(_priceControllers[field.key]!.text.trim()) ?? 0;
+  }
+
+  double _parseDoubleCutPrice() {
+    return double.tryParse(_priceControllers[_doubleCutPriceKey]!.text.trim()) ??
+        0;
   }
 
   @override
@@ -414,6 +430,19 @@ class _PricingEditorDialogState extends State<_PricingEditorDialog> {
                 ),
               );
             }),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: NoAutofillTextField(
+                controller: _priceControllers[_doubleCutPriceKey]!,
+                decoration: const InputDecoration(
+                  labelText: '双人切 单价',
+                  prefixText: '¥',
+                ),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -439,6 +468,7 @@ class _PricingEditorDialogState extends State<_PricingEditorDialog> {
                 threeInchPrice: _parsePrice(CounterCountField.threeInch),
                 fiveInchPrice: _parsePrice(CounterCountField.fiveInch),
                 groupCutPrice: _parsePrice(CounterCountField.groupCut),
+                doubleCutPrice: _parseDoubleCutPrice(),
                 threeInchShukudaiPrice: _parsePrice(
                   CounterCountField.threeInchShukudai,
                 ),

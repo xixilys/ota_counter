@@ -14,7 +14,7 @@ class DatabaseService {
   static const String groupPricingTableName = 'group_pricings';
   static const String activityRecordTableName = 'activity_records';
   static const String counterSyncTableName = 'counter_sync_log';
-  static const int _version = 8;
+  static const int _version = 9;
 
   static Database? _database;
 
@@ -79,6 +79,9 @@ class DatabaseService {
     if (oldVersion < 8) {
       await _migrateToV8(db);
     }
+    if (oldVersion < 9) {
+      await _migrateToV9(db);
+    }
   }
 
   static Future<void> _createSchema(DatabaseExecutor db) async {
@@ -105,6 +108,7 @@ class DatabaseService {
         three_inch_price REAL NOT NULL DEFAULT 0,
         five_inch_price REAL NOT NULL DEFAULT 0,
         group_cut_price REAL NOT NULL DEFAULT 0,
+        double_cut_price REAL NOT NULL DEFAULT 0,
         three_inch_shukudai_price REAL NOT NULL DEFAULT 0,
         five_inch_shukudai_price REAL NOT NULL DEFAULT 0,
         updated_at TEXT NOT NULL
@@ -118,6 +122,7 @@ class DatabaseService {
         source_record_id TEXT,
         counter_id INTEGER,
         subject_name TEXT NOT NULL,
+        secondary_subject_name TEXT NOT NULL DEFAULT '',
         group_name TEXT NOT NULL DEFAULT '',
         session_label TEXT NOT NULL DEFAULT '',
         note TEXT NOT NULL DEFAULT '',
@@ -128,10 +133,12 @@ class DatabaseService {
         group_cut_count INTEGER NOT NULL DEFAULT 0,
         three_inch_shukudai_count INTEGER NOT NULL DEFAULT 0,
         five_inch_shukudai_count INTEGER NOT NULL DEFAULT 0,
+        double_cut_quantity INTEGER NOT NULL DEFAULT 0,
         ticket_quantity INTEGER NOT NULL DEFAULT 0,
         three_inch_price REAL NOT NULL DEFAULT 0,
         five_inch_price REAL NOT NULL DEFAULT 0,
         group_cut_price REAL NOT NULL DEFAULT 0,
+        double_cut_unit_price REAL NOT NULL DEFAULT 0,
         three_inch_shukudai_price REAL NOT NULL DEFAULT 0,
         five_inch_shukudai_price REAL NOT NULL DEFAULT 0,
         ticket_unit_price REAL NOT NULL DEFAULT 0,
@@ -197,6 +204,7 @@ class DatabaseService {
         three_inch_price REAL NOT NULL DEFAULT 0,
         five_inch_price REAL NOT NULL DEFAULT 0,
         group_cut_price REAL NOT NULL DEFAULT 0,
+        double_cut_price REAL NOT NULL DEFAULT 0,
         three_inch_shukudai_price REAL NOT NULL DEFAULT 0,
         five_inch_shukudai_price REAL NOT NULL DEFAULT 0,
         updated_at TEXT NOT NULL
@@ -213,6 +221,7 @@ class DatabaseService {
         source_record_id TEXT,
         counter_id INTEGER,
         subject_name TEXT NOT NULL,
+        secondary_subject_name TEXT NOT NULL DEFAULT '',
         group_name TEXT NOT NULL DEFAULT '',
         session_label TEXT NOT NULL DEFAULT '',
         note TEXT NOT NULL DEFAULT '',
@@ -223,10 +232,12 @@ class DatabaseService {
         group_cut_count INTEGER NOT NULL DEFAULT 0,
         three_inch_shukudai_count INTEGER NOT NULL DEFAULT 0,
         five_inch_shukudai_count INTEGER NOT NULL DEFAULT 0,
+        double_cut_quantity INTEGER NOT NULL DEFAULT 0,
         ticket_quantity INTEGER NOT NULL DEFAULT 0,
         three_inch_price REAL NOT NULL DEFAULT 0,
         five_inch_price REAL NOT NULL DEFAULT 0,
         group_cut_price REAL NOT NULL DEFAULT 0,
+        double_cut_unit_price REAL NOT NULL DEFAULT 0,
         three_inch_shukudai_price REAL NOT NULL DEFAULT 0,
         five_inch_shukudai_price REAL NOT NULL DEFAULT 0,
         ticket_unit_price REAL NOT NULL DEFAULT 0,
@@ -274,6 +285,21 @@ class DatabaseService {
   static Future<void> _migrateToV8(Database db) async {
     await db.execute(
       'ALTER TABLE $tableName ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0',
+    );
+  }
+
+  static Future<void> _migrateToV9(Database db) async {
+    await db.execute(
+      'ALTER TABLE $groupPricingTableName ADD COLUMN double_cut_price REAL NOT NULL DEFAULT 0',
+    );
+    await db.execute(
+      'ALTER TABLE $activityRecordTableName ADD COLUMN secondary_subject_name TEXT NOT NULL DEFAULT \'\'',
+    );
+    await db.execute(
+      'ALTER TABLE $activityRecordTableName ADD COLUMN double_cut_quantity INTEGER NOT NULL DEFAULT 0',
+    );
+    await db.execute(
+      'ALTER TABLE $activityRecordTableName ADD COLUMN double_cut_unit_price REAL NOT NULL DEFAULT 0',
     );
   }
 

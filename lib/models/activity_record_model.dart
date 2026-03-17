@@ -3,15 +3,18 @@ import 'group_pricing_model.dart';
 
 enum ActivityRecordType {
   counter,
+  duo,
   ticket;
 
   String get dbValue => switch (this) {
         ActivityRecordType.counter => 'counter',
+        ActivityRecordType.duo => 'duo',
         ActivityRecordType.ticket => 'ticket',
       };
 
   static ActivityRecordType fromDb(String value) {
     return switch (value) {
+      'duo' => ActivityRecordType.duo,
       'ticket' => ActivityRecordType.ticket,
       _ => ActivityRecordType.counter,
     };
@@ -25,6 +28,7 @@ class ActivityRecordModel {
   final String? sourceRecordId;
   final int? counterId;
   final String subjectName;
+  final String secondarySubjectName;
   final String groupName;
   final String sessionLabel;
   final String note;
@@ -35,10 +39,12 @@ class ActivityRecordModel {
   final int groupCutCount;
   final int threeInchShukudaiCount;
   final int fiveInchShukudaiCount;
+  final int doubleCutQuantity;
   final int ticketQuantity;
   final double threeInchPrice;
   final double fiveInchPrice;
   final double groupCutPrice;
+  final double doubleCutUnitPrice;
   final double threeInchShukudaiPrice;
   final double fiveInchShukudaiPrice;
   final double ticketUnitPrice;
@@ -51,6 +57,7 @@ class ActivityRecordModel {
     this.sourceRecordId,
     this.counterId,
     required this.subjectName,
+    this.secondarySubjectName = '',
     this.groupName = '',
     this.sessionLabel = '',
     this.note = '',
@@ -61,10 +68,12 @@ class ActivityRecordModel {
     this.groupCutCount = 0,
     this.threeInchShukudaiCount = 0,
     this.fiveInchShukudaiCount = 0,
+    this.doubleCutQuantity = 0,
     this.ticketQuantity = 0,
     this.threeInchPrice = 0,
     this.fiveInchPrice = 0,
     this.groupCutPrice = 0,
+    this.doubleCutUnitPrice = 0,
     this.threeInchShukudaiPrice = 0,
     this.fiveInchShukudaiPrice = 0,
     this.ticketUnitPrice = 0,
@@ -148,6 +157,34 @@ class ActivityRecordModel {
     );
   }
 
+  factory ActivityRecordModel.duoCut({
+    int? id,
+    required String groupName,
+    required String primaryMemberName,
+    required String secondaryMemberName,
+    required DateTime occurredAt,
+    String note = '',
+    String pricingLabel = '',
+    int quantity = 1,
+    double unitPrice = 0,
+  }) {
+    return ActivityRecordModel(
+      id: id,
+      type: ActivityRecordType.duo,
+      source: 'local',
+      sourceRecordId: null,
+      subjectName: primaryMemberName,
+      secondarySubjectName: secondaryMemberName,
+      groupName: groupName,
+      note: note,
+      occurredAt: occurredAt,
+      pricingLabel: pricingLabel,
+      doubleCutQuantity: quantity,
+      doubleCutUnitPrice: unitPrice,
+      totalAmount: quantity * unitPrice,
+    );
+  }
+
   ActivityRecordModel copyWith({
     int? id,
     ActivityRecordType? type,
@@ -155,6 +192,7 @@ class ActivityRecordModel {
     String? sourceRecordId,
     int? counterId,
     String? subjectName,
+    String? secondarySubjectName,
     String? groupName,
     String? sessionLabel,
     String? note,
@@ -165,10 +203,12 @@ class ActivityRecordModel {
     int? groupCutCount,
     int? threeInchShukudaiCount,
     int? fiveInchShukudaiCount,
+    int? doubleCutQuantity,
     int? ticketQuantity,
     double? threeInchPrice,
     double? fiveInchPrice,
     double? groupCutPrice,
+    double? doubleCutUnitPrice,
     double? threeInchShukudaiPrice,
     double? fiveInchShukudaiPrice,
     double? ticketUnitPrice,
@@ -181,6 +221,7 @@ class ActivityRecordModel {
       sourceRecordId: sourceRecordId ?? this.sourceRecordId,
       counterId: counterId ?? this.counterId,
       subjectName: subjectName ?? this.subjectName,
+      secondarySubjectName: secondarySubjectName ?? this.secondarySubjectName,
       groupName: groupName ?? this.groupName,
       sessionLabel: sessionLabel ?? this.sessionLabel,
       note: note ?? this.note,
@@ -193,10 +234,12 @@ class ActivityRecordModel {
           threeInchShukudaiCount ?? this.threeInchShukudaiCount,
       fiveInchShukudaiCount:
           fiveInchShukudaiCount ?? this.fiveInchShukudaiCount,
+      doubleCutQuantity: doubleCutQuantity ?? this.doubleCutQuantity,
       ticketQuantity: ticketQuantity ?? this.ticketQuantity,
       threeInchPrice: threeInchPrice ?? this.threeInchPrice,
       fiveInchPrice: fiveInchPrice ?? this.fiveInchPrice,
       groupCutPrice: groupCutPrice ?? this.groupCutPrice,
+      doubleCutUnitPrice: doubleCutUnitPrice ?? this.doubleCutUnitPrice,
       threeInchShukudaiPrice:
           threeInchShukudaiPrice ?? this.threeInchShukudaiPrice,
       fiveInchShukudaiPrice:
@@ -207,6 +250,14 @@ class ActivityRecordModel {
   }
 
   bool get isTicket => type == ActivityRecordType.ticket;
+
+  bool get isDuo => type == ActivityRecordType.duo;
+
+  bool get isCounter => type == ActivityRecordType.counter;
+
+  String get duoDisplayName => secondarySubjectName.trim().isEmpty
+      ? subjectName
+      : '$subjectName × $secondarySubjectName';
 
   int countForField(CounterCountField field) {
     switch (field.key) {
@@ -249,7 +300,11 @@ class ActivityRecordModel {
       threeInchShukudaiCount +
       fiveInchShukudaiCount;
 
-  int get totalUnits => isTicket ? ticketQuantity : counterCountTotal;
+  int get totalUnits => switch (type) {
+        ActivityRecordType.counter => counterCountTotal,
+        ActivityRecordType.duo => doubleCutQuantity,
+        ActivityRecordType.ticket => ticketQuantity,
+      };
 
   Map<String, Object?> toMap() {
     return {
@@ -259,6 +314,7 @@ class ActivityRecordModel {
       'source_record_id': sourceRecordId,
       'counter_id': counterId,
       'subject_name': subjectName,
+      'secondary_subject_name': secondarySubjectName,
       'group_name': groupName,
       'session_label': sessionLabel,
       'note': note,
@@ -269,10 +325,12 @@ class ActivityRecordModel {
       'group_cut_count': groupCutCount,
       'three_inch_shukudai_count': threeInchShukudaiCount,
       'five_inch_shukudai_count': fiveInchShukudaiCount,
+      'double_cut_quantity': doubleCutQuantity,
       'ticket_quantity': ticketQuantity,
       'three_inch_price': threeInchPrice,
       'five_inch_price': fiveInchPrice,
       'group_cut_price': groupCutPrice,
+      'double_cut_unit_price': doubleCutUnitPrice,
       'three_inch_shukudai_price': threeInchShukudaiPrice,
       'five_inch_shukudai_price': fiveInchShukudaiPrice,
       'ticket_unit_price': ticketUnitPrice,
@@ -290,6 +348,7 @@ class ActivityRecordModel {
       sourceRecordId: map['source_record_id'] as String?,
       counterId: (map['counter_id'] as num?)?.toInt(),
       subjectName: (map['subject_name'] ?? '') as String,
+      secondarySubjectName: (map['secondary_subject_name'] ?? '') as String,
       groupName: (map['group_name'] ?? '') as String,
       sessionLabel: (map['session_label'] ?? '') as String,
       note: (map['note'] ?? '') as String,
@@ -301,10 +360,12 @@ class ActivityRecordModel {
       groupCutCount: _readInt(map['group_cut_count']),
       threeInchShukudaiCount: _readInt(map['three_inch_shukudai_count']),
       fiveInchShukudaiCount: _readInt(map['five_inch_shukudai_count']),
+      doubleCutQuantity: _readInt(map['double_cut_quantity']),
       ticketQuantity: _readInt(map['ticket_quantity']),
       threeInchPrice: _readDouble(map['three_inch_price']),
       fiveInchPrice: _readDouble(map['five_inch_price']),
       groupCutPrice: _readDouble(map['group_cut_price']),
+      doubleCutUnitPrice: _readDouble(map['double_cut_unit_price']),
       threeInchShukudaiPrice: _readDouble(map['three_inch_shukudai_price']),
       fiveInchShukudaiPrice: _readDouble(map['five_inch_shukudai_price']),
       ticketUnitPrice: _readDouble(map['ticket_unit_price']),

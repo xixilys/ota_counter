@@ -179,6 +179,8 @@ class _GroupPricingPageState extends State<GroupPricingPage> {
                   else
                     ...entries.map((entry) {
                       final pricing = entry.pricing;
+                      final effectivePricing = pricing ??
+                          GroupPricingModel.unconfigured(entry.groupName);
                       final hasPricing = pricing != null;
                       return Card(
                         margin: const EdgeInsets.only(bottom: 12),
@@ -207,7 +209,7 @@ class _GroupPricingPageState extends State<GroupPricingPage> {
                                         Text(
                                           hasPricing
                                               ? '价格标签：${pricing.label}'
-                                              : '未配置默认价格',
+                                              : '未配置，当前使用内置默认价',
                                           style: Theme.of(context)
                                               .textTheme
                                               .bodyMedium
@@ -243,10 +245,10 @@ class _GroupPricingPageState extends State<GroupPricingPage> {
                                 children: [
                                   ...CounterCountField.visibleValues(
                                     enableUnsigned:
-                                        pricing?.hasUnsignedPrices ?? false,
+                                        effectivePricing.hasUnsignedPrices,
                                   ).map((field) {
                                     final value =
-                                        pricing?.priceForField(field) ?? 0;
+                                        effectivePricing.priceForField(field);
                                     return _PriceChip(
                                       label: field.label,
                                       value: value,
@@ -254,7 +256,7 @@ class _GroupPricingPageState extends State<GroupPricingPage> {
                                   }),
                                   _PriceChip(
                                     label: '多人切参考价',
-                                    value: pricing?.doubleCutPrice ?? 0,
+                                    value: effectivePricing.doubleCutPrice,
                                   ),
                                 ],
                               ),
@@ -339,38 +341,39 @@ class _PricingEditorDialogState extends State<_PricingEditorDialog> {
   @override
   void initState() {
     super.initState();
-    final pricing = widget.initialPricing;
+    final pricing = widget.initialPricing ??
+        GroupPricingModel.unconfigured(widget.initialGroupName);
     _groupController = TextEditingController(
-      text: pricing?.groupName ?? widget.initialGroupName,
+      text: pricing.groupName,
     );
     _labelController = TextEditingController(
-      text: pricing?.label ?? '默认价格',
+      text: widget.initialPricing?.label ?? '默认价格',
     );
-    _enableUnsignedOptions = pricing?.hasUnsignedPrices ?? false;
+    _enableUnsignedOptions = pricing.hasUnsignedPrices;
     _priceControllers = {
       CounterCountField.threeInch.key: TextEditingController(
-        text: _formatPrice(pricing?.threeInchPrice ?? 0),
+        text: _formatPrice(pricing.threeInchPrice),
       ),
       CounterCountField.fiveInch.key: TextEditingController(
-        text: _formatPrice(pricing?.fiveInchPrice ?? 0),
+        text: _formatPrice(pricing.fiveInchPrice),
       ),
       CounterCountField.unsignedThreeInch.key: TextEditingController(
-        text: _formatPrice(pricing?.unsignedThreeInchPrice ?? 0),
+        text: _formatPrice(pricing.unsignedThreeInchPrice),
       ),
       CounterCountField.unsignedFiveInch.key: TextEditingController(
-        text: _formatPrice(pricing?.unsignedFiveInchPrice ?? 0),
+        text: _formatPrice(pricing.unsignedFiveInchPrice),
       ),
       CounterCountField.groupCut.key: TextEditingController(
-        text: _formatPrice(pricing?.groupCutPrice ?? 0),
+        text: _formatPrice(pricing.groupCutPrice),
       ),
       _doubleCutPriceKey: TextEditingController(
-        text: _formatPrice(pricing?.doubleCutPrice ?? 0),
+        text: _formatPrice(pricing.doubleCutPrice),
       ),
       CounterCountField.threeInchShukudai.key: TextEditingController(
-        text: _formatPrice(pricing?.threeInchShukudaiPrice ?? 0),
+        text: _formatPrice(pricing.threeInchShukudaiPrice),
       ),
       CounterCountField.fiveInchShukudai.key: TextEditingController(
-        text: _formatPrice(pricing?.fiveInchShukudaiPrice ?? 0),
+        text: _formatPrice(pricing.fiveInchShukudaiPrice),
       ),
     };
   }
@@ -396,7 +399,8 @@ class _PricingEditorDialogState extends State<_PricingEditorDialog> {
   }
 
   double _parseDoubleCutPrice() {
-    return double.tryParse(_priceControllers[_doubleCutPriceKey]!.text.trim()) ??
+    return double.tryParse(
+            _priceControllers[_doubleCutPriceKey]!.text.trim()) ??
         0;
   }
 

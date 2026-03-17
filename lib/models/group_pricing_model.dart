@@ -1,6 +1,14 @@
 import 'counter_model.dart';
 
 class GroupPricingModel {
+  static const double defaultThreeInchPrice = 60;
+  static const double defaultFiveInchPrice = 120;
+  static const double defaultUnsignedThreeInchPrice = 30;
+  static const double defaultUnsignedFiveInchPrice = 60;
+  static const double defaultGroupCutPrice = 200;
+  static const double defaultThreeInchShukudaiPrice = 80;
+  static const double defaultFiveInchShukudaiPrice = 120;
+
   final int? id;
   final String groupName;
   final String label;
@@ -34,7 +42,15 @@ class GroupPricingModel {
   factory GroupPricingModel.unconfigured(String groupName) {
     return GroupPricingModel(
       groupName: groupName,
-      label: '未配置价格',
+      label: '内置默认价',
+      enableUnsignedOptions: true,
+      threeInchPrice: defaultThreeInchPrice,
+      fiveInchPrice: defaultFiveInchPrice,
+      unsignedThreeInchPrice: defaultUnsignedThreeInchPrice,
+      unsignedFiveInchPrice: defaultUnsignedFiveInchPrice,
+      groupCutPrice: defaultGroupCutPrice,
+      threeInchShukudaiPrice: defaultThreeInchShukudaiPrice,
+      fiveInchShukudaiPrice: defaultFiveInchShukudaiPrice,
       updatedAt: DateTime.now(),
     );
   }
@@ -126,7 +142,8 @@ class GroupPricingModel {
       groupName: (map['group_name'] ?? map['groupName'] ?? '') as String,
       label: (map['label'] ?? '') as String,
       enableUnsignedOptions:
-          ((map['enable_unsigned'] ?? map['enableUnsigned']) as num?)?.toInt() ==
+          ((map['enable_unsigned'] ?? map['enableUnsigned']) as num?)
+                  ?.toInt() ==
               1,
       threeInchPrice: _readDouble(map, 'three_inch_price'),
       fiveInchPrice: _readDouble(map, 'five_inch_price'),

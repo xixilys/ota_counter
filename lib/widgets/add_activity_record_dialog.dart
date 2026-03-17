@@ -42,11 +42,17 @@ class ActivityRecordDraft {
 class AddActivityRecordDialog extends StatefulWidget {
   final List<CounterModel> counters;
   final List<GroupPricingModel> pricings;
+  final ActivityRecordDraft? initialDraft;
+  final String title;
+  final String submitLabel;
 
   const AddActivityRecordDialog({
     super.key,
     required this.counters,
     required this.pricings,
+    this.initialDraft,
+    this.title = '新增记录',
+    this.submitLabel = '保存记录',
   });
 
   @override
@@ -83,6 +89,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
       for (final field in CounterCountField.values)
         field.key: TextEditingController(text: '0'),
     };
+    _initializeFromDraft();
     _loadIdolDatabase();
   }
 
@@ -119,6 +126,40 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     });
   }
 
+  void _initializeFromDraft() {
+    final draft = widget.initialDraft;
+    if (draft == null) {
+      return;
+    }
+
+    _type = draft.type;
+    _selectedCounter = draft.counter;
+    _selectedParticipants = List<ActivityParticipant>.from(
+      draft.multiParticipants,
+    );
+    _selectedMultiField = draft.multiField ?? _selectedMultiField;
+    _occurredAt = draft.occurredAt;
+
+    _noteController.text = draft.note;
+    _multiQuantityController.text = '${draft.multiQuantity}';
+    _multiPriceController.text = _formatEditableNumber(draft.multiTotalPrice);
+    _eventNameController.text = draft.eventName;
+    _sessionController.text = draft.sessionLabel;
+    _ticketQuantityController.text = '${draft.ticketQuantity}';
+    _ticketPriceController.text = _formatEditableNumber(draft.ticketUnitPrice);
+
+    for (final field in CounterCountField.values) {
+      _countControllers[field.key]!.text = '${draft.counterDeltas[field] ?? 0}';
+    }
+  }
+
+  String _formatEditableNumber(num value) {
+    if (value == value.roundToDouble()) {
+      return value.toStringAsFixed(0);
+    }
+    return value.toString();
+  }
+
   GroupPricingModel get _selectedPricing {
     final groupName = _selectedCounter?.groupName.trim() ?? '';
     return _resolvePricingByGroupName(groupName) ??
@@ -135,7 +176,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
         return pricing;
       }
     }
-    return null;
+    return GroupPricingModel.unconfigured(normalized);
   }
 
   int _parseCount(CounterCountField field) {
@@ -197,8 +238,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
 
   List<CounterCountField> get _counterVisibleFields {
     return CounterCountField.visibleValues(
-      enableUnsigned:
-          _selectedPricing.hasUnsignedPrices ||
+      enableUnsigned: _selectedPricing.hasUnsignedPrices ||
           (_selectedCounter?.hasUnsignedCounts ?? false),
     );
   }
@@ -299,9 +339,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
   }
 
   Future<void> _pickMultiParticipant() async {
-    final excludedKeys = _selectedParticipants
-        .map(_participantKey)
-        .toSet();
+    final excludedKeys = _selectedParticipants.map(_participantKey).toSet();
     final availableMembers = _selectableMembers.where((member) {
       final key =
           '${member.groupName.trim().toLowerCase()}|${member.displayName.trim().toLowerCase()}';
@@ -340,7 +378,8 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
         : null;
     final nextAllowsUnsigned = nextGroupNames.isNotEmpty &&
         nextGroupNames.every(
-          (groupName) => _resolvePricingByGroupName(groupName)?.hasUnsignedPrices == true,
+          (groupName) =>
+              _resolvePricingByGroupName(groupName)?.hasUnsignedPrices == true,
         );
     final nextVisibleFields = CounterCountField.multiVisibleValues(
       enableUnsigned: nextAllowsUnsigned,
@@ -416,7 +455,8 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
           multiParticipants: _selectedParticipants,
           multiField: _selectedMultiField,
           multiQuantity: _multiQuantity,
-          multiTotalPrice: double.tryParse(_multiPriceController.text.trim()) ?? 0,
+          multiTotalPrice:
+              double.tryParse(_multiPriceController.text.trim()) ?? 0,
         ),
       );
       return;
@@ -455,7 +495,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     final ticketPreviewTotal = _ticketQuantity * _ticketUnitPrice;
 
     return AlertDialog(
-      title: const Text('新增记录'),
+      title: Text(widget.title),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -777,7 +817,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
         ),
         FilledButton(
           onPressed: _submit,
-          child: const Text('保存记录'),
+          child: Text(widget.submitLabel),
         ),
       ],
     );

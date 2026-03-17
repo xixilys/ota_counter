@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/counter_model.dart';
+import '../models/group_pricing_model.dart';
 import '../models/idol_database_models.dart';
 import '../services/database_service.dart';
 import '../services/idol_database_service.dart';
@@ -169,7 +170,8 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
     final lookupToken = ++_pricingLookupToken;
     final pricing = normalizedGroupName.isEmpty
         ? null
-        : await DatabaseService.getGroupPricingByName(normalizedGroupName);
+        : (await DatabaseService.getGroupPricingByName(normalizedGroupName) ??
+            GroupPricingModel.unconfigured(normalizedGroupName));
 
     if (!mounted || lookupToken != _pricingLookupToken) {
       return;

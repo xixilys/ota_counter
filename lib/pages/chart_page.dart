@@ -156,6 +156,31 @@ class _ChartPageState extends State<ChartPage> {
     await _loadData();
   }
 
+  bool _canMutateRecord(ActivityRecordModel record) {
+    return record.id != null && record.source == 'local';
+  }
+
+  CounterModel? _findCounterForRecord(ActivityRecordModel record) {
+    final counterId = record.counterId;
+    if (counterId != null) {
+      for (final counter in _counters) {
+        if (counter.id == counterId) {
+          return counter;
+        }
+      }
+    }
+
+    final normalizedGroup = _normalizedLookupPart(record.groupName);
+    final normalizedMember = _normalizedLookupPart(record.subjectName);
+    for (final counter in _counters) {
+      if (_normalizedLookupPart(counter.groupName) == normalizedGroup &&
+          _normalizedLookupPart(counter.name) == normalizedMember) {
+        return counter;
+      }
+    }
+    return null;
+  }
+
   CounterModel? _findCounterForParticipant(ActivityParticipant participant) {
     final normalizedGroup = _normalizedLookupPart(participant.groupName);
     final normalizedMember = _normalizedLookupPart(participant.memberName);
@@ -169,39 +194,225 @@ class _ChartPageState extends State<ChartPage> {
     return null;
   }
 
-  Future<void> _applyMultiParticipantCounts(ActivityRecordDraft draft) async {
-    final field = draft.multiField;
-    if (field == null || draft.multiQuantity <= 0) {
-      return;
+  Map<CounterCountField, int> _counterDeltasFromRecord(
+    ActivityRecordModel record,
+  ) {
+    return {
+      for (final field in CounterCountField.values)
+        if (record.countForField(field) != 0)
+          field: record.countForField(field),
+    };
+  }
+
+  ActivityRecordDraft _draftFromRecord(ActivityRecordModel record) {
+    if (record.isCounter) {
+      return ActivityRecordDraft(
+        type: ActivityRecordType.counter,
+        counter: _findCounterForRecord(record) ??
+            CounterModel(
+              id: record.counterId,
+              name: record.subjectName,
+              groupName: record.groupName,
+              personId: record.personId,
+              personName: record.personName,
+              color: '#FFE135',
+            ),
+        occurredAt: record.occurredAt,
+        note: record.note,
+        counterDeltas: _counterDeltasFromRecord(record),
+      );
     }
 
+    if (record.isMulti) {
+      return ActivityRecordDraft(
+        type: ActivityRecordType.multi,
+        occurredAt: record.occurredAt,
+        note: record.note,
+        multiParticipants: record.effectiveParticipants,
+        multiField: record.multiCountField ?? CounterCountField.threeInch,
+        multiQuantity: record.effectiveMultiQuantity,
+        multiTotalPrice: record.totalAmount,
+      );
+    }
+
+    return ActivityRecordDraft(
+      type: ActivityRecordType.ticket,
+      occurredAt: record.occurredAt,
+      note: record.note,
+      eventName: record.subjectName,
+      sessionLabel: record.sessionLabel,
+      ticketQuantity: record.ticketQuantity > 0 ? record.ticketQuantity : 1,
+      ticketUnitPrice: record.ticketUnitPrice,
+    );
+  }
+
+  Future<ActivityRecordModel?> _buildRecordFromDraft(
+    ActivityRecordDraft draft, {
+    int? id,
+    String source = 'local',
+    String? sourceRecordId,
+  }) async {
+    if (draft.type == ActivityRecordType.counter) {
+      final counter = draft.counter;
+      if (counter == null) {
+        return null;
+      }
+      final pricing = _resolvePricingByGroupName(counter.groupName) ??
+          GroupPricingModel.unconfigured(counter.groupName);
+      return ActivityRecordModel.counterAdjustment(
+        id: id,
+        counter: counter,
+        occurredAt: draft.occurredAt,
+        deltas: draft.counterDeltas,
+        pricing: pricing,
+        note: draft.note,
+      ).copyWith(
+        source: source,
+        sourceRecordId: sourceRecordId,
+      );
+    }
+
+    if (draft.type == ActivityRecordType.multi) {
+      final participantGroups = draft.multiParticipants
+          .map((participant) => participant.groupName.trim())
+          .where((groupName) => groupName.isNotEmpty)
+          .toSet();
+      final pricing = participantGroups.length == 1
+          ? _resolvePricingByGroupName(participantGroups.first)
+          : null;
+      final pricingLabel = pricing == null
+          ? (participantGroups.length > 1 ? '跨团多人切' : '多人切')
+          : pricing.label;
+      return ActivityRecordModel.multiCut(
+        id: id,
+        participants: draft.multiParticipants,
+        field: draft.multiField ?? CounterCountField.threeInch,
+        occurredAt: draft.occurredAt,
+        note: draft.note,
+        pricingLabel: pricingLabel,
+        quantity: draft.multiQuantity,
+        totalPrice: draft.multiTotalPrice,
+      ).copyWith(
+        source: source,
+        sourceRecordId: sourceRecordId,
+      );
+    }
+
+    return ActivityRecordModel.ticket(
+      id: id,
+      eventName: draft.eventName,
+      occurredAt: draft.occurredAt,
+      sessionLabel: draft.sessionLabel,
+      note: draft.note,
+      quantity: draft.ticketQuantity,
+      unitPrice: draft.ticketUnitPrice,
+    ).copyWith(
+      source: source,
+      sourceRecordId: sourceRecordId,
+    );
+  }
+
+  Future<void> _applyRecordCounterImpact(
+    ActivityRecordModel record, {
+    required bool reverse,
+  }) async {
     var insertedNewCounter = false;
-    for (final participant in draft.multiParticipants) {
-      final existingCounter = _findCounterForParticipant(participant);
+    final multiplier = reverse ? -1 : 1;
+
+    if (record.isCounter) {
+      final existingCounter = _findCounterForRecord(record);
+      if (existingCounter == null && reverse) {
+        return;
+      }
+
       final baseCounter = existingCounter ??
           CounterModel(
-            name: participant.memberName,
-            groupName: participant.groupName,
-            personId: participant.personId,
-            personName: participant.personName,
+            name: record.subjectName,
+            groupName: record.groupName,
+            personId: record.personId,
+            personName: record.personName,
             color: '#FFE135',
           );
-      final updatedCounter = baseCounter.updateCount(
-        field,
-        baseCounter.countForField(field) + draft.multiQuantity,
-      );
+      var updatedCounter = baseCounter;
+      for (final field in CounterCountField.values) {
+        final delta = record.countForField(field);
+        if (delta == 0) {
+          continue;
+        }
+        updatedCounter = updatedCounter.changeCount(field, delta * multiplier);
+      }
 
       if (existingCounter?.id != null) {
         await DatabaseService.updateCounter(
             existingCounter!.id!, updatedCounter);
-      } else {
+      } else if (!reverse) {
         await DatabaseService.insertCounter(updatedCounter);
         insertedNewCounter = true;
+      }
+    } else if (record.isMulti) {
+      final field = record.multiCountField;
+      if (field == null || record.effectiveMultiQuantity <= 0) {
+        return;
+      }
+
+      for (final participant in record.effectiveParticipants) {
+        final existingCounter = _findCounterForParticipant(participant);
+        if (existingCounter == null && reverse) {
+          continue;
+        }
+
+        final baseCounter = existingCounter ??
+            CounterModel(
+              name: participant.memberName,
+              groupName: participant.groupName,
+              personId: participant.personId,
+              personName: participant.personName,
+              color: '#FFE135',
+            );
+        final updatedCounter = baseCounter.changeCount(
+          field,
+          record.effectiveMultiQuantity * multiplier,
+        );
+
+        if (existingCounter?.id != null) {
+          await DatabaseService.updateCounter(
+            existingCounter!.id!,
+            updatedCounter,
+          );
+        } else if (!reverse) {
+          await DatabaseService.insertCounter(updatedCounter);
+          insertedNewCounter = true;
+        }
       }
     }
 
     if (insertedNewCounter) {
       await DatabaseService.autoAssignCounterThemeColors();
+    }
+  }
+
+  Future<void> _saveNewRecord(ActivityRecordDraft draft) async {
+    final record = await _buildRecordFromDraft(draft);
+    if (record == null) {
+      return;
+    }
+
+    try {
+      await _applyRecordCounterImpact(record, reverse: false);
+      try {
+        await DatabaseService.insertActivityRecord(record);
+      } catch (_) {
+        await _applyRecordCounterImpact(record, reverse: true);
+        rethrow;
+      }
+      await _loadData();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('保存记录失败：$error')),
+      );
     }
   }
 
@@ -217,82 +428,116 @@ class _ChartPageState extends State<ChartPage> {
     if (draft == null) {
       return;
     }
+    await _saveNewRecord(draft);
+  }
 
-    if (draft.type == ActivityRecordType.counter && draft.counter != null) {
-      final counter = draft.counter!;
-      if (counter.id == null) {
-        return;
-      }
-
-      final updatedCounter = counter.copyWith(
-        threeInchCount: counter.threeInchCount +
-            (draft.counterDeltas[CounterCountField.threeInch] ?? 0),
-        fiveInchCount: counter.fiveInchCount +
-            (draft.counterDeltas[CounterCountField.fiveInch] ?? 0),
-        unsignedThreeInchCount: counter.unsignedThreeInchCount +
-            (draft.counterDeltas[CounterCountField.unsignedThreeInch] ?? 0),
-        unsignedFiveInchCount: counter.unsignedFiveInchCount +
-            (draft.counterDeltas[CounterCountField.unsignedFiveInch] ?? 0),
-        groupCutCount: counter.groupCutCount +
-            (draft.counterDeltas[CounterCountField.groupCut] ?? 0),
-        threeInchShukudaiCount: counter.threeInchShukudaiCount +
-            (draft.counterDeltas[CounterCountField.threeInchShukudai] ?? 0),
-        fiveInchShukudaiCount: counter.fiveInchShukudaiCount +
-            (draft.counterDeltas[CounterCountField.fiveInchShukudai] ?? 0),
-      );
-
-      final pricing = await DatabaseService.getGroupPricingByName(
-        updatedCounter.groupName,
-      );
-
-      await DatabaseService.updateCounter(counter.id!, updatedCounter);
-      await DatabaseService.insertActivityRecord(
-        ActivityRecordModel.counterAdjustment(
-          counter: updatedCounter,
-          occurredAt: draft.occurredAt,
-          deltas: draft.counterDeltas,
-          pricing: pricing,
-          note: draft.note,
-        ),
-      );
-    } else if (draft.type == ActivityRecordType.multi) {
-      final participantGroups = draft.multiParticipants
-          .map((participant) => participant.groupName.trim())
-          .where((groupName) => groupName.isNotEmpty)
-          .toSet();
-      final pricing = participantGroups.length == 1
-          ? await DatabaseService.getGroupPricingByName(participantGroups.first)
-          : null;
-      final pricingLabel = pricing == null
-          ? (participantGroups.length > 1 ? '跨团多人切' : '多人切')
-          : pricing.label;
-
-      await DatabaseService.insertActivityRecord(
-        ActivityRecordModel.multiCut(
-          participants: draft.multiParticipants,
-          field: draft.multiField ?? CounterCountField.threeInch,
-          occurredAt: draft.occurredAt,
-          note: draft.note,
-          pricingLabel: pricingLabel,
-          quantity: draft.multiQuantity,
-          totalPrice: draft.multiTotalPrice,
-        ),
-      );
-      await _applyMultiParticipantCounts(draft);
-    } else if (draft.type == ActivityRecordType.ticket) {
-      await DatabaseService.insertActivityRecord(
-        ActivityRecordModel.ticket(
-          eventName: draft.eventName,
-          occurredAt: draft.occurredAt,
-          sessionLabel: draft.sessionLabel,
-          note: draft.note,
-          quantity: draft.ticketQuantity,
-          unitPrice: draft.ticketUnitPrice,
-        ),
-      );
+  Future<void> _editRecord(ActivityRecordModel record) async {
+    if (!_canMutateRecord(record)) {
+      return;
     }
 
-    await _loadData();
+    final draft = await showDialog<ActivityRecordDraft>(
+      context: context,
+      builder: (context) => AddActivityRecordDialog(
+        counters: _counters,
+        pricings: _pricings,
+        initialDraft: _draftFromRecord(record),
+        title: '编辑记录',
+        submitLabel: '保存修改',
+      ),
+    );
+    if (draft == null || record.id == null) {
+      return;
+    }
+
+    final updatedRecord = await _buildRecordFromDraft(
+      draft,
+      id: record.id,
+      source: record.source,
+      sourceRecordId: record.sourceRecordId,
+    );
+    if (updatedRecord == null) {
+      return;
+    }
+
+    try {
+      await _applyRecordCounterImpact(record, reverse: true);
+      try {
+        await DatabaseService.updateActivityRecord(record.id!, updatedRecord);
+        await _applyRecordCounterImpact(updatedRecord, reverse: false);
+      } catch (_) {
+        await _applyRecordCounterImpact(record, reverse: false);
+        rethrow;
+      }
+      await _loadData();
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('记录已更新')),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('更新记录失败：$error')),
+      );
+    }
+  }
+
+  Future<void> _deleteRecord(ActivityRecordModel record) async {
+    if (!_canMutateRecord(record) || record.id == null) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('删除记录'),
+            content: Text(
+              '确定删除「${record.isMulti ? record.multiDisplayName : record.subjectName}」这条记录吗？关联数量也会一起回滚。',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('删除'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await _applyRecordCounterImpact(record, reverse: true);
+      try {
+        await DatabaseService.deleteActivityRecord(record.id!);
+      } catch (_) {
+        await _applyRecordCounterImpact(record, reverse: false);
+        rethrow;
+      }
+      await _loadData();
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('记录已删除')),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('删除记录失败：$error')),
+      );
+    }
   }
 
   String _normalizedLookupPart(String value) {
@@ -323,7 +568,7 @@ class _ChartPageState extends State<ChartPage> {
         return pricing;
       }
     }
-    return null;
+    return GroupPricingModel.unconfigured(normalizedGroup);
   }
 
   String _personStatKey({
@@ -1217,7 +1462,36 @@ class _ChartPageState extends State<ChartPage> {
                                         : record.subjectName,
                                   ),
                                   subtitle: Text(subtitle),
-                                  trailing: Text(trailingAmount),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(trailingAmount),
+                                      if (_canMutateRecord(record))
+                                        PopupMenuButton<_RecordAction>(
+                                          tooltip: '记录操作',
+                                          onSelected: (action) async {
+                                            switch (action) {
+                                              case _RecordAction.edit:
+                                                await _editRecord(record);
+                                                break;
+                                              case _RecordAction.delete:
+                                                await _deleteRecord(record);
+                                                break;
+                                            }
+                                          },
+                                          itemBuilder: (context) => const [
+                                            PopupMenuItem(
+                                              value: _RecordAction.edit,
+                                              child: Text('编辑'),
+                                            ),
+                                            PopupMenuItem(
+                                              value: _RecordAction.delete,
+                                              child: Text('删除'),
+                                            ),
+                                          ],
+                                        ),
+                                    ],
+                                  ),
                                 );
                               }).toList(),
                             ),
@@ -1240,6 +1514,11 @@ class _ChartPageState extends State<ChartPage> {
 enum MemberStatsMode {
   group,
   person,
+}
+
+enum _RecordAction {
+  edit,
+  delete,
 }
 
 enum StatsScope {

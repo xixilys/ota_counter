@@ -685,6 +685,24 @@ class DatabaseService {
     );
   }
 
+  static Future<void> updateActivityRecord(
+    int id,
+    ActivityRecordModel record,
+  ) async {
+    final db = await database;
+    final values = await _filterValuesForTable(
+      db,
+      activityRecordTableName,
+      _recordToDatabaseMap(record),
+    );
+    await db.update(
+      activityRecordTableName,
+      values,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
   static Future<void> deleteActivityRecord(int id) async {
     final db = await database;
     await db.delete(

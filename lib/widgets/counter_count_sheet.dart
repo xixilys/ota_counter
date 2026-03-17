@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../models/counter_model.dart';
+import '../models/group_pricing_model.dart';
 import '../services/database_service.dart';
 import '../services/idol_database_service.dart';
 import '../models/idol_database_models.dart';
@@ -68,15 +69,15 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
   }
 
   Future<void> _loadUnsignedOptions() async {
-    final pricing = await DatabaseService.getGroupPricingByName(
-      _counter.groupName,
-    );
+    final pricing =
+        await DatabaseService.getGroupPricingByName(_counter.groupName) ??
+            GroupPricingModel.unconfigured(_counter.groupName);
     if (!mounted) {
       return;
     }
     setState(() {
       _enableUnsignedOptions =
-          pricing?.hasUnsignedPrices == true || _counter.hasUnsignedCounts;
+          pricing.hasUnsignedPrices || _counter.hasUnsignedCounts;
     });
   }
 

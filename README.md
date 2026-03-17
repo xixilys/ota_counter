@@ -2,44 +2,59 @@
 
 面向 OTA / 切奇记录的 Flutter 计数器应用。
 
-## 功能
+当前版本：`v1.2.0`  
+Android build：`1.2.0+4`
 
-- 成员卡片计数，分别记录 `3寸`、`5寸`、`3寸宿题`、`5寸宿题`、`团切`
-- 日 / 周 / 月 / 年 / 全部统计
-- 团体价格表，流水记录会保存当时价格快照，后续改价也不会污染历史金额
-- 支持双人切记录，单人 / 双人 / 门票统计分开展示
-- 门票记录，支持同一天多场次
-- 内置中国偶像数据库，可搜索、编辑、补充成员
+## 主要功能
+
+- 成员卡片计数，首页展示 `3寸`、`5寸`、`3寸宿题`、`5寸宿题`、`团切`
+- 支持“团体是否启用无签”开关；录入时可区分有签 / 无签，首页仍按 `3寸`、`5寸` 聚合展示
+- 支持真人主档绑定，同一个成员兼任、跨团、重生改名后仍可合并到同一张首页卡片
+- 快捷计数支持切换“记录到团体”，可把同一个真人的记录落到不同团籍
+- 支持多人切，成员可来自不同团体；录入总价后会按总价保存流水，并给每个参与成员同步加数
+- 统计与流水支持日 / 周 / 月 / 年 / 全部范围查看
+- 统计页会保存价格快照；旧的 0 价记录会按当前团价补算显示金额
+- 支持门票记录，支持同一天多场次
+- 内置中国偶像数据库，可搜索、编辑、补充团体 / 团籍 / 真人主档
 - 自动从偶像资料里识别担当色，并同步到成员卡片配色
 - 支持导入旧版计数器备份，以及 OTA 后台导出的历史 bundle
-- 支持导出当前计数器数据
+- 支持导出当前数据
 - 支持隐藏不想在首页看到的成员卡片
+- 删除计数器时，会一并删除对应的单成员流水记录
 
 ## 开发环境
 
-这个仓库默认配合远程磁盘上的 Flutter / Android 环境使用：
+在仓库根目录执行：
 
 ```bash
-source /Volumes/remote/app/bin/ota_counter_env.sh
 flutter pub get
 flutter analyze
 flutter run
 ```
+
+如果本地 Flutter / Android SDK 不在系统默认路径，请先自行配置环境变量，例如 `ANDROID_HOME`、`ANDROID_SDK_ROOT`。
 
 ## Android Release
 
 正式包构建命令：
 
 ```bash
-source /Volumes/remote/app/bin/ota_counter_env.sh
 flutter build apk --release
 ```
+
+默认输出文件：
+
+- `build/app/outputs/flutter-apk/app-release.apk`
+
+对外分发时建议统一重命名为：
+
+- `OTA-Counter-v1.2.0.apk`
 
 当前仓库已接入 `android/key.properties` 形式的本地签名配置：
 
 - 示例文件：`android/key.properties.example`
-- 实际签名文件：`android/key.properties`（已加入 `.gitignore`）
-- 当前本机 release keystore：`/Volumes/remote/app/keystores/ota_counter-release.jks`
+- 本地配置文件：`android/key.properties`（已加入 `.gitignore`）
+- `storeFile` 建议填写相对路径，例如 `../secrets/ota_counter-release.jks`
 
 想让后续 APK 可以覆盖升级，必须同时满足这三点：
 
@@ -47,7 +62,7 @@ flutter build apk --release
 2. 保持同一个 Android `applicationId`
 3. 每次发版递增 `versionCode`
 
-当前 Android `applicationId` 为 `top.huangxuanqi.otacounter`。本次版本号为 `1.2.0+3`。
+当前 Android `applicationId` 为 `top.huangxuanqi.otacounter`。当前版本号为 `1.2.0+4`。
 
 ## 数据脚本
 

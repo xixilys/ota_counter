@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../models/activity_record_model.dart';
 import '../models/counter_model.dart';
 import '../models/group_pricing_model.dart';
+import '../models/idol_database_models.dart';
+import '../services/idol_database_service.dart';
 import 'no_autofill_text_field.dart';
 
 class ActivityRecordDraft {
@@ -72,6 +74,13 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
 
   ActivityRecordType _type = ActivityRecordType.counter;
   CounterModel? _selectedCounter;
+  List<IdolGroup> _idolGroups = [];
+  List<IdolMember> _duoMembers = [];
+  bool _idolGroupLoading = false;
+  bool _duoMemberLoading = false;
+  int? _selectedDuoGroupId;
+  int? _selectedDuoPrimaryMemberId;
+  int? _selectedDuoSecondaryMemberId;
   String _selectedDuoGroupName = '';
   DateTime _occurredAt = DateTime.now();
 
@@ -82,6 +91,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
       for (final field in CounterCountField.values)
         field.key: TextEditingController(text: '0'),
     };
+    _loadIdolDatabase();
   }
 
   @override
@@ -99,6 +109,24 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
       controller.dispose();
     }
     super.dispose();
+  }
+
+  Future<void> _loadIdolDatabase() async {
+    setState(() {
+      _idolGroupLoading = true;
+    });
+
+    await IdolDatabaseService.initializeBuiltInDataIfNeeded();
+    final groups = await IdolDatabaseService.getGroups();
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _idolGroups = groups;
+      _idolGroupLoading = false;
+    });
   }
 
   GroupPricingModel get _selectedPricing {
@@ -143,6 +171,58 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     return GroupPricingModel.unconfigured(groupName);
   }
 
+  List<String> get _fallbackDuoGroupNames {
+    final names = <String>{
+      for (final pricing in widget.pricings)
+        if (pricing.groupName.trim().isNotEmpty) pricing.groupName.trim(),
+      for (final counter in widget.counters)
+        if (counter.groupName.trim().isNotEmpty) counter.groupName.trim(),
+    }.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return names;
+  }
+
+  List<IdolGroup> get _duoSelectableGroups {
+    if (_idolGroups.isNotEmpty) {
+      return _idolGroups;
+    }
+    return _fallbackDuoGroupNames
+        .map((groupName) => IdolGroup(name: groupName))
+        .toList();
+  }
+
+  List<IdolMember> _fallbackMembersForGroup(String groupName) {
+    final trimmedGroupName = groupName.trim();
+    if (trimmedGroupName.isEmpty) {
+      return const <IdolMember>[];
+    }
+
+    final memberNames = <String>{
+      for (final counter in widget.counters)
+        if (counter.groupName.trim() == trimmedGroupName &&
+            counter.name.trim().isNotEmpty)
+          counter.name.trim(),
+    }.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    return memberNames
+        .map(
+          (memberName) => IdolMember(
+            groupId: 0,
+            groupName: trimmedGroupName,
+            name: memberName,
+          ),
+        )
+        .toList();
+  }
+
+  List<IdolMember> get _duoSelectableMembers {
+    if (_duoMembers.isNotEmpty) {
+      return _duoMembers;
+    }
+    return _fallbackMembersForGroup(_selectedDuoGroupName);
+  }
+
   Future<void> _pickDateTime() async {
     final date = await showDatePicker(
       context: context,
@@ -185,22 +265,13 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
   }
 
   Future<void> _pickDuoGroup() async {
-    final groupNames = <String>{
-      for (final pricing in widget.pricings)
-        if (pricing.groupName.trim().isNotEmpty) pricing.groupName.trim(),
-      for (final counter in widget.counters)
-        if (counter.groupName.trim().isNotEmpty) counter.groupName.trim(),
-    }.toList()
-      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-
-    final selected = await showModalBottomSheet<String>(
+    final selected = await showModalBottomSheet<IdolGroup>(
       context: context,
       useSafeArea: true,
       isScrollControlled: true,
-      builder: (context) => _SimpleSearchSheet(
+      builder: (context) => _IdolGroupSearchSheet(
         title: '搜索团体',
-        labelText: '团体名称',
-        items: groupNames,
+        groups: _duoSelectableGroups,
       ),
     );
     if (selected == null || !mounted) {
@@ -208,16 +279,124 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     }
 
     final pricing = widget.pricings.cast<GroupPricingModel?>().firstWhere(
-          (item) => item?.groupName.trim() == selected.trim(),
+          (item) => item?.groupName.trim() == selected.name.trim(),
           orElse: () => null,
         );
 
+    final fallbackMembers = _fallbackMembersForGroup(selected.name);
+
     setState(() {
-      _selectedDuoGroupName = selected;
+      _selectedDuoGroupId = selected.id;
+      _selectedDuoGroupName = selected.name;
+      _selectedDuoPrimaryMemberId = null;
+      _selectedDuoSecondaryMemberId = null;
+      _duoMembers = selected.id == null ? fallbackMembers : [];
+      _duoMemberLoading = selected.id != null;
+      _duoPrimaryController.clear();
+      _duoSecondaryController.clear();
       if (_duoPriceController.text.trim().isEmpty ||
           _duoPriceController.text.trim() == '0') {
         _duoPriceController.text =
             (pricing?.doubleCutPrice ?? 0).toStringAsFixed(0);
+      }
+    });
+
+    if (selected.id != null) {
+      await _loadDuoMembersForGroup(selected.id);
+    }
+  }
+
+  Future<void> _loadDuoMembersForGroup(int? groupId) async {
+    if (groupId == null) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _duoMembers = _fallbackMembersForGroup(_selectedDuoGroupName);
+        _duoMemberLoading = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _duoMemberLoading = true;
+      _duoMembers = [];
+    });
+
+    final members = await IdolDatabaseService.getMembers(groupId: groupId);
+    if (!mounted || _selectedDuoGroupId != groupId) {
+      return;
+    }
+
+    final fallbackMembers = _fallbackMembersForGroup(_selectedDuoGroupName);
+    setState(() {
+      _duoMembers = members.isNotEmpty ? members : fallbackMembers;
+      _duoMemberLoading = false;
+    });
+  }
+
+  IdolMember? _findDuoMemberById(int? id) {
+    if (id == null) {
+      return null;
+    }
+    for (final member in _duoMembers) {
+      if (member.id == id) {
+        return member;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _pickDuoMember({required bool primary}) async {
+    if (_selectedDuoGroupName.trim().isEmpty) {
+      return;
+    }
+
+    final groupId = _selectedDuoGroupId;
+    if (groupId != null && _duoMembers.isEmpty && !_duoMemberLoading) {
+      await _loadDuoMembersForGroup(groupId);
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    final excludedId =
+        primary ? _selectedDuoSecondaryMemberId : _selectedDuoPrimaryMemberId;
+    final excludedName = primary
+        ? _duoSecondaryController.text.trim()
+        : _duoPrimaryController.text.trim();
+    final availableMembers = _duoSelectableMembers.where((member) {
+      if (excludedId != null && member.id != null) {
+        return member.id != excludedId;
+      }
+      if (excludedName.isNotEmpty) {
+        return member.displayName != excludedName;
+      }
+      return true;
+    }).toList();
+
+    final selected = await showModalBottomSheet<IdolMember>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      builder: (context) => _IdolMemberSearchSheet(
+        title: primary ? '搜索成员 A' : '搜索成员 B',
+        members: availableMembers,
+      ),
+    );
+
+    if (selected == null || !mounted) {
+      return;
+    }
+
+    setState(() {
+      if (primary) {
+        _selectedDuoPrimaryMemberId = selected.id;
+        _duoPrimaryController.text = selected.displayName;
+      } else {
+        _selectedDuoSecondaryMemberId = selected.id;
+        _duoSecondaryController.text = selected.displayName;
       }
     });
   }
@@ -256,6 +435,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
       if (groupName.isEmpty ||
           primaryMember.isEmpty ||
           secondaryMember.isEmpty ||
+          primaryMember == secondaryMember ||
           _duoQuantity <= 0) {
         return;
       }
@@ -297,6 +477,15 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
   Widget build(BuildContext context) {
     final pricing = _selectedPricing;
     final duoPricing = _duoPricing;
+    final primaryDuoMember = _findDuoMemberById(_selectedDuoPrimaryMemberId);
+    final secondaryDuoMember =
+        _findDuoMemberById(_selectedDuoSecondaryMemberId);
+    final primaryDuoLabel =
+        primaryDuoMember?.displayName ?? _duoPrimaryController.text.trim();
+    final secondaryDuoLabel =
+        secondaryDuoMember?.displayName ?? _duoSecondaryController.text.trim();
+    final canPickDuoMember =
+        _selectedDuoGroupName.trim().isNotEmpty && !_duoMemberLoading;
     final duoPreviewTotal = _duoQuantity * _duoUnitPrice;
     final ticketPreviewTotal = _ticketQuantity * _ticketUnitPrice;
 
@@ -433,12 +622,14 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
                 ),
                 title: const Text('团体 / 价格'),
                 subtitle: Text(
-                  _selectedDuoGroupName.isEmpty
-                      ? '点击搜索团体'
-                      : '$_selectedDuoGroupName · ${duoPricing.label}',
+                  _idolGroupLoading
+                      ? '正在加载偶像库...'
+                      : _selectedDuoGroupName.isEmpty
+                          ? '点击搜索团体'
+                          : '$_selectedDuoGroupName · ${duoPricing.label}',
                 ),
                 trailing: const Icon(Icons.search),
-                onTap: _pickDuoGroup,
+                onTap: _idolGroupLoading ? null : _pickDuoGroup,
               ),
               const SizedBox(height: 12),
               Wrap(
@@ -450,23 +641,56 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
                     value:
                         '¥${duoPricing.doubleCutPrice.toStringAsFixed(duoPricing.doubleCutPrice == duoPricing.doubleCutPrice.roundToDouble() ? 0 : 2)}',
                   ),
+                  const _MetricPill(
+                    label: '统计规则',
+                    value: '只进团体统计',
+                  ),
                 ],
               ),
               const SizedBox(height: 12),
-              NoAutofillTextField(
-                controller: _duoPrimaryController,
-                decoration: const InputDecoration(
-                  labelText: '成员 A',
-                  hintText: '请输入第一位成员',
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
                 ),
+                title: const Text('成员 A'),
+                subtitle: Text(
+                  primaryDuoLabel.isNotEmpty
+                      ? primaryDuoLabel
+                      : (_selectedDuoGroupName.isEmpty ? '请先选择团体' : '点击搜索成员'),
+                ),
+                trailing: const Icon(Icons.search),
+                onTap: !canPickDuoMember
+                    ? null
+                    : () => _pickDuoMember(primary: true),
               ),
               const SizedBox(height: 12),
-              NoAutofillTextField(
-                controller: _duoSecondaryController,
-                decoration: const InputDecoration(
-                  labelText: '成员 B',
-                  hintText: '请输入第二位成员',
+              if (_duoMemberLoading)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 12),
+                  child: LinearProgressIndicator(),
                 ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
+                ),
+                title: const Text('成员 B'),
+                subtitle: Text(
+                  secondaryDuoLabel.isNotEmpty
+                      ? secondaryDuoLabel
+                      : (_selectedDuoGroupName.isEmpty ? '请先选择团体' : '点击搜索成员'),
+                ),
+                trailing: const Icon(Icons.search),
+                onTap: !canPickDuoMember
+                    ? null
+                    : () => _pickDuoMember(primary: false),
               ),
               const SizedBox(height: 12),
               NoAutofillTextField(
@@ -669,6 +893,172 @@ class _SimpleSearchSheet extends StatefulWidget {
 
   @override
   State<_SimpleSearchSheet> createState() => _SimpleSearchSheetState();
+}
+
+class _IdolGroupSearchSheet extends StatefulWidget {
+  final String title;
+  final List<IdolGroup> groups;
+
+  const _IdolGroupSearchSheet({
+    required this.title,
+    required this.groups,
+  });
+
+  @override
+  State<_IdolGroupSearchSheet> createState() => _IdolGroupSearchSheetState();
+}
+
+class _IdolGroupSearchSheetState extends State<_IdolGroupSearchSheet> {
+  final TextEditingController _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = _query.trim().toLowerCase();
+    final groups = widget.groups.where((group) {
+      if (normalized.isEmpty) {
+        return true;
+      }
+      return group.name.toLowerCase().contains(normalized);
+    }).toList();
+
+    return FractionallySizedBox(
+      heightFactor: 0.8,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.title,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 12),
+            NoAutofillTextField(
+              controller: _searchController,
+              decoration: const InputDecoration(
+                labelText: '团体名称',
+                prefixIcon: Icon(Icons.search),
+              ),
+              autofocus: true,
+              onChanged: (value) {
+                setState(() {
+                  _query = value;
+                });
+              },
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: ListView.builder(
+                itemCount: groups.length,
+                itemBuilder: (context, index) {
+                  final group = groups[index];
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(group.name),
+                    subtitle: Text(
+                      '${group.memberCount} 名成员${group.isBuiltIn ? ' · 内置' : ''}',
+                    ),
+                    onTap: () => Navigator.of(context).pop(group),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _IdolMemberSearchSheet extends StatefulWidget {
+  final String title;
+  final List<IdolMember> members;
+
+  const _IdolMemberSearchSheet({
+    required this.title,
+    required this.members,
+  });
+
+  @override
+  State<_IdolMemberSearchSheet> createState() => _IdolMemberSearchSheetState();
+}
+
+class _IdolMemberSearchSheetState extends State<_IdolMemberSearchSheet> {
+  final TextEditingController _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final members = widget.members.where((member) {
+      return member.matchesQuery(_query);
+    }).toList();
+
+    return FractionallySizedBox(
+      heightFactor: 0.8,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.title,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 12),
+            NoAutofillTextField(
+              controller: _searchController,
+              decoration: const InputDecoration(
+                labelText: '成员名称 / 拼音 / 状态',
+                prefixIcon: Icon(Icons.search),
+              ),
+              autofocus: true,
+              onChanged: (value) {
+                setState(() {
+                  _query = value;
+                });
+              },
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: ListView.builder(
+                itemCount: members.length,
+                itemBuilder: (context, index) {
+                  final member = members[index];
+                  final subtitleParts = <String>[
+                    member.groupName,
+                    if (member.status.isNotEmpty) member.status,
+                  ];
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(member.displayName),
+                    subtitle: Text(subtitleParts.join(' · ')),
+                    onTap: () => Navigator.of(context).pop(member),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _SimpleSearchSheetState extends State<_SimpleSearchSheet> {

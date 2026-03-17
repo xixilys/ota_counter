@@ -241,7 +241,10 @@ class _GroupPricingPageState extends State<GroupPricingPage> {
                                 spacing: 10,
                                 runSpacing: 10,
                                 children: [
-                                  ...CounterCountField.values.map((field) {
+                                  ...CounterCountField.visibleValues(
+                                    enableUnsigned:
+                                        pricing?.hasUnsignedPrices ?? false,
+                                  ).map((field) {
                                     final value =
                                         pricing?.priceForField(field) ?? 0;
                                     return _PriceChip(
@@ -250,7 +253,7 @@ class _GroupPricingPageState extends State<GroupPricingPage> {
                                     );
                                   }),
                                   _PriceChip(
-                                    label: '双人切',
+                                    label: '多人切参考价',
                                     value: pricing?.doubleCutPrice ?? 0,
                                   ),
                                 ],
@@ -331,6 +334,7 @@ class _PricingEditorDialogState extends State<_PricingEditorDialog> {
   late final TextEditingController _groupController;
   late final TextEditingController _labelController;
   late final Map<String, TextEditingController> _priceControllers;
+  late bool _enableUnsignedOptions;
 
   @override
   void initState() {
@@ -342,12 +346,19 @@ class _PricingEditorDialogState extends State<_PricingEditorDialog> {
     _labelController = TextEditingController(
       text: pricing?.label ?? '默认价格',
     );
+    _enableUnsignedOptions = pricing?.hasUnsignedPrices ?? false;
     _priceControllers = {
       CounterCountField.threeInch.key: TextEditingController(
         text: _formatPrice(pricing?.threeInchPrice ?? 0),
       ),
       CounterCountField.fiveInch.key: TextEditingController(
         text: _formatPrice(pricing?.fiveInchPrice ?? 0),
+      ),
+      CounterCountField.unsignedThreeInch.key: TextEditingController(
+        text: _formatPrice(pricing?.unsignedThreeInchPrice ?? 0),
+      ),
+      CounterCountField.unsignedFiveInch.key: TextEditingController(
+        text: _formatPrice(pricing?.unsignedFiveInchPrice ?? 0),
       ),
       CounterCountField.groupCut.key: TextEditingController(
         text: _formatPrice(pricing?.groupCutPrice ?? 0),
@@ -415,7 +426,21 @@ class _PricingEditorDialogState extends State<_PricingEditorDialog> {
               ),
             ),
             const SizedBox(height: 16),
-            ...CounterCountField.values.map((field) {
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('启用无签选项'),
+              subtitle: const Text('开启后可配置无签3寸和无签5寸价格'),
+              value: _enableUnsignedOptions,
+              onChanged: (value) {
+                setState(() {
+                  _enableUnsignedOptions = value;
+                });
+              },
+            ),
+            const SizedBox(height: 12),
+            ...CounterCountField.visibleValues(
+              enableUnsigned: _enableUnsignedOptions,
+            ).map((field) {
               return Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: NoAutofillTextField(
@@ -435,7 +460,7 @@ class _PricingEditorDialogState extends State<_PricingEditorDialog> {
               child: NoAutofillTextField(
                 controller: _priceControllers[_doubleCutPriceKey]!,
                 decoration: const InputDecoration(
-                  labelText: '双人切 单价',
+                  labelText: '多人切参考价',
                   prefixText: '¥',
                 ),
                 keyboardType: const TextInputType.numberWithOptions(
@@ -465,8 +490,15 @@ class _PricingEditorDialogState extends State<_PricingEditorDialog> {
                 label: _labelController.text.trim().isEmpty
                     ? '默认价格'
                     : _labelController.text.trim(),
+                enableUnsignedOptions: _enableUnsignedOptions,
                 threeInchPrice: _parsePrice(CounterCountField.threeInch),
                 fiveInchPrice: _parsePrice(CounterCountField.fiveInch),
+                unsignedThreeInchPrice: _parsePrice(
+                  CounterCountField.unsignedThreeInch,
+                ),
+                unsignedFiveInchPrice: _parsePrice(
+                  CounterCountField.unsignedFiveInch,
+                ),
                 groupCutPrice: _parsePrice(CounterCountField.groupCut),
                 doubleCutPrice: _parseDoubleCutPrice(),
                 threeInchShukudaiPrice: _parsePrice(

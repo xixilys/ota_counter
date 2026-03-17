@@ -15,6 +15,7 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
   final TextEditingController _searchController = TextEditingController();
 
   List<IdolGroup> _groups = [];
+  List<IdolPerson> _people = [];
   List<IdolMember> _allMembers = [];
   Map<String, String> _meta = {};
   int? _selectedGroupId;
@@ -40,6 +41,7 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
     });
 
     await IdolDatabaseService.initializeBuiltInDataIfNeeded();
+    final people = await IdolDatabaseService.getPeople();
     final groups = await IdolDatabaseService.getGroups();
     final members = await IdolDatabaseService.getMembers();
     final meta = await IdolDatabaseService.getMeta();
@@ -49,6 +51,7 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
     }
 
     setState(() {
+      _people = people;
       _groups = groups;
       _allMembers = members;
       _meta = meta;
@@ -148,6 +151,9 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
   Future<void> _showMemberDialog({IdolMember? initialMember}) async {
     final nameController =
         TextEditingController(text: initialMember?.name ?? '');
+    final personController = TextEditingController(
+      text: initialMember?.resolvedPersonName ?? '',
+    );
     final statusController = TextEditingController(
       text: initialMember?.status ?? '',
     );
@@ -193,6 +199,15 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
                 ),
                 const SizedBox(height: 12),
                 NoAutofillTextField(
+                  controller: personController,
+                  decoration: const InputDecoration(
+                    labelText: '真人主档名',
+                    hintText: '同一真人跨团/时期请保持一致',
+                  ),
+                  textInputAction: TextInputAction.next,
+                ),
+                const SizedBox(height: 12),
+                NoAutofillTextField(
                   controller: statusController,
                   decoration: const InputDecoration(
                     labelText: '状态',
@@ -228,6 +243,8 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
                     id: initialMember?.id,
                     groupId: selectedGroupId!,
                     groupName: group.name,
+                    personId: initialMember?.personId,
+                    personName: personController.text.trim(),
                     name: name,
                     status: statusController.text.trim(),
                     source: initialMember?.source ?? 'manual',
@@ -247,6 +264,7 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
     );
 
     nameController.dispose();
+    personController.dispose();
     statusController.dispose();
     await _loadData();
   }
@@ -380,7 +398,7 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '共 ${_groups.length} 个团体 / $totalMembers 名成员',
+                          '共 ${_groups.length} 个团体 / $totalMembers 条团籍 / ${_people.length} 位真人',
                           style:
                               Theme.of(context).textTheme.titleMedium?.copyWith(
                                     fontWeight: FontWeight.bold,
@@ -495,6 +513,10 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
                             final themeColorLabel = member.themeColorLabel;
                             final subtitleParts = <String>[
                               member.groupName,
+                              if (member.resolvedPersonName.isNotEmpty &&
+                                  member.resolvedPersonName !=
+                                      member.displayName)
+                                '真人 ${member.resolvedPersonName}',
                               if (member.status.isNotEmpty) member.status,
                               if (themeColorLabel != null &&
                                   !member.status.contains(themeColorLabel))

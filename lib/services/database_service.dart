@@ -14,7 +14,7 @@ class DatabaseService {
   static const String groupPricingTableName = 'group_pricings';
   static const String activityRecordTableName = 'activity_records';
   static const String counterSyncTableName = 'counter_sync_log';
-  static const int _version = 9;
+  static const int _version = 12;
 
   static Database? _database;
 
@@ -26,31 +26,39 @@ class DatabaseService {
 
   static Future<Database> _initDatabase() async {
     final path = join(await getDatabasesPath(), _dbName);
+    late final Database db;
 
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-      return await openDatabase(
+      db = await openDatabase(
         path,
         version: _version,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
+        onOpen: _onOpen,
       );
+      await _ensureLatestSchema(db);
+      return db;
     }
 
     sqfliteFfiInit();
     final databaseFactory = databaseFactoryFfi;
 
-    return databaseFactory.openDatabase(
+    db = await databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
         version: _version,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
+        onOpen: _onOpen,
       ),
     );
+    await _ensureLatestSchema(db);
+    return db;
   }
 
   static Future<void> _onCreate(Database db, int version) async {
     await _createSchema(db);
+    await _ensureLatestSchema(db);
   }
 
   static Future<void> _onUpgrade(
@@ -82,6 +90,20 @@ class DatabaseService {
     if (oldVersion < 9) {
       await _migrateToV9(db);
     }
+    if (oldVersion < 10) {
+      await _migrateToV10(db);
+    }
+    if (oldVersion < 11) {
+      await _migrateToV11(db);
+    }
+    if (oldVersion < 12) {
+      await _migrateToV12(db);
+    }
+    await _ensureLatestSchema(db);
+  }
+
+  static Future<void> _onOpen(Database db) async {
+    await _ensureLatestSchema(db);
   }
 
   static Future<void> _createSchema(DatabaseExecutor db) async {
@@ -90,11 +112,15 @@ class DatabaseService {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         group_name TEXT NOT NULL DEFAULT '',
+        person_id INTEGER,
+        person_name TEXT NOT NULL DEFAULT '',
         count INTEGER NOT NULL,
         color TEXT NOT NULL,
         is_hidden INTEGER NOT NULL DEFAULT 0,
         three_inch_count INTEGER NOT NULL DEFAULT 0,
         five_inch_count INTEGER NOT NULL DEFAULT 0,
+        unsigned_three_inch_count INTEGER NOT NULL DEFAULT 0,
+        unsigned_five_inch_count INTEGER NOT NULL DEFAULT 0,
         group_cut_count INTEGER NOT NULL DEFAULT 0,
         three_inch_shukudai_count INTEGER NOT NULL DEFAULT 0,
         five_inch_shukudai_count INTEGER NOT NULL DEFAULT 0
@@ -105,8 +131,11 @@ class DatabaseService {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         group_name TEXT NOT NULL UNIQUE,
         label TEXT NOT NULL DEFAULT '',
+        enable_unsigned INTEGER NOT NULL DEFAULT 0,
         three_inch_price REAL NOT NULL DEFAULT 0,
         five_inch_price REAL NOT NULL DEFAULT 0,
+        unsigned_three_inch_price REAL NOT NULL DEFAULT 0,
+        unsigned_five_inch_price REAL NOT NULL DEFAULT 0,
         group_cut_price REAL NOT NULL DEFAULT 0,
         double_cut_price REAL NOT NULL DEFAULT 0,
         three_inch_shukudai_price REAL NOT NULL DEFAULT 0,
@@ -121,6 +150,8 @@ class DatabaseService {
         source TEXT NOT NULL DEFAULT 'local',
         source_record_id TEXT,
         counter_id INTEGER,
+        person_id INTEGER,
+        person_name TEXT NOT NULL DEFAULT '',
         subject_name TEXT NOT NULL,
         secondary_subject_name TEXT NOT NULL DEFAULT '',
         group_name TEXT NOT NULL DEFAULT '',
@@ -130,19 +161,25 @@ class DatabaseService {
         pricing_label TEXT NOT NULL DEFAULT '',
         three_inch_count INTEGER NOT NULL DEFAULT 0,
         five_inch_count INTEGER NOT NULL DEFAULT 0,
+        unsigned_three_inch_count INTEGER NOT NULL DEFAULT 0,
+        unsigned_five_inch_count INTEGER NOT NULL DEFAULT 0,
         group_cut_count INTEGER NOT NULL DEFAULT 0,
         three_inch_shukudai_count INTEGER NOT NULL DEFAULT 0,
         five_inch_shukudai_count INTEGER NOT NULL DEFAULT 0,
+        multi_cut_quantity INTEGER NOT NULL DEFAULT 0,
         double_cut_quantity INTEGER NOT NULL DEFAULT 0,
         ticket_quantity INTEGER NOT NULL DEFAULT 0,
         three_inch_price REAL NOT NULL DEFAULT 0,
         five_inch_price REAL NOT NULL DEFAULT 0,
+        unsigned_three_inch_price REAL NOT NULL DEFAULT 0,
+        unsigned_five_inch_price REAL NOT NULL DEFAULT 0,
         group_cut_price REAL NOT NULL DEFAULT 0,
         double_cut_unit_price REAL NOT NULL DEFAULT 0,
         three_inch_shukudai_price REAL NOT NULL DEFAULT 0,
         five_inch_shukudai_price REAL NOT NULL DEFAULT 0,
         ticket_unit_price REAL NOT NULL DEFAULT 0,
-        total_amount REAL NOT NULL DEFAULT 0
+        total_amount REAL NOT NULL DEFAULT 0,
+        multi_participants_json TEXT NOT NULL DEFAULT '[]'
       )
     ''');
     await db.execute('''
@@ -303,15 +340,201 @@ class DatabaseService {
     );
   }
 
+  static Future<void> _migrateToV10(Database db) async {
+    await db.execute(
+      'ALTER TABLE $tableName ADD COLUMN person_id INTEGER',
+    );
+    await db.execute(
+      "ALTER TABLE $tableName ADD COLUMN person_name TEXT NOT NULL DEFAULT ''",
+    );
+    await db.execute(
+      'ALTER TABLE $activityRecordTableName ADD COLUMN person_id INTEGER',
+    );
+    await db.execute(
+      "ALTER TABLE $activityRecordTableName ADD COLUMN person_name TEXT NOT NULL DEFAULT ''",
+    );
+    await db.execute(
+      'ALTER TABLE $activityRecordTableName ADD COLUMN multi_cut_quantity INTEGER NOT NULL DEFAULT 0',
+    );
+    await db.execute(
+      "ALTER TABLE $activityRecordTableName ADD COLUMN multi_participants_json TEXT NOT NULL DEFAULT '[]'",
+    );
+
+    await _backfillIdentityAndMultiData(db);
+  }
+
+  static Future<void> _migrateToV11(Database db) async {
+    await db.execute(
+      'ALTER TABLE $groupPricingTableName ADD COLUMN enable_unsigned INTEGER NOT NULL DEFAULT 0',
+    );
+  }
+
+  static Future<void> _migrateToV12(Database db) async {
+    await db.execute(
+      'ALTER TABLE $tableName ADD COLUMN unsigned_three_inch_count INTEGER NOT NULL DEFAULT 0',
+    );
+    await db.execute(
+      'ALTER TABLE $tableName ADD COLUMN unsigned_five_inch_count INTEGER NOT NULL DEFAULT 0',
+    );
+    await db.execute(
+      'ALTER TABLE $groupPricingTableName ADD COLUMN unsigned_three_inch_price REAL NOT NULL DEFAULT 0',
+    );
+    await db.execute(
+      'ALTER TABLE $groupPricingTableName ADD COLUMN unsigned_five_inch_price REAL NOT NULL DEFAULT 0',
+    );
+    await db.execute(
+      'ALTER TABLE $activityRecordTableName ADD COLUMN unsigned_three_inch_count INTEGER NOT NULL DEFAULT 0',
+    );
+    await db.execute(
+      'ALTER TABLE $activityRecordTableName ADD COLUMN unsigned_five_inch_count INTEGER NOT NULL DEFAULT 0',
+    );
+    await db.execute(
+      'ALTER TABLE $activityRecordTableName ADD COLUMN unsigned_three_inch_price REAL NOT NULL DEFAULT 0',
+    );
+    await db.execute(
+      'ALTER TABLE $activityRecordTableName ADD COLUMN unsigned_five_inch_price REAL NOT NULL DEFAULT 0',
+    );
+  }
+
+  static Future<void> _ensureLatestSchema(DatabaseExecutor db) async {
+    await _createSchema(db);
+
+    await _ensureColumns(
+      db,
+      tableName,
+      {
+        'group_name': "TEXT NOT NULL DEFAULT ''",
+        'person_id': 'INTEGER',
+        'person_name': "TEXT NOT NULL DEFAULT ''",
+        'is_hidden': 'INTEGER NOT NULL DEFAULT 0',
+        'three_inch_count': 'INTEGER NOT NULL DEFAULT 0',
+        'five_inch_count': 'INTEGER NOT NULL DEFAULT 0',
+        'unsigned_three_inch_count': 'INTEGER NOT NULL DEFAULT 0',
+        'unsigned_five_inch_count': 'INTEGER NOT NULL DEFAULT 0',
+        'group_cut_count': 'INTEGER NOT NULL DEFAULT 0',
+        'three_inch_shukudai_count': 'INTEGER NOT NULL DEFAULT 0',
+        'five_inch_shukudai_count': 'INTEGER NOT NULL DEFAULT 0',
+      },
+    );
+
+    await _ensureColumns(
+      db,
+      groupPricingTableName,
+      {
+        'label': "TEXT NOT NULL DEFAULT ''",
+        'enable_unsigned': 'INTEGER NOT NULL DEFAULT 0',
+        'three_inch_price': 'REAL NOT NULL DEFAULT 0',
+        'five_inch_price': 'REAL NOT NULL DEFAULT 0',
+        'unsigned_three_inch_price': 'REAL NOT NULL DEFAULT 0',
+        'unsigned_five_inch_price': 'REAL NOT NULL DEFAULT 0',
+        'group_cut_price': 'REAL NOT NULL DEFAULT 0',
+        'double_cut_price': 'REAL NOT NULL DEFAULT 0',
+        'three_inch_shukudai_price': 'REAL NOT NULL DEFAULT 0',
+        'five_inch_shukudai_price': 'REAL NOT NULL DEFAULT 0',
+        'updated_at': "TEXT NOT NULL DEFAULT ''",
+      },
+    );
+
+    await _ensureColumns(
+      db,
+      activityRecordTableName,
+      {
+        'source': "TEXT NOT NULL DEFAULT 'local'",
+        'source_record_id': 'TEXT',
+        'counter_id': 'INTEGER',
+        'person_id': 'INTEGER',
+        'person_name': "TEXT NOT NULL DEFAULT ''",
+        'secondary_subject_name': "TEXT NOT NULL DEFAULT ''",
+        'group_name': "TEXT NOT NULL DEFAULT ''",
+        'session_label': "TEXT NOT NULL DEFAULT ''",
+        'note': "TEXT NOT NULL DEFAULT ''",
+        'pricing_label': "TEXT NOT NULL DEFAULT ''",
+        'three_inch_count': 'INTEGER NOT NULL DEFAULT 0',
+        'five_inch_count': 'INTEGER NOT NULL DEFAULT 0',
+        'unsigned_three_inch_count': 'INTEGER NOT NULL DEFAULT 0',
+        'unsigned_five_inch_count': 'INTEGER NOT NULL DEFAULT 0',
+        'group_cut_count': 'INTEGER NOT NULL DEFAULT 0',
+        'three_inch_shukudai_count': 'INTEGER NOT NULL DEFAULT 0',
+        'five_inch_shukudai_count': 'INTEGER NOT NULL DEFAULT 0',
+        'multi_cut_quantity': 'INTEGER NOT NULL DEFAULT 0',
+        'double_cut_quantity': 'INTEGER NOT NULL DEFAULT 0',
+        'ticket_quantity': 'INTEGER NOT NULL DEFAULT 0',
+        'three_inch_price': 'REAL NOT NULL DEFAULT 0',
+        'five_inch_price': 'REAL NOT NULL DEFAULT 0',
+        'unsigned_three_inch_price': 'REAL NOT NULL DEFAULT 0',
+        'unsigned_five_inch_price': 'REAL NOT NULL DEFAULT 0',
+        'group_cut_price': 'REAL NOT NULL DEFAULT 0',
+        'double_cut_unit_price': 'REAL NOT NULL DEFAULT 0',
+        'three_inch_shukudai_price': 'REAL NOT NULL DEFAULT 0',
+        'five_inch_shukudai_price': 'REAL NOT NULL DEFAULT 0',
+        'ticket_unit_price': 'REAL NOT NULL DEFAULT 0',
+        'total_amount': 'REAL NOT NULL DEFAULT 0',
+        'multi_participants_json': "TEXT NOT NULL DEFAULT '[]'",
+      },
+    );
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $counterSyncTableName(
+        source TEXT NOT NULL,
+        source_record_id TEXT NOT NULL,
+        applied_at TEXT NOT NULL,
+        PRIMARY KEY(source, source_record_id)
+      )
+    ''');
+  }
+
+  static Future<void> _ensureColumns(
+    DatabaseExecutor db,
+    String table,
+    Map<String, String> columns,
+  ) async {
+    final existingColumns = await _getColumnNames(db, table);
+    for (final entry in columns.entries) {
+      if (existingColumns.contains(entry.key)) {
+        continue;
+      }
+      await db.execute(
+        'ALTER TABLE $table ADD COLUMN ${entry.key} ${entry.value}',
+      );
+    }
+  }
+
+  static Future<Set<String>> _getColumnNames(
+    DatabaseExecutor db,
+    String table,
+  ) async {
+    final rows = await db.rawQuery('PRAGMA table_info($table)');
+    return rows
+        .map((row) => row['name'] as String?)
+        .whereType<String>()
+        .toSet();
+  }
+
+  static Future<Map<String, Object?>> _filterValuesForTable(
+    DatabaseExecutor db,
+    String table,
+    Map<String, Object?> values,
+  ) async {
+    final columns = await _getColumnNames(db, table);
+    return {
+      for (final entry in values.entries)
+        if (columns.contains(entry.key)) entry.key: entry.value,
+    };
+  }
+
   static Map<String, dynamic> _toDatabaseMap(CounterModel counter) {
     return {
       'name': counter.name,
       'group_name': counter.groupName,
+      'person_id': counter.personId,
+      'person_name': counter.personName,
       'count': counter.count,
       'color': counter.color,
       'is_hidden': counter.isHidden ? 1 : 0,
       'three_inch_count': counter.threeInchCount,
       'five_inch_count': counter.fiveInchCount,
+      'unsigned_three_inch_count': counter.unsignedThreeInchCount,
+      'unsigned_five_inch_count': counter.unsignedFiveInchCount,
       'group_cut_count': counter.groupCutCount,
       'three_inch_shukudai_count': counter.threeInchShukudaiCount,
       'five_inch_shukudai_count': counter.fiveInchShukudaiCount,
@@ -340,18 +563,22 @@ class DatabaseService {
 
   static Future<int> insertCounter(CounterModel counter) async {
     final db = await database;
+    final values =
+        await _filterValuesForTable(db, tableName, _toDatabaseMap(counter));
     return await db.insert(
       tableName,
-      _toDatabaseMap(counter),
+      values,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
 
   static Future<void> updateCounter(int id, CounterModel counter) async {
     final db = await database;
+    final values =
+        await _filterValuesForTable(db, tableName, _toDatabaseMap(counter));
     await db.update(
       tableName,
-      _toDatabaseMap(counter),
+      values,
       where: 'id = ?',
       whereArgs: [id],
     );
@@ -359,11 +586,18 @@ class DatabaseService {
 
   static Future<void> deleteCounter(int id) async {
     final db = await database;
-    await db.delete(
-      tableName,
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await db.transaction((txn) async {
+      await txn.delete(
+        activityRecordTableName,
+        where: 'counter_id = ?',
+        whereArgs: [id],
+      );
+      await txn.delete(
+        tableName,
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    });
   }
 
   static Future<List<GroupPricingModel>> getGroupPricings() async {
@@ -397,10 +631,15 @@ class DatabaseService {
 
   static Future<int> upsertGroupPricing(GroupPricingModel pricing) async {
     final db = await database;
+    final values = await _filterValuesForTable(
+      db,
+      groupPricingTableName,
+      _pricingToDatabaseMap(pricing),
+    );
     if (pricing.id != null) {
       await db.update(
         groupPricingTableName,
-        _pricingToDatabaseMap(pricing),
+        values,
         where: 'id = ?',
         whereArgs: [pricing.id],
       );
@@ -409,7 +648,7 @@ class DatabaseService {
 
     return db.insert(
       groupPricingTableName,
-      _pricingToDatabaseMap(pricing),
+      values,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
@@ -434,9 +673,14 @@ class DatabaseService {
 
   static Future<int> insertActivityRecord(ActivityRecordModel record) async {
     final db = await database;
-    return db.insert(
+    final values = await _filterValuesForTable(
+      db,
       activityRecordTableName,
       _recordToDatabaseMap(record),
+    );
+    return db.insert(
+      activityRecordTableName,
+      values,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
@@ -477,6 +721,7 @@ class DatabaseService {
   static Future<int> syncActivityRecordsToCounters(String source) async {
     final db = await database;
     final themeLookup = await _buildCounterThemeLookup();
+    final identityLookup = await _buildIdolIdentityLookup();
 
     return db.transaction((txn) async {
       final syncedMaps = await txn.query(
@@ -533,6 +778,13 @@ class DatabaseService {
         }
 
         final existingCounter = countersByKey[key];
+        final resolvedIdentity = _resolveIdentity(
+          name: counterName,
+          groupName: record.groupName.trim(),
+          personId: record.personId,
+          personName: record.personName,
+          lookup: identityLookup,
+        );
         final resolvedThemeColor = _resolveCounterThemeColor(
           name: counterName,
           groupName: record.groupName.trim(),
@@ -542,9 +794,15 @@ class DatabaseService {
                 CounterModel(
                   name: counterName,
                   groupName: record.groupName.trim(),
+                  personId: resolvedIdentity?.personId,
+                  personName: resolvedIdentity?.personName ?? record.personName,
                   color: resolvedThemeColor ?? _defaultImportedCounterColor,
                 ))
             .copyWith(
+          personId: resolvedIdentity?.personId ?? existingCounter?.personId,
+          personName: resolvedIdentity?.personName ??
+              existingCounter?.personName ??
+              record.personName,
           color: _shouldApplyAutoThemeColor(existingCounter?.color)
               ? (resolvedThemeColor ??
                   existingCounter?.color ??
@@ -554,6 +812,11 @@ class DatabaseService {
               (existingCounter?.threeInchCount ?? 0) + record.threeInchCount,
           fiveInchCount:
               (existingCounter?.fiveInchCount ?? 0) + record.fiveInchCount,
+          unsignedThreeInchCount:
+              (existingCounter?.unsignedThreeInchCount ?? 0) +
+                  record.unsignedThreeInchCount,
+          unsignedFiveInchCount: (existingCounter?.unsignedFiveInchCount ?? 0) +
+              record.unsignedFiveInchCount,
           groupCutCount:
               (existingCounter?.groupCutCount ?? 0) + record.groupCutCount,
           threeInchShukudaiCount:
@@ -565,17 +828,27 @@ class DatabaseService {
 
         CounterModel persistedCounter;
         if (existingCounter?.id != null) {
-          await txn.update(
+          final values = await _filterValuesForTable(
+            txn,
             tableName,
             _toDatabaseMap(updatedCounter),
+          );
+          await txn.update(
+            tableName,
+            values,
             where: 'id = ?',
             whereArgs: [existingCounter!.id],
           );
           persistedCounter = updatedCounter.copyWith(id: existingCounter.id);
         } else {
-          final insertedId = await txn.insert(
+          final values = await _filterValuesForTable(
+            txn,
             tableName,
             _toDatabaseMap(updatedCounter),
+          );
+          final insertedId = await txn.insert(
+            tableName,
+            values,
             conflictAlgorithm: ConflictAlgorithm.replace,
           );
           persistedCounter = updatedCounter.copyWith(id: insertedId);
@@ -637,9 +910,14 @@ class DatabaseService {
         }
 
         final nextCounter = counter.copyWith(color: resolvedThemeColor);
-        await txn.update(
+        final values = await _filterValuesForTable(
+          txn,
           tableName,
           _toDatabaseMap(nextCounter),
+        );
+        await txn.update(
+          tableName,
+          values,
           where: 'id = ?',
           whereArgs: [counter.id],
         );
@@ -700,6 +978,7 @@ class DatabaseService {
     final candidates = <String>{
       member.name,
       member.displayName,
+      member.resolvedPersonName,
     };
 
     final expanded = <String>{};
@@ -761,6 +1040,213 @@ class DatabaseService {
     return normalized == null || normalized == _defaultImportedCounterColor;
   }
 
+  static Future<void> _backfillIdentityAndMultiData(Database db) async {
+    final identityLookup = await _buildIdolIdentityLookup();
+
+    await db.transaction((txn) async {
+      final counterMaps = await txn.query(tableName);
+      for (final row in counterMaps) {
+        final counter = CounterModel.fromMap(row);
+        if (counter.id == null) {
+          continue;
+        }
+
+        final resolvedIdentity = _resolveIdentity(
+          name: counter.name,
+          groupName: counter.groupName,
+          personId: counter.personId,
+          personName: counter.personName,
+          lookup: identityLookup,
+        );
+        if (resolvedIdentity == null) {
+          continue;
+        }
+
+        final shouldUpdate = counter.personId != resolvedIdentity.personId ||
+            counter.personName.trim() != resolvedIdentity.personName.trim();
+        if (!shouldUpdate) {
+          continue;
+        }
+
+        await txn.update(
+          tableName,
+          await _filterValuesForTable(
+            txn,
+            tableName,
+            _toDatabaseMap(
+              counter.copyWith(
+                personId: resolvedIdentity.personId,
+                personName: resolvedIdentity.personName,
+              ),
+            ),
+          ),
+          where: 'id = ?',
+          whereArgs: [counter.id],
+        );
+      }
+
+      final recordMaps = await txn.query(activityRecordTableName);
+      for (final row in recordMaps) {
+        final record = ActivityRecordModel.fromMap(row);
+        if (record.id == null) {
+          continue;
+        }
+
+        var updatedRecord = record;
+        var dirty = false;
+
+        if (record.isCounter) {
+          final resolvedIdentity = _resolveIdentity(
+            name: record.subjectName,
+            groupName: record.groupName,
+            personId: record.personId,
+            personName: record.personName,
+            lookup: identityLookup,
+          );
+          if (resolvedIdentity != null &&
+              (record.personId != resolvedIdentity.personId ||
+                  record.personName.trim() !=
+                      resolvedIdentity.personName.trim())) {
+            updatedRecord = updatedRecord.copyWith(
+              personId: resolvedIdentity.personId,
+              personName: resolvedIdentity.personName,
+            );
+            dirty = true;
+          }
+        } else if (record.isMulti) {
+          final participants = record.effectiveParticipants.map((participant) {
+            final resolvedIdentity = _resolveIdentity(
+              name: participant.memberName,
+              groupName: participant.groupName,
+              personId: participant.personId,
+              personName: participant.personName,
+              lookup: identityLookup,
+            );
+            return ActivityParticipant(
+              memberName: participant.memberName,
+              groupName: participant.groupName,
+              personId: resolvedIdentity?.personId ?? participant.personId,
+              personName:
+                  resolvedIdentity?.personName ?? participant.personName,
+            );
+          }).toList(growable: false);
+
+          final canonicalPrimary =
+              participants.isNotEmpty ? participants.first : null;
+          if (record.type != ActivityRecordType.multi ||
+              record.participants.isEmpty ||
+              record.multiCutQuantity == 0 ||
+              record.personId != canonicalPrimary?.personId ||
+              record.personName.trim() !=
+                  (canonicalPrimary?.personName.trim() ?? '')) {
+            updatedRecord = updatedRecord.copyWith(
+              type: ActivityRecordType.multi,
+              participants: participants,
+              multiCutQuantity:
+                  record.multiCutQuantity > 0 ? record.multiCutQuantity : 1,
+              personId: canonicalPrimary?.personId,
+              personName: canonicalPrimary?.personName ?? record.personName,
+            );
+            dirty = true;
+          }
+        }
+
+        if (!dirty) {
+          continue;
+        }
+
+        await txn.update(
+          activityRecordTableName,
+          await _filterValuesForTable(
+            txn,
+            activityRecordTableName,
+            _recordToDatabaseMap(updatedRecord),
+          ),
+          where: 'id = ?',
+          whereArgs: [record.id],
+        );
+      }
+    });
+  }
+
+  static Future<_IdolIdentityLookup> _buildIdolIdentityLookup() async {
+    await IdolDatabaseService.initializeBuiltInDataIfNeeded();
+    final members = await IdolDatabaseService.getMembers();
+
+    final byGroupAndMember = <String, IdolMember>{};
+    final membersByName = <String, List<IdolMember>>{};
+
+    for (final member in members) {
+      for (final candidateName in _buildMemberNameAliases(member)) {
+        final normalizedMember = _normalizeLookupPart(candidateName);
+        if (normalizedMember.isEmpty) {
+          continue;
+        }
+
+        final normalizedGroup = _normalizeLookupPart(member.groupName);
+        if (normalizedGroup.isNotEmpty) {
+          byGroupAndMember.putIfAbsent(
+            '$normalizedGroup|$normalizedMember',
+            () => member,
+          );
+        }
+        membersByName
+            .putIfAbsent(normalizedMember, () => <IdolMember>[])
+            .add(member);
+      }
+    }
+
+    final byUniqueMember = <String, IdolMember>{};
+    for (final entry in membersByName.entries) {
+      final personIds =
+          entry.value.map((member) => member.personId).whereType<int>().toSet();
+      if (personIds.length == 1) {
+        byUniqueMember[entry.key] = entry.value.first;
+      }
+    }
+
+    return _IdolIdentityLookup(
+      byGroupAndMember: byGroupAndMember,
+      byUniqueMember: byUniqueMember,
+    );
+  }
+
+  static _ResolvedIdentity? _resolveIdentity({
+    required String name,
+    required String groupName,
+    required int? personId,
+    required String personName,
+    required _IdolIdentityLookup lookup,
+  }) {
+    if (personId != null || personName.trim().isNotEmpty) {
+      return _ResolvedIdentity(
+        personId: personId,
+        personName: personName.trim(),
+      );
+    }
+
+    final normalizedName = _normalizeLookupPart(name);
+    if (normalizedName.isEmpty) {
+      return null;
+    }
+
+    final normalizedGroup = _normalizeLookupPart(groupName);
+    IdolMember? matchedMember;
+    if (normalizedGroup.isNotEmpty) {
+      matchedMember =
+          lookup.byGroupAndMember['$normalizedGroup|$normalizedName'];
+    }
+    matchedMember ??= lookup.byUniqueMember[normalizedName];
+    if (matchedMember == null) {
+      return null;
+    }
+
+    return _ResolvedIdentity(
+      personId: matchedMember.personId,
+      personName: matchedMember.resolvedPersonName,
+    );
+  }
+
   static String? _normalizeHexColor(String? color) {
     if (color == null) {
       return null;
@@ -801,5 +1287,25 @@ class _CounterThemeLookup {
   const _CounterThemeLookup({
     required this.byGroupAndMember,
     required this.byUniqueMember,
+  });
+}
+
+class _IdolIdentityLookup {
+  final Map<String, IdolMember> byGroupAndMember;
+  final Map<String, IdolMember> byUniqueMember;
+
+  const _IdolIdentityLookup({
+    required this.byGroupAndMember,
+    required this.byUniqueMember,
+  });
+}
+
+class _ResolvedIdentity {
+  final int? personId;
+  final String personName;
+
+  const _ResolvedIdentity({
+    required this.personId,
+    required this.personName,
   });
 }

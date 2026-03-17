@@ -13,11 +13,10 @@ class ActivityRecordDraft {
   final DateTime occurredAt;
   final String note;
   final Map<CounterCountField, int> counterDeltas;
-  final String duoGroupName;
-  final String primaryMemberName;
-  final String secondaryMemberName;
-  final int duoQuantity;
-  final double duoUnitPrice;
+  final List<ActivityParticipant> multiParticipants;
+  final CounterCountField? multiField;
+  final int multiQuantity;
+  final double multiTotalPrice;
   final String eventName;
   final String sessionLabel;
   final int ticketQuantity;
@@ -29,11 +28,10 @@ class ActivityRecordDraft {
     this.counter,
     this.note = '',
     this.counterDeltas = const {},
-    this.duoGroupName = '',
-    this.primaryMemberName = '',
-    this.secondaryMemberName = '',
-    this.duoQuantity = 0,
-    this.duoUnitPrice = 0,
+    this.multiParticipants = const [],
+    this.multiField,
+    this.multiQuantity = 1,
+    this.multiTotalPrice = 0,
     this.eventName = '',
     this.sessionLabel = '',
     this.ticketQuantity = 0,
@@ -58,11 +56,9 @@ class AddActivityRecordDialog extends StatefulWidget {
 
 class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
   final TextEditingController _noteController = TextEditingController();
-  final TextEditingController _duoPrimaryController = TextEditingController();
-  final TextEditingController _duoSecondaryController = TextEditingController();
-  final TextEditingController _duoQuantityController =
+  final TextEditingController _multiQuantityController =
       TextEditingController(text: '1');
-  final TextEditingController _duoPriceController =
+  final TextEditingController _multiPriceController =
       TextEditingController(text: '0');
   final TextEditingController _eventNameController = TextEditingController();
   final TextEditingController _sessionController = TextEditingController();
@@ -74,14 +70,10 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
 
   ActivityRecordType _type = ActivityRecordType.counter;
   CounterModel? _selectedCounter;
-  List<IdolGroup> _idolGroups = [];
-  List<IdolMember> _duoMembers = [];
-  bool _idolGroupLoading = false;
-  bool _duoMemberLoading = false;
-  int? _selectedDuoGroupId;
-  int? _selectedDuoPrimaryMemberId;
-  int? _selectedDuoSecondaryMemberId;
-  String _selectedDuoGroupName = '';
+  List<IdolMember> _idolMembers = [];
+  bool _idolLoading = false;
+  List<ActivityParticipant> _selectedParticipants = [];
+  CounterCountField _selectedMultiField = CounterCountField.threeInch;
   DateTime _occurredAt = DateTime.now();
 
   @override
@@ -97,10 +89,8 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
   @override
   void dispose() {
     _noteController.dispose();
-    _duoPrimaryController.dispose();
-    _duoSecondaryController.dispose();
-    _duoQuantityController.dispose();
-    _duoPriceController.dispose();
+    _multiQuantityController.dispose();
+    _multiPriceController.dispose();
     _eventNameController.dispose();
     _sessionController.dispose();
     _ticketQuantityController.dispose();
@@ -113,30 +103,39 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
 
   Future<void> _loadIdolDatabase() async {
     setState(() {
-      _idolGroupLoading = true;
+      _idolLoading = true;
     });
 
     await IdolDatabaseService.initializeBuiltInDataIfNeeded();
-    final groups = await IdolDatabaseService.getGroups();
+    final members = await IdolDatabaseService.getMembers();
 
     if (!mounted) {
       return;
     }
 
     setState(() {
-      _idolGroups = groups;
-      _idolGroupLoading = false;
+      _idolMembers = members;
+      _idolLoading = false;
     });
   }
 
   GroupPricingModel get _selectedPricing {
     final groupName = _selectedCounter?.groupName.trim() ?? '';
+    return _resolvePricingByGroupName(groupName) ??
+        GroupPricingModel.unconfigured(groupName);
+  }
+
+  GroupPricingModel? _resolvePricingByGroupName(String groupName) {
+    final normalized = groupName.trim();
+    if (normalized.isEmpty) {
+      return null;
+    }
     for (final pricing in widget.pricings) {
-      if (pricing.groupName.trim() == groupName) {
+      if (pricing.groupName.trim() == normalized) {
         return pricing;
       }
     }
-    return GroupPricingModel.unconfigured(groupName);
+    return null;
   }
 
   int _parseCount(CounterCountField field) {
@@ -146,81 +145,110 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
   int get _ticketQuantity =>
       int.tryParse(_ticketQuantityController.text.trim()) ?? 0;
 
-  int get _duoQuantity => int.tryParse(_duoQuantityController.text.trim()) ?? 0;
-
-  double get _duoUnitPrice =>
-      double.tryParse(_duoPriceController.text.trim()) ?? 0;
+  int get _multiQuantity =>
+      int.tryParse(_multiQuantityController.text.trim()) ?? 0;
 
   double get _ticketUnitPrice =>
       double.tryParse(_ticketPriceController.text.trim()) ?? 0;
 
   double get _counterPreviewTotal {
     final pricing = _selectedPricing;
-    return CounterCountField.values.fold<double>(0, (sum, field) {
+    return CounterCountField.visibleValues(
+      enableUnsigned: pricing.hasUnsignedPrices,
+    ).fold<double>(0, (sum, field) {
       return sum + (_parseCount(field) * pricing.priceForField(field));
     });
   }
 
-  GroupPricingModel get _duoPricing {
-    final groupName = _selectedDuoGroupName.trim();
-    for (final pricing in widget.pricings) {
-      if (pricing.groupName.trim() == groupName) {
-        return pricing;
+  GroupPricingModel? get _multiSuggestedPricing {
+    final groupNames = _selectedParticipants
+        .map((participant) => participant.groupName.trim())
+        .where((groupName) => groupName.isNotEmpty)
+        .toSet();
+    if (groupNames.length != 1) {
+      return null;
+    }
+
+    final groupName = groupNames.first;
+    return _resolvePricingByGroupName(groupName);
+  }
+
+  bool get _multiAllowsUnsignedOptions {
+    if (_selectedParticipants.isEmpty) {
+      return false;
+    }
+
+    final groupNames = _selectedParticipants
+        .map((participant) => participant.groupName.trim())
+        .where((groupName) => groupName.isNotEmpty)
+        .toSet();
+    if (groupNames.isEmpty) {
+      return false;
+    }
+
+    for (final groupName in groupNames) {
+      final pricing = _resolvePricingByGroupName(groupName);
+      if (pricing?.hasUnsignedPrices != true) {
+        return false;
       }
     }
-    return GroupPricingModel.unconfigured(groupName);
+    return true;
   }
 
-  List<String> get _fallbackDuoGroupNames {
-    final names = <String>{
-      for (final pricing in widget.pricings)
-        if (pricing.groupName.trim().isNotEmpty) pricing.groupName.trim(),
-      for (final counter in widget.counters)
-        if (counter.groupName.trim().isNotEmpty) counter.groupName.trim(),
-    }.toList()
-      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-    return names;
+  List<CounterCountField> get _counterVisibleFields {
+    return CounterCountField.visibleValues(
+      enableUnsigned:
+          _selectedPricing.hasUnsignedPrices ||
+          (_selectedCounter?.hasUnsignedCounts ?? false),
+    );
   }
 
-  List<IdolGroup> get _duoSelectableGroups {
-    if (_idolGroups.isNotEmpty) {
-      return _idolGroups;
+  List<CounterCountField> get _multiVisibleFields {
+    return CounterCountField.multiVisibleValues(
+      enableUnsigned: _multiAllowsUnsignedOptions,
+    );
+  }
+
+  List<IdolMember> get _fallbackMembers {
+    final entries = <String, IdolMember>{};
+    for (final counter in widget.counters) {
+      final memberName = counter.name.trim();
+      if (memberName.isEmpty) {
+        continue;
+      }
+      final groupName = counter.groupName.trim();
+      final key = '${groupName.toLowerCase()}|${memberName.toLowerCase()}';
+      entries.putIfAbsent(
+        key,
+        () => IdolMember(
+          groupId: 0,
+          personId: counter.personId,
+          groupName: groupName,
+          personName: counter.personName,
+          name: memberName,
+        ),
+      );
     }
-    return _fallbackDuoGroupNames
-        .map((groupName) => IdolGroup(name: groupName))
-        .toList();
+    final members = entries.values.toList()
+      ..sort((a, b) {
+        final groupCompare = a.groupName.toLowerCase().compareTo(
+              b.groupName.toLowerCase(),
+            );
+        if (groupCompare != 0) {
+          return groupCompare;
+        }
+        return a.displayName.toLowerCase().compareTo(
+              b.displayName.toLowerCase(),
+            );
+      });
+    return members;
   }
 
-  List<IdolMember> _fallbackMembersForGroup(String groupName) {
-    final trimmedGroupName = groupName.trim();
-    if (trimmedGroupName.isEmpty) {
-      return const <IdolMember>[];
+  List<IdolMember> get _selectableMembers {
+    if (_idolMembers.isNotEmpty) {
+      return _idolMembers;
     }
-
-    final memberNames = <String>{
-      for (final counter in widget.counters)
-        if (counter.groupName.trim() == trimmedGroupName &&
-            counter.name.trim().isNotEmpty)
-          counter.name.trim(),
-    }.toList()
-      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-
-    return memberNames
-        .map(
-          (memberName) => IdolMember(
-            groupId: 0,
-            groupName: trimmedGroupName,
-            name: memberName,
-          ),
-        )
-        .toList();
-  }
-
-  List<IdolMember> get _duoSelectableMembers {
-    if (_duoMembers.isNotEmpty) {
-      return _duoMembers;
-    }
-    return _fallbackMembersForGroup(_selectedDuoGroupName);
+    return _fallbackMembers;
   }
 
   Future<void> _pickDateTime() async {
@@ -264,124 +292,28 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     });
   }
 
-  Future<void> _pickDuoGroup() async {
-    final selected = await showModalBottomSheet<IdolGroup>(
-      context: context,
-      useSafeArea: true,
-      isScrollControlled: true,
-      builder: (context) => _IdolGroupSearchSheet(
-        title: '搜索团体',
-        groups: _duoSelectableGroups,
-      ),
-    );
-    if (selected == null || !mounted) {
-      return;
-    }
-
-    final pricing = widget.pricings.cast<GroupPricingModel?>().firstWhere(
-          (item) => item?.groupName.trim() == selected.name.trim(),
-          orElse: () => null,
-        );
-
-    final fallbackMembers = _fallbackMembersForGroup(selected.name);
-
-    setState(() {
-      _selectedDuoGroupId = selected.id;
-      _selectedDuoGroupName = selected.name;
-      _selectedDuoPrimaryMemberId = null;
-      _selectedDuoSecondaryMemberId = null;
-      _duoMembers = selected.id == null ? fallbackMembers : [];
-      _duoMemberLoading = selected.id != null;
-      _duoPrimaryController.clear();
-      _duoSecondaryController.clear();
-      if (_duoPriceController.text.trim().isEmpty ||
-          _duoPriceController.text.trim() == '0') {
-        _duoPriceController.text =
-            (pricing?.doubleCutPrice ?? 0).toStringAsFixed(0);
-      }
-    });
-
-    if (selected.id != null) {
-      await _loadDuoMembersForGroup(selected.id);
-    }
+  String _participantKey(ActivityParticipant participant) {
+    final normalizedGroup = participant.groupName.trim().toLowerCase();
+    final normalizedMember = participant.memberName.trim().toLowerCase();
+    return '$normalizedGroup|$normalizedMember';
   }
 
-  Future<void> _loadDuoMembersForGroup(int? groupId) async {
-    if (groupId == null) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _duoMembers = _fallbackMembersForGroup(_selectedDuoGroupName);
-        _duoMemberLoading = false;
-      });
-      return;
-    }
-
-    setState(() {
-      _duoMemberLoading = true;
-      _duoMembers = [];
-    });
-
-    final members = await IdolDatabaseService.getMembers(groupId: groupId);
-    if (!mounted || _selectedDuoGroupId != groupId) {
-      return;
-    }
-
-    final fallbackMembers = _fallbackMembersForGroup(_selectedDuoGroupName);
-    setState(() {
-      _duoMembers = members.isNotEmpty ? members : fallbackMembers;
-      _duoMemberLoading = false;
-    });
-  }
-
-  IdolMember? _findDuoMemberById(int? id) {
-    if (id == null) {
-      return null;
-    }
-    for (final member in _duoMembers) {
-      if (member.id == id) {
-        return member;
-      }
-    }
-    return null;
-  }
-
-  Future<void> _pickDuoMember({required bool primary}) async {
-    if (_selectedDuoGroupName.trim().isEmpty) {
-      return;
-    }
-
-    final groupId = _selectedDuoGroupId;
-    if (groupId != null && _duoMembers.isEmpty && !_duoMemberLoading) {
-      await _loadDuoMembersForGroup(groupId);
-    }
-
-    if (!mounted) {
-      return;
-    }
-
-    final excludedId =
-        primary ? _selectedDuoSecondaryMemberId : _selectedDuoPrimaryMemberId;
-    final excludedName = primary
-        ? _duoSecondaryController.text.trim()
-        : _duoPrimaryController.text.trim();
-    final availableMembers = _duoSelectableMembers.where((member) {
-      if (excludedId != null && member.id != null) {
-        return member.id != excludedId;
-      }
-      if (excludedName.isNotEmpty) {
-        return member.displayName != excludedName;
-      }
-      return true;
-    }).toList();
+  Future<void> _pickMultiParticipant() async {
+    final excludedKeys = _selectedParticipants
+        .map(_participantKey)
+        .toSet();
+    final availableMembers = _selectableMembers.where((member) {
+      final key =
+          '${member.groupName.trim().toLowerCase()}|${member.displayName.trim().toLowerCase()}';
+      return !excludedKeys.contains(key);
+    }).toList(growable: false);
 
     final selected = await showModalBottomSheet<IdolMember>(
       context: context,
       useSafeArea: true,
       isScrollControlled: true,
       builder: (context) => _IdolMemberSearchSheet(
-        title: primary ? '搜索成员 A' : '搜索成员 B',
+        title: '添加多人切成员',
         members: availableMembers,
       ),
     );
@@ -390,13 +322,55 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
       return;
     }
 
+    final nextParticipants = [
+      ..._selectedParticipants,
+      ActivityParticipant(
+        memberName: selected.displayName,
+        groupName: selected.groupName,
+        personId: selected.personId,
+        personName: selected.resolvedPersonName,
+      ),
+    ];
+    final nextGroupNames = nextParticipants
+        .map((participant) => participant.groupName.trim())
+        .where((groupName) => groupName.isNotEmpty)
+        .toSet();
+    final nextPricing = nextGroupNames.length == 1
+        ? _resolvePricingByGroupName(nextGroupNames.first)
+        : null;
+    final nextAllowsUnsigned = nextGroupNames.isNotEmpty &&
+        nextGroupNames.every(
+          (groupName) => _resolvePricingByGroupName(groupName)?.hasUnsignedPrices == true,
+        );
+    final nextVisibleFields = CounterCountField.multiVisibleValues(
+      enableUnsigned: nextAllowsUnsigned,
+    );
+    final nextSelectedField = nextVisibleFields.contains(_selectedMultiField)
+        ? _selectedMultiField
+        : nextVisibleFields.first;
+
     setState(() {
-      if (primary) {
-        _selectedDuoPrimaryMemberId = selected.id;
-        _duoPrimaryController.text = selected.displayName;
-      } else {
-        _selectedDuoSecondaryMemberId = selected.id;
-        _duoSecondaryController.text = selected.displayName;
+      _selectedParticipants = nextParticipants;
+      _selectedMultiField = nextSelectedField;
+      final suggestedPricing = nextPricing;
+      if ((_multiPriceController.text.trim().isEmpty ||
+              _multiPriceController.text.trim() == '0') &&
+          suggestedPricing != null &&
+          suggestedPricing.doubleCutPrice > 0) {
+        _multiPriceController.text =
+            suggestedPricing.doubleCutPrice.toStringAsFixed(0);
+      }
+    });
+  }
+
+  void _removeParticipantAt(int index) {
+    setState(() {
+      final next = [..._selectedParticipants];
+      next.removeAt(index);
+      _selectedParticipants = next;
+      final visibleFields = _multiVisibleFields;
+      if (!visibleFields.contains(_selectedMultiField)) {
+        _selectedMultiField = visibleFields.first;
       }
     });
   }
@@ -408,7 +382,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
       }
 
       final counterDeltas = {
-        for (final field in CounterCountField.values) field: _parseCount(field),
+        for (final field in _counterVisibleFields) field: _parseCount(field),
       };
       final hasCount = counterDeltas.values.any((value) => value != 0);
       if (!hasCount) {
@@ -427,16 +401,10 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
       return;
     }
 
-    if (_type == ActivityRecordType.duo) {
-      final groupName = _selectedDuoGroupName.trim();
-      final primaryMember = _duoPrimaryController.text.trim();
-      final secondaryMember = _duoSecondaryController.text.trim();
-
-      if (groupName.isEmpty ||
-          primaryMember.isEmpty ||
-          secondaryMember.isEmpty ||
-          primaryMember == secondaryMember ||
-          _duoQuantity <= 0) {
+    if (_type == ActivityRecordType.multi) {
+      if (_selectedParticipants.length < 2 ||
+          _multiQuantity <= 0 ||
+          !_multiVisibleFields.contains(_selectedMultiField)) {
         return;
       }
 
@@ -445,11 +413,10 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
           type: _type,
           occurredAt: _occurredAt,
           note: _noteController.text.trim(),
-          duoGroupName: groupName,
-          primaryMemberName: primaryMember,
-          secondaryMemberName: secondaryMember,
-          duoQuantity: _duoQuantity,
-          duoUnitPrice: _duoUnitPrice,
+          multiParticipants: _selectedParticipants,
+          multiField: _selectedMultiField,
+          multiQuantity: _multiQuantity,
+          multiTotalPrice: double.tryParse(_multiPriceController.text.trim()) ?? 0,
         ),
       );
       return;
@@ -476,17 +443,15 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
   @override
   Widget build(BuildContext context) {
     final pricing = _selectedPricing;
-    final duoPricing = _duoPricing;
-    final primaryDuoMember = _findDuoMemberById(_selectedDuoPrimaryMemberId);
-    final secondaryDuoMember =
-        _findDuoMemberById(_selectedDuoSecondaryMemberId);
-    final primaryDuoLabel =
-        primaryDuoMember?.displayName ?? _duoPrimaryController.text.trim();
-    final secondaryDuoLabel =
-        secondaryDuoMember?.displayName ?? _duoSecondaryController.text.trim();
-    final canPickDuoMember =
-        _selectedDuoGroupName.trim().isNotEmpty && !_duoMemberLoading;
-    final duoPreviewTotal = _duoQuantity * _duoUnitPrice;
+    final multiSuggestedPricing = _multiSuggestedPricing;
+    final participantGroups = _selectedParticipants
+        .map((participant) => participant.groupName.trim())
+        .where((groupName) => groupName.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+    final multiPreviewTotal =
+        double.tryParse(_multiPriceController.text.trim()) ?? 0;
     final ticketPreviewTotal = _ticketQuantity * _ticketUnitPrice;
 
     return AlertDialog(
@@ -504,8 +469,8 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
                   icon: Icon(Icons.person_outline),
                 ),
                 ButtonSegment<ActivityRecordType>(
-                  value: ActivityRecordType.duo,
-                  label: Text('双人切'),
+                  value: ActivityRecordType.multi,
+                  label: Text('多人切'),
                   icon: Icon(Icons.people_outline),
                 ),
                 ButtonSegment<ActivityRecordType>(
@@ -569,7 +534,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
-                      children: CounterCountField.values.map((field) {
+                      children: _counterVisibleFields.map((field) {
                         return Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 10,
@@ -591,7 +556,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
                 ),
               ),
               const SizedBox(height: 12),
-              ...CounterCountField.values.map((field) {
+              ..._counterVisibleFields.map((field) {
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: NoAutofillTextField(
@@ -611,92 +576,118 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
                       fontWeight: FontWeight.bold,
                     ),
               ),
-            ] else if (_type == ActivityRecordType.duo) ...[
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  side: BorderSide(
-                    color: Theme.of(context).colorScheme.outlineVariant,
-                  ),
+            ] else if (_type == ActivityRecordType.multi) ...[
+              if (_idolLoading)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 12),
+                  child: LinearProgressIndicator(),
                 ),
-                title: const Text('团体 / 价格'),
-                subtitle: Text(
-                  _idolGroupLoading
-                      ? '正在加载偶像库...'
-                      : _selectedDuoGroupName.isEmpty
-                          ? '点击搜索团体'
-                          : '$_selectedDuoGroupName · ${duoPricing.label}',
-                ),
-                trailing: const Icon(Icons.search),
-                onTap: _idolGroupLoading ? null : _pickDuoGroup,
-              ),
-              const SizedBox(height: 12),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 children: [
                   _MetricPill(
-                    label: '双人切单价',
-                    value:
-                        '¥${duoPricing.doubleCutPrice.toStringAsFixed(duoPricing.doubleCutPrice == duoPricing.doubleCutPrice.roundToDouble() ? 0 : 2)}',
+                    label: '已选人数',
+                    value: '${_selectedParticipants.length}',
                   ),
                   const _MetricPill(
-                    label: '统计规则',
-                    value: '只进团体统计',
+                    label: '金额规则',
+                    value: '统计时均摊',
                   ),
+                  _MetricPill(
+                    label: '当前规格',
+                    value: _selectedMultiField.label,
+                  ),
+                  if (multiSuggestedPricing != null)
+                    _MetricPill(
+                      label: '单团参考价',
+                      value:
+                          '¥${multiSuggestedPricing.doubleCutPrice.toStringAsFixed(multiSuggestedPricing.doubleCutPrice == multiSuggestedPricing.doubleCutPrice.roundToDouble() ? 0 : 2)}',
+                    ),
                 ],
               ),
               const SizedBox(height: 12),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  side: BorderSide(
-                    color: Theme.of(context).colorScheme.outlineVariant,
-                  ),
-                ),
-                title: const Text('成员 A'),
-                subtitle: Text(
-                  primaryDuoLabel.isNotEmpty
-                      ? primaryDuoLabel
-                      : (_selectedDuoGroupName.isEmpty ? '请先选择团体' : '点击搜索成员'),
-                ),
-                trailing: const Icon(Icons.search),
-                onTap: !canPickDuoMember
-                    ? null
-                    : () => _pickDuoMember(primary: true),
+              FilledButton.tonalIcon(
+                onPressed: _pickMultiParticipant,
+                icon: const Icon(Icons.person_add_alt_1),
+                label: const Text('添加参与成员'),
               ),
-              const SizedBox(height: 12),
-              if (_duoMemberLoading)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 12),
-                  child: LinearProgressIndicator(),
+              if (_selectableMembers.isEmpty && !_idolLoading) ...[
+                const SizedBox(height: 12),
+                Text(
+                  '当前没有可选成员，请先在偶像数据库或主页计数器里补成员。',
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  side: BorderSide(
-                    color: Theme.of(context).colorScheme.outlineVariant,
+              ],
+              if (_selectedParticipants.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                ..._selectedParticipants.asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final participant = entry.value;
+                  final subtitle = [
+                    if (participant.groupName.trim().isNotEmpty)
+                      participant.groupName.trim(),
+                    if (participant.personName.trim().isNotEmpty &&
+                        participant.personName.trim() !=
+                            participant.memberName.trim())
+                      '真人 ${participant.personName.trim()}',
+                  ].join(' · ');
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(
+                          color: Theme.of(context).colorScheme.outlineVariant,
+                        ),
+                      ),
+                      title: Text(participant.memberName),
+                      subtitle: subtitle.isEmpty ? null : Text(subtitle),
+                      trailing: IconButton(
+                        onPressed: () => _removeParticipantAt(index),
+                        icon: const Icon(Icons.close),
+                        tooltip: '移除',
+                      ),
+                    ),
+                  );
+                }),
+              ],
+              if (participantGroups.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Text(
+                    '涉及团体：${participantGroups.join(' / ')}',
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
-                title: const Text('成员 B'),
-                subtitle: Text(
-                  secondaryDuoLabel.isNotEmpty
-                      ? secondaryDuoLabel
-                      : (_selectedDuoGroupName.isEmpty ? '请先选择团体' : '点击搜索成员'),
-                ),
-                trailing: const Icon(Icons.search),
-                onTap: !canPickDuoMember
-                    ? null
-                    : () => _pickDuoMember(primary: false),
+              Text(
+                '规格',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _multiVisibleFields.map((field) {
+                  final selected = field == _selectedMultiField;
+                  return ChoiceChip(
+                    label: Text(field.label),
+                    selected: selected,
+                    onSelected: (_) {
+                      setState(() {
+                        _selectedMultiField = field;
+                      });
+                    },
+                  );
+                }).toList(),
               ),
               const SizedBox(height: 12),
               NoAutofillTextField(
-                controller: _duoQuantityController,
+                controller: _multiQuantityController,
                 decoration: const InputDecoration(
-                  labelText: '双人切数量',
+                  labelText: '每人成交数量',
                   hintText: '1',
                 ),
                 keyboardType: TextInputType.number,
@@ -704,9 +695,9 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
               ),
               const SizedBox(height: 12),
               NoAutofillTextField(
-                controller: _duoPriceController,
+                controller: _multiPriceController,
                 decoration: const InputDecoration(
-                  labelText: '双人切单价',
+                  labelText: '多人切总价',
                   prefixText: '¥',
                 ),
                 keyboardType: const TextInputType.numberWithOptions(
@@ -716,7 +707,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
               ),
               const SizedBox(height: 12),
               Text(
-                '预计金额：¥${duoPreviewTotal.toStringAsFixed(duoPreviewTotal == duoPreviewTotal.roundToDouble() ? 0 : 2)}',
+                '预计金额：¥${multiPreviewTotal.toStringAsFixed(multiPreviewTotal == multiPreviewTotal.roundToDouble() ? 0 : 2)}',
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
@@ -1006,7 +997,27 @@ class _IdolMemberSearchSheetState extends State<_IdolMemberSearchSheet> {
   Widget build(BuildContext context) {
     final members = widget.members.where((member) {
       return member.matchesQuery(_query);
-    }).toList();
+    }).toList()
+      ..sort((a, b) {
+        if (a.isActiveAffiliation != b.isActiveAffiliation) {
+          return a.isActiveAffiliation ? -1 : 1;
+        }
+        final personCompare = a.resolvedPersonName.toLowerCase().compareTo(
+              b.resolvedPersonName.toLowerCase(),
+            );
+        if (personCompare != 0) {
+          return personCompare;
+        }
+        final groupCompare = a.groupName.toLowerCase().compareTo(
+              b.groupName.toLowerCase(),
+            );
+        if (groupCompare != 0) {
+          return groupCompare;
+        }
+        return a.displayName.toLowerCase().compareTo(
+              b.displayName.toLowerCase(),
+            );
+      });
 
     return FractionallySizedBox(
       heightFactor: 0.8,
@@ -1043,6 +1054,8 @@ class _IdolMemberSearchSheetState extends State<_IdolMemberSearchSheet> {
                   final member = members[index];
                   final subtitleParts = <String>[
                     member.groupName,
+                    if (member.resolvedPersonName != member.displayName)
+                      '真人 ${member.resolvedPersonName}',
                     if (member.status.isNotEmpty) member.status,
                   ];
                   return ListTile(

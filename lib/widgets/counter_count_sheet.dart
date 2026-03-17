@@ -3,15 +3,35 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../models/counter_model.dart';
+import '../services/database_service.dart';
+import '../services/idol_database_service.dart';
+import '../models/idol_database_models.dart';
+import 'no_autofill_text_field.dart';
+
+class CounterRecordTarget {
+  final String key;
+  final String label;
+  final CounterModel counter;
+
+  const CounterRecordTarget({
+    required this.key,
+    required this.label,
+    required this.counter,
+  });
+}
 
 class CounterCountSheet extends StatefulWidget {
   final CounterModel counter;
-  final Future<void> Function(CounterModel updatedCounter, DateTime occurredAt)
-      onCounterChanged;
+  final List<CounterModel> allCounters;
+  final Future<CounterModel> Function(
+    CounterModel updatedCounter,
+    DateTime occurredAt,
+  ) onCounterChanged;
 
   const CounterCountSheet({
     super.key,
     required this.counter,
+    required this.allCounters,
     required this.onCounterChanged,
   });
 
@@ -22,12 +42,331 @@ class CounterCountSheet extends StatefulWidget {
 class _CounterCountSheetState extends State<CounterCountSheet> {
   late CounterModel _counter;
   late DateTime _occurredAt;
+  late List<CounterRecordTarget> _targets;
+  late String _selectedTargetKey;
+  bool _enableUnsignedOptions = false;
+  bool _targetsLoading = false;
 
   @override
   void initState() {
     super.initState();
     _counter = widget.counter;
     _occurredAt = DateTime.now();
+    _targets = [
+      _buildTarget(
+        widget.counter,
+        labelOverride: _buildTargetLabel(
+          widget.counter.groupName,
+          widget.counter.name,
+          isCurrent: true,
+        ),
+      ),
+    ];
+    _selectedTargetKey = _targets.first.key;
+    _loadUnsignedOptions();
+    _loadRecordTargets();
+  }
+
+  Future<void> _loadUnsignedOptions() async {
+    final pricing = await DatabaseService.getGroupPricingByName(
+      _counter.groupName,
+    );
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _enableUnsignedOptions =
+          pricing?.hasUnsignedPrices == true || _counter.hasUnsignedCounts;
+    });
+  }
+
+  String _normalizeLookupValue(String value) {
+    return value.trim().toLowerCase();
+  }
+
+  String _groupKey(String groupName) {
+    return _normalizeLookupValue(groupName);
+  }
+
+  bool _hasExplicitCounterIdentity(CounterModel counter) {
+    return counter.personId != null || counter.personName.trim().isNotEmpty;
+  }
+
+  String _explicitCounterPersonName(CounterModel counter) {
+    final personName = counter.personName.trim();
+    if (personName.isNotEmpty) {
+      return personName;
+    }
+    if (counter.personId != null) {
+      return counter.name.trim();
+    }
+    return '';
+  }
+
+  String _resolvedMemberPersonName(IdolMember member) {
+    final personName = member.resolvedPersonName.trim();
+    if (personName.isNotEmpty) {
+      return personName;
+    }
+    return member.displayName.trim();
+  }
+
+  String _buildTargetLabel(
+    String groupName,
+    String memberName, {
+    required bool isCurrent,
+  }) {
+    final segments = <String>[
+      if (groupName.trim().isNotEmpty) groupName.trim() else '未分组',
+      if (memberName.trim().isNotEmpty) memberName.trim(),
+      if (isCurrent) '当前卡片',
+    ];
+    return segments.join(' · ');
+  }
+
+  CounterRecordTarget _buildTarget(
+    CounterModel counter, {
+    String? labelOverride,
+  }) {
+    return CounterRecordTarget(
+      key: _groupKey(counter.groupName),
+      label: labelOverride ??
+          _buildTargetLabel(
+            counter.groupName,
+            counter.name,
+            isCurrent: _groupKey(counter.groupName) ==
+                _groupKey(widget.counter.groupName),
+          ),
+      counter: counter,
+    );
+  }
+
+  bool _memberMatchesCounter(IdolMember member) {
+    if (!_hasExplicitCounterIdentity(widget.counter)) {
+      return false;
+    }
+
+    final counterPersonId = widget.counter.personId;
+    if (counterPersonId != null && member.personId != null) {
+      return member.personId == counterPersonId;
+    }
+
+    return _normalizeLookupValue(_resolvedMemberPersonName(member)) ==
+        _normalizeLookupValue(_explicitCounterPersonName(widget.counter));
+  }
+
+  bool _counterMatchesWidgetCounter(CounterModel counter) {
+    if (!_hasExplicitCounterIdentity(widget.counter) ||
+        !_hasExplicitCounterIdentity(counter)) {
+      return false;
+    }
+
+    if (counter.id != null &&
+        widget.counter.id != null &&
+        counter.id == widget.counter.id) {
+      return false;
+    }
+
+    final currentPersonId = widget.counter.personId;
+    final candidatePersonId = counter.personId;
+    if (currentPersonId != null &&
+        candidatePersonId != null &&
+        currentPersonId == candidatePersonId) {
+      return true;
+    }
+
+    final currentPersonName = _explicitCounterPersonName(widget.counter);
+    if (currentPersonName.isEmpty) {
+      return false;
+    }
+
+    return _normalizeLookupValue(_explicitCounterPersonName(counter)) ==
+        _normalizeLookupValue(currentPersonName);
+  }
+
+  int _compareTargetGroups(String aGroupName, String bGroupName) {
+    final aIsCurrent =
+        _groupKey(aGroupName) == _groupKey(widget.counter.groupName);
+    final bIsCurrent =
+        _groupKey(bGroupName) == _groupKey(widget.counter.groupName);
+    if (aIsCurrent != bIsCurrent) {
+      return aIsCurrent ? -1 : 1;
+    }
+    return aGroupName.toLowerCase().compareTo(bGroupName.toLowerCase());
+  }
+
+  CounterModel? _findExistingCounterForMember(IdolMember member) {
+    final targetGroupKey = _groupKey(member.groupName);
+
+    for (final counter in widget.allCounters) {
+      if (_groupKey(counter.groupName) != targetGroupKey) {
+        continue;
+      }
+
+      if (widget.counter.personId != null && counter.personId != null) {
+        if (counter.personId == widget.counter.personId) {
+          return counter;
+        }
+        continue;
+      }
+
+      if (_normalizeLookupValue(_explicitCounterPersonName(counter)) ==
+          _normalizeLookupValue(_resolvedMemberPersonName(member))) {
+        return counter;
+      }
+    }
+
+    return null;
+  }
+
+  CounterModel _buildDraftCounterForMember(IdolMember member) {
+    return CounterModel(
+      name: member.displayName.trim().isEmpty
+          ? widget.counter.name
+          : member.displayName,
+      groupName: member.groupName.trim(),
+      personId: member.personId ?? widget.counter.personId,
+      personName: member.resolvedPersonName.trim().isEmpty
+          ? _explicitCounterPersonName(widget.counter)
+          : member.resolvedPersonName.trim(),
+      color: widget.counter.color,
+    );
+  }
+
+  Future<void> _loadRecordTargets() async {
+    final hasPersonId = widget.counter.personId != null;
+    final hasPersonName = widget.counter.personName.trim().isNotEmpty;
+    if (!hasPersonId && !hasPersonName) {
+      return;
+    }
+
+    setState(() {
+      _targetsLoading = true;
+    });
+
+    try {
+      await IdolDatabaseService.initializeBuiltInDataIfNeeded();
+      final members = await IdolDatabaseService.getMembers();
+      final matchedMembers = members.where(_memberMatchesCounter).toList()
+        ..sort((a, b) {
+          final aIsCurrent =
+              _groupKey(a.groupName) == _groupKey(widget.counter.groupName);
+          final bIsCurrent =
+              _groupKey(b.groupName) == _groupKey(widget.counter.groupName);
+          if (aIsCurrent != bIsCurrent) {
+            return aIsCurrent ? -1 : 1;
+          }
+          if (a.isActiveAffiliation != b.isActiveAffiliation) {
+            return a.isActiveAffiliation ? -1 : 1;
+          }
+          return a.groupName.toLowerCase().compareTo(b.groupName.toLowerCase());
+        });
+
+      if (!mounted) {
+        return;
+      }
+
+      final targetsByKey = <String, CounterRecordTarget>{
+        _targets.first.key: _targets.first,
+      };
+
+      final relatedCounters = widget.allCounters
+          .where(_counterMatchesWidgetCounter)
+          .toList()
+        ..sort((a, b) => _compareTargetGroups(a.groupName, b.groupName));
+
+      for (final counter in relatedCounters) {
+        final key = _groupKey(counter.groupName);
+        targetsByKey[key] = _buildTarget(
+          counter,
+          labelOverride: _buildTargetLabel(
+            counter.groupName,
+            counter.name,
+            isCurrent: key == _groupKey(widget.counter.groupName),
+          ),
+        );
+      }
+
+      for (final member in matchedMembers) {
+        final existingCounter = _findExistingCounterForMember(member);
+        final targetCounter =
+            existingCounter ?? _buildDraftCounterForMember(member);
+        final key = _groupKey(targetCounter.groupName);
+        targetsByKey[key] = _buildTarget(
+          targetCounter,
+          labelOverride: _buildTargetLabel(
+            targetCounter.groupName,
+            targetCounter.name,
+            isCurrent: key == _groupKey(widget.counter.groupName),
+          ),
+        );
+      }
+
+      final nextTargets = targetsByKey.values.toList()
+        ..sort((a, b) {
+          final aIsCurrent = a.key == _groupKey(widget.counter.groupName);
+          final bIsCurrent = b.key == _groupKey(widget.counter.groupName);
+          if (aIsCurrent != bIsCurrent) {
+            return aIsCurrent ? -1 : 1;
+          }
+          return a.label.toLowerCase().compareTo(b.label.toLowerCase());
+        });
+
+      setState(() {
+        _targets = nextTargets;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _targetsLoading = false;
+        });
+      }
+    }
+  }
+
+  void _selectTarget(String key) {
+    final targetIndex = _targets.indexWhere((entry) => entry.key == key);
+    if (targetIndex == -1) {
+      return;
+    }
+    final target = _targets[targetIndex];
+
+    setState(() {
+      _selectedTargetKey = key;
+      _counter = target.counter;
+    });
+    unawaited(_loadUnsignedOptions());
+  }
+
+  void _replaceTargetCounter(CounterModel counter) {
+    final nextTarget = _buildTarget(counter);
+    final nextTargets = [..._targets];
+    final index =
+        nextTargets.indexWhere((entry) => entry.key == nextTarget.key);
+    if (index == -1) {
+      nextTargets.add(nextTarget);
+    } else {
+      nextTargets[index] = nextTarget;
+    }
+    _targets = nextTargets;
+  }
+
+  Future<void> _persistCounter(
+    CounterModel updatedCounter,
+    String targetKey,
+  ) async {
+    final savedCounter =
+        await widget.onCounterChanged(updatedCounter, _occurredAt);
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _replaceTargetCounter(savedCounter);
+      if (_selectedTargetKey == targetKey) {
+        _counter = savedCounter;
+      }
+    });
   }
 
   Future<void> _pickDateTime() async {
@@ -60,15 +399,78 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
     if (updatedCounter.countForField(field) == _counter.countForField(field)) {
       return;
     }
+    final targetKey = _selectedTargetKey;
 
     setState(() {
       _counter = updatedCounter;
+      _replaceTargetCounter(updatedCounter);
     });
-    unawaited(widget.onCounterChanged(updatedCounter, _occurredAt));
+    unawaited(_persistCounter(updatedCounter, targetKey));
+  }
+
+  Future<void> _editCount(CounterCountField field) async {
+    final controller = TextEditingController(
+      text: _counter.countForField(field).toString(),
+    );
+    final nextValue = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text('修改${field.label}'),
+          content: NoAutofillTextField(
+            controller: controller,
+            autofocus: true,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: '数量',
+              hintText: '请输入新的总数',
+            ),
+            onSubmitted: (_) {
+              final parsed = int.tryParse(controller.text.trim());
+              if (parsed == null || parsed < 0) {
+                return;
+              }
+              Navigator.of(dialogContext).pop(parsed);
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final parsed = int.tryParse(controller.text.trim());
+                if (parsed == null || parsed < 0) {
+                  return;
+                }
+                Navigator.of(dialogContext).pop(parsed);
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        );
+      },
+    );
+    controller.dispose();
+
+    if (!mounted || nextValue == null) {
+      return;
+    }
+
+    final delta = nextValue - _counter.countForField(field);
+    if (delta == 0) {
+      return;
+    }
+
+    _changeCount(field, delta);
   }
 
   @override
   Widget build(BuildContext context) {
+    final visibleFields = CounterCountField.visibleValues(
+      enableUnsigned: _enableUnsignedOptions,
+    );
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
@@ -102,7 +504,7 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
             ),
             const SizedBox(height: 8),
             Text(
-              '点按 +/- 会立即按下方时间保存当前规格数量。',
+              '点按 +/- 会立即保存；点中间数字可以直接输入总数。',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 8),
@@ -114,8 +516,34 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
               trailing: const Icon(Icons.edit_calendar_outlined),
               onTap: _pickDateTime,
             ),
+            if (_targetsLoading) ...[
+              const SizedBox(height: 8),
+              const LinearProgressIndicator(),
+            ],
+            if (_targets.length > 1) ...[
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                initialValue: _selectedTargetKey,
+                decoration: const InputDecoration(
+                  labelText: '记录到团体',
+                  helperText: '默认当前卡片所属团体，也可以切到这个真人的其他团籍',
+                ),
+                items: _targets.map((target) {
+                  return DropdownMenuItem<String>(
+                    value: target.key,
+                    child: Text(target.label),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  if (value == null || value == _selectedTargetKey) {
+                    return;
+                  }
+                  _selectTarget(value);
+                },
+              ),
+            ],
             const SizedBox(height: 16),
-            ...CounterCountField.values.map((field) {
+            ...visibleFields.map((field) {
               return Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: _CountAdjustRow(
@@ -123,6 +551,7 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
                   value: _counter.countForField(field),
                   onDecrement: () => _changeCount(field, -1),
                   onIncrement: () => _changeCount(field, 1),
+                  onEditValue: () => _editCount(field),
                 ),
               );
             }),
@@ -147,12 +576,14 @@ class _CountAdjustRow extends StatelessWidget {
   final int value;
   final VoidCallback onDecrement;
   final VoidCallback onIncrement;
+  final VoidCallback onEditValue;
 
   const _CountAdjustRow({
     required this.field,
     required this.value,
     required this.onDecrement,
     required this.onIncrement,
+    required this.onEditValue,
   });
 
   @override
@@ -177,12 +608,22 @@ class _CountAdjustRow extends StatelessWidget {
           ),
           SizedBox(
             width: 52,
-            child: Text(
-              '$value',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: onEditValue,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    '$value',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
                   ),
+                ),
+              ),
             ),
           ),
           IconButton.filled(

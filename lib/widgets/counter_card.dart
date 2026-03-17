@@ -113,8 +113,8 @@ class CounterCard extends StatelessWidget {
                 ? (buttonHeight * 0.12).clamp(1.5, 3.5)
                 : (buttonHeight * 0.15).clamp(4.0, 6.0);
         final metricWidth = math.min(
-          88.0,
-          cardWidth * 0.34,
+          104.0,
+          cardWidth * 0.4,
         );
         final nameFontSize = ultraCompact
             ? 9.0
@@ -288,14 +288,26 @@ class CounterCard extends StatelessWidget {
                                                 size: statusIconSize,
                                               ),
                                             ),
-                                          Text(
-                                            counter.count.toString(),
-                                            textAlign: TextAlign.right,
-                                            style: TextStyle(
-                                              fontSize: countFontSize,
-                                              fontWeight: FontWeight.bold,
-                                              color: textColor,
-                                              height: 1,
+                                          SizedBox(
+                                            height: countFontSize * 1.15,
+                                            width: double.infinity,
+                                            child: Align(
+                                              alignment: Alignment.centerRight,
+                                              child: FittedBox(
+                                                fit: BoxFit.scaleDown,
+                                                alignment:
+                                                    Alignment.centerRight,
+                                                child: Text(
+                                                  counter.count.toString(),
+                                                  textAlign: TextAlign.right,
+                                                  style: TextStyle(
+                                                    fontSize: countFontSize,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: textColor,
+                                                    height: 1,
+                                                  ),
+                                                ),
+                                              ),
                                             ),
                                           ),
                                           if (showPercentage) ...[
@@ -389,13 +401,28 @@ class _CountGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final entries = counter.countEntries
-        .where((entry) => entry.key != CounterCountField.groupCut)
-        .toList();
+    final entries = <MapEntry<CounterCountField, int>>[
+      MapEntry(
+        CounterCountField.threeInch,
+        counter.aggregatedThreeInchCount,
+      ),
+      MapEntry(
+        CounterCountField.fiveInch,
+        counter.aggregatedFiveInchCount,
+      ),
+      MapEntry(
+        CounterCountField.threeInchShukudai,
+        counter.threeInchShukudaiCount,
+      ),
+      MapEntry(
+        CounterCountField.fiveInchShukudai,
+        counter.fiveInchShukudaiCount,
+      ),
+    ];
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final columns = constraints.maxWidth >= 300 ? 4 : 2;
+        final columns = constraints.maxWidth >= 300 ? 3 : 2;
         final itemWidth = math.max(
           0.0,
           (constraints.maxWidth - ((columns - 1) * 6)) / columns,
@@ -464,13 +491,21 @@ class _CountBadge extends StatelessWidget {
           const SizedBox(height: 2),
           Align(
             alignment: Alignment.centerRight,
-            child: Text(
-              '$value',
-              textAlign: TextAlign.right,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                color: textColor.withValues(alpha: isZero ? 0.65 : 0.95),
+            child: SizedBox(
+              height: 14,
+              width: double.infinity,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerRight,
+                child: Text(
+                  '$value',
+                  textAlign: TextAlign.right,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: textColor.withValues(alpha: isZero ? 0.65 : 0.95),
+                  ),
+                ),
               ),
             ),
           ),

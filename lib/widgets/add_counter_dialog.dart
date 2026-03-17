@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/counter_model.dart';
 import '../models/idol_database_models.dart';
+import '../services/database_service.dart';
 import '../services/idol_database_service.dart';
 import 'color_picker_dialog.dart';
 import 'no_autofill_text_field.dart';
@@ -13,6 +14,22 @@ class CounterDialogResult {
   const CounterDialogResult({
     required this.counter,
     required this.occurredAt,
+  });
+}
+
+class _PersonPickerOption {
+  final int? personId;
+  final String personName;
+  final int linkedCounterCount;
+  final List<String> groups;
+  final bool fromIdolDatabase;
+
+  const _PersonPickerOption({
+    required this.personId,
+    required this.personName,
+    this.linkedCounterCount = 0,
+    this.groups = const [],
+    this.fromIdolDatabase = false,
   });
 }
 
@@ -33,17 +50,26 @@ class AddCounterDialog extends StatefulWidget {
 class _AddCounterDialogState extends State<AddCounterDialog> {
   final _nameController = TextEditingController();
   final _groupController = TextEditingController();
+  final _personController = TextEditingController();
   late final Map<String, TextEditingController> _countControllers;
   Color _selectedColor = const Color(0xFFFFE135);
   String? _nameError;
   final Map<String, String?> _countErrors = {};
   List<IdolGroup> _idolGroups = [];
   List<IdolMember> _idolMembers = [];
+  List<IdolPerson> _idolPeople = [];
+  List<CounterModel> _existingCounters = [];
+  List<_PersonPickerOption> _personOptions = [];
   bool _idolLoading = false;
   bool _idolMemberLoading = false;
   bool _useIdolDatabase = true;
   int? _selectedIdolGroupId;
   int? _selectedIdolMemberId;
+  int? _selectedPersonId;
+  String _selectedPersonName = '';
+  bool _enableUnsignedOptions = false;
+  bool _saving = false;
+  int _pricingLookupToken = 0;
   late DateTime _occurredAt;
 
   @override
@@ -59,6 +85,9 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
       _nameController.text = widget.initialData!.name;
       _groupController.text = widget.initialData!.groupName;
       _selectedColor = widget.initialData!.colorValue;
+      _selectedPersonId = widget.initialData!.personId;
+      _selectedPersonName = widget.initialData!.personName;
+      _personController.text = widget.initialData!.personName;
       for (final field in CounterCountField.values) {
         _countControllers[field.key]!.text =
             widget.initialData!.countForField(field).toString();
@@ -66,12 +95,14 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
     }
 
     _loadIdolDatabase();
+    _loadUnsignedOptionsForGroup(_groupController.text);
   }
 
   @override
   void dispose() {
     _nameController.dispose();
     _groupController.dispose();
+    _personController.dispose();
     for (final controller in _countControllers.values) {
       controller.dispose();
     }
@@ -84,7 +115,14 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
     });
 
     await IdolDatabaseService.initializeBuiltInDataIfNeeded();
-    final groups = await IdolDatabaseService.getGroups();
+    final results = await Future.wait([
+      IdolDatabaseService.getGroups(),
+      IdolDatabaseService.getPeople(),
+      DatabaseService.getCounters(),
+    ]);
+    final groups = results[0] as List<IdolGroup>;
+    final people = results[1] as List<IdolPerson>;
+    final counters = results[2] as List<CounterModel>;
 
     int? selectedGroupId;
     if (widget.initialData != null &&
@@ -99,11 +137,21 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
       return;
     }
 
+    final matchedPerson = _resolveSelectedPersonFromPeople(people);
+
     setState(() {
       _idolGroups = groups;
       _idolMembers = [];
+      _idolPeople = people;
+      _existingCounters = counters;
+      _personOptions = _buildPersonOptions(people, counters);
       _selectedIdolGroupId = selectedGroupId;
       _selectedIdolMemberId = null;
+      if (matchedPerson != null) {
+        _selectedPersonId = matchedPerson.id;
+        _selectedPersonName = matchedPerson.name;
+        _personController.text = matchedPerson.name;
+      }
       _useIdolDatabase = groups.isNotEmpty;
       _idolLoading = false;
     });
@@ -114,6 +162,23 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
         initialMemberName: widget.initialData?.name,
       );
     }
+  }
+
+  Future<void> _loadUnsignedOptionsForGroup(String groupName) async {
+    final normalizedGroupName = groupName.trim();
+    final lookupToken = ++_pricingLookupToken;
+    final pricing = normalizedGroupName.isEmpty
+        ? null
+        : await DatabaseService.getGroupPricingByName(normalizedGroupName);
+
+    if (!mounted || lookupToken != _pricingLookupToken) {
+      return;
+    }
+
+    setState(() {
+      _enableUnsignedOptions = pricing?.hasUnsignedPrices == true ||
+          (widget.initialData?.hasUnsignedCounts ?? false);
+    });
   }
 
   Future<void> _loadMembersForGroup(
@@ -189,6 +254,174 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
     return null;
   }
 
+  IdolPerson? _findPersonById(int? id) {
+    if (id == null) {
+      return null;
+    }
+
+    for (final person in _idolPeople) {
+      if (person.id == id) {
+        return person;
+      }
+    }
+    return null;
+  }
+
+  IdolPerson? _findPersonByName(String name) {
+    final normalized = _normalizeLookupValue(name);
+    if (normalized.isEmpty) {
+      return null;
+    }
+
+    for (final person in _idolPeople) {
+      if (_normalizeLookupValue(person.name) == normalized) {
+        return person;
+      }
+    }
+    return null;
+  }
+
+  IdolPerson? _resolveSelectedPersonFromPeople(List<IdolPerson> people) {
+    if (_selectedPersonId != null) {
+      for (final person in people) {
+        if (person.id == _selectedPersonId) {
+          return person;
+        }
+      }
+    }
+
+    final currentName = _personController.text.trim();
+    if (currentName.isEmpty) {
+      return null;
+    }
+
+    final normalized = _normalizeLookupValue(currentName);
+    for (final person in people) {
+      if (_normalizeLookupValue(person.name) == normalized) {
+        return person;
+      }
+    }
+    return null;
+  }
+
+  String _normalizeLookupValue(String value) {
+    return value.trim().toLowerCase();
+  }
+
+  bool _counterHasExplicitIdentity(CounterModel counter) {
+    return counter.personId != null || counter.personName.trim().isNotEmpty;
+  }
+
+  String _personOptionNameForCounter(CounterModel counter) {
+    final personName = counter.personName.trim();
+    if (personName.isNotEmpty) {
+      return personName;
+    }
+    if (counter.personId != null) {
+      return counter.name.trim();
+    }
+    return '';
+  }
+
+  List<_PersonPickerOption> _buildPersonOptions(
+    List<IdolPerson> people,
+    List<CounterModel> counters,
+  ) {
+    final optionsByKey = <String, _PersonPickerOption>{};
+
+    for (final person in people) {
+      final personName = person.name.trim();
+      if (personName.isEmpty) {
+        continue;
+      }
+
+      final key = person.id == null
+          ? 'name:${_normalizeLookupValue(personName)}'
+          : 'person:${person.id}';
+      optionsByKey[key] = _PersonPickerOption(
+        personId: person.id,
+        personName: personName,
+        fromIdolDatabase: true,
+      );
+    }
+
+    final countersByKey = <String, List<CounterModel>>{};
+    for (final counter in counters) {
+      if (!_counterHasExplicitIdentity(counter)) {
+        continue;
+      }
+
+      final personName = _personOptionNameForCounter(counter);
+      if (personName.isEmpty) {
+        continue;
+      }
+
+      final key = counter.personId == null
+          ? 'name:${_normalizeLookupValue(personName)}'
+          : 'person:${counter.personId}';
+      countersByKey.putIfAbsent(key, () => <CounterModel>[]).add(counter);
+    }
+
+    for (final entry in countersByKey.entries) {
+      final relatedCounters = entry.value;
+      final firstCounter = relatedCounters.first;
+      final personName = _personOptionNameForCounter(firstCounter);
+      if (personName.isEmpty) {
+        continue;
+      }
+
+      final groups = relatedCounters
+          .map((counter) => counter.groupName.trim())
+          .where((groupName) => groupName.isNotEmpty)
+          .toSet()
+          .toList()
+        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+      final existing = optionsByKey[entry.key];
+      optionsByKey[entry.key] = _PersonPickerOption(
+        personId: existing?.personId ?? firstCounter.personId,
+        personName: existing?.personName ?? personName,
+        linkedCounterCount: relatedCounters.length,
+        groups: groups,
+        fromIdolDatabase: existing?.fromIdolDatabase ?? false,
+      );
+    }
+
+    final options = optionsByKey.values.toList()
+      ..sort((a, b) {
+        final linkedCompare =
+            b.linkedCounterCount.compareTo(a.linkedCounterCount);
+        if (linkedCompare != 0) {
+          return linkedCompare;
+        }
+        return a.personName.toLowerCase().compareTo(b.personName.toLowerCase());
+      });
+    return options;
+  }
+
+  String _buildPersonOptionSubtitle(_PersonPickerOption option) {
+    final segments = <String>[];
+    if (option.linkedCounterCount > 0) {
+      segments.add('${option.linkedCounterCount} 张卡片');
+    }
+    if (option.groups.isNotEmpty) {
+      if (option.groups.length <= 2) {
+        segments.add(option.groups.join(' / '));
+      } else {
+        segments.add(
+            '${option.groups.take(2).join(' / ')} 等${option.groups.length}团');
+      }
+    }
+    if (option.fromIdolDatabase) {
+      segments.add('已在偶像库');
+    }
+    return segments.isEmpty ? '已有真人主档' : segments.join(' · ');
+  }
+
+  void _refreshPersonOptions() {
+    _personOptions = _buildPersonOptions(_idolPeople, _existingCounters);
+  }
+
   Color? _colorFromHex(String? hex) {
     if (hex == null || !hex.startsWith('#') || hex.length != 7) {
       return null;
@@ -233,6 +466,9 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
     setState(() {
       _nameController.text = member.displayName;
       _groupController.text = member.groupName;
+      _selectedPersonId = member.personId;
+      _selectedPersonName = member.resolvedPersonName;
+      _personController.text = member.resolvedPersonName;
       if (themeColor != null) {
         _selectedColor = themeColor;
       }
@@ -263,10 +499,14 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
     setState(() {
       _selectedIdolGroupId = selectedGroup.id;
       _selectedIdolMemberId = null;
+      _selectedPersonId = null;
+      _selectedPersonName = '';
+      _personController.clear();
       _groupController.text = selectedGroup.name;
       _nameController.clear();
     });
 
+    await _loadUnsignedOptionsForGroup(selectedGroup.name);
     await _loadMembersForGroup(selectedGroup.id);
   }
 
@@ -301,6 +541,98 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
       _selectedIdolMemberId = selectedMember.id;
     });
     _applySelectedIdol(selectedMember, applyThemeColor: true);
+  }
+
+  Future<void> _pickExistingPerson() async {
+    if (_personOptions.isEmpty) {
+      return;
+    }
+
+    final selectedPerson = await _showSearchPicker<_PersonPickerOption>(
+      title: '搜索真人主档',
+      searchLabel: '输入真人名 / 团体名',
+      items: _personOptions,
+      titleBuilder: (person) => person.personName,
+      subtitleBuilder: _buildPersonOptionSubtitle,
+      matchesQuery: (person, query) {
+        final normalized = _normalizeLookupValue(query);
+        if (normalized.isEmpty) {
+          return true;
+        }
+        return _normalizeLookupValue(person.personName).contains(normalized) ||
+            person.groups.any(
+              (groupName) =>
+                  _normalizeLookupValue(groupName).contains(normalized),
+            );
+      },
+    );
+
+    if (selectedPerson == null || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _selectedPersonId = selectedPerson.personId;
+      _selectedPersonName = selectedPerson.personName;
+      _personController.text = selectedPerson.personName;
+    });
+  }
+
+  void _handlePersonNameChanged(String value) {
+    final normalized = value.trim();
+    final matchedPerson = _findPersonByName(normalized);
+
+    setState(() {
+      _selectedPersonId = matchedPerson?.id;
+      _selectedPersonName = matchedPerson?.name ?? normalized;
+    });
+  }
+
+  void _clearPersonSelection() {
+    setState(() {
+      _selectedPersonId = null;
+      _selectedPersonName = '';
+      _personController.clear();
+    });
+  }
+
+  Future<int?> _resolvePersonId(String personName) async {
+    final normalized = personName.trim();
+    if (normalized.isEmpty) {
+      return null;
+    }
+
+    final selectedPerson = _findPersonById(_selectedPersonId);
+    if (selectedPerson != null &&
+        _normalizeLookupValue(selectedPerson.name) ==
+            _normalizeLookupValue(normalized)) {
+      return selectedPerson.id;
+    }
+
+    final matchedPerson = _findPersonByName(normalized);
+    if (matchedPerson != null) {
+      return matchedPerson.id;
+    }
+
+    final personId = await IdolDatabaseService.upsertPerson(
+      IdolPerson(name: normalized),
+    );
+
+    if (!mounted) {
+      return personId;
+    }
+
+    setState(() {
+      _selectedPersonId = personId;
+      _selectedPersonName = normalized;
+      _idolPeople = [
+        ..._idolPeople,
+        IdolPerson(id: personId, name: normalized),
+      ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      _refreshPersonOptions();
+    });
+
+    return personId;
   }
 
   Future<T?> _showSearchPicker<T>({
@@ -446,11 +778,18 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.initialData != null;
+    final visibleFields = CounterCountField.visibleValues(
+      enableUnsigned: _enableUnsignedOptions ||
+          (widget.initialData?.hasUnsignedCounts ?? false),
+    );
     final selectedGroup = _findGroupById(_selectedIdolGroupId);
     final selectedMember = _findMemberById(_selectedIdolMemberId);
     final selectedMemberLabel =
         selectedMember == null ? '' : _buildSelectedMemberLabel(selectedMember);
     final selectedMemberColor = _colorFromHex(selectedMember?.themeColorHex);
+    final selectedPersonLabel = _selectedPersonName.trim().isEmpty
+        ? _personController.text.trim()
+        : _selectedPersonName.trim();
     final colorIconColor = _selectedColor.computeLuminance() < 0.55
         ? Colors.white
         : Colors.black87;
@@ -478,6 +817,7 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
                 hintText: '可选，便于区分同名成员',
               ),
               textInputAction: TextInputAction.next,
+              onChanged: _loadUnsignedOptionsForGroup,
             ),
             const SizedBox(height: 16),
             if (_idolLoading)
@@ -546,6 +886,49 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
               ),
               const SizedBox(height: 16),
             ],
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildSearchTile(
+                    context: context,
+                    label: '并入已有真人卡片',
+                    value: selectedPersonLabel,
+                    placeholder: _personOptions.isEmpty
+                        ? '还没有可复用真人，直接在下方填写即可'
+                        : '点击选择已有真人主档',
+                    onTap: _personOptions.isEmpty ? null : _pickExistingPerson,
+                  ),
+                  const SizedBox(height: 12),
+                  NoAutofillTextField(
+                    controller: _personController,
+                    decoration: InputDecoration(
+                      labelText: '真人主档名',
+                      hintText: '可选；同一真人跨团/换名时填同一个名字',
+                      suffixIcon: _personController.text.trim().isEmpty
+                          ? null
+                          : IconButton(
+                              onPressed: _clearPersonSelection,
+                              icon: const Icon(Icons.clear),
+                            ),
+                    ),
+                    textInputAction: TextInputAction.next,
+                    onChanged: _handlePersonNameChanged,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '留空就按这张卡单独统计；选已有真人或填同一个主档名后，会并到同一张首页卡片。填错了也可以清空后保存，当前卡会拆出去。',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.schedule_outlined),
@@ -565,7 +948,7 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
             const SizedBox(height: 16),
             Column(
               children: [
-                for (final field in CounterCountField.values) ...[
+                for (final field in visibleFields) ...[
                   NoAutofillTextField(
                     controller: _countControllers[field.key]!,
                     decoration: InputDecoration(
@@ -601,39 +984,77 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: _saving ? null : () => Navigator.of(context).pop(),
           child: const Text('取消'),
         ),
         TextButton(
-          onPressed: () {
-            if (!_validate()) {
-              return;
-            }
+          onPressed: _saving
+              ? null
+              : () async {
+                  if (!_validate()) {
+                    return;
+                  }
 
-            final name = _nameController.text.trim();
+                  final name = _nameController.text.trim();
+                  final navigator = Navigator.of(context);
+                  setState(() {
+                    _saving = true;
+                  });
 
-            Navigator.of(context).pop(
-              CounterDialogResult(
-                occurredAt: _occurredAt,
-                counter: CounterModel(
-                  id: widget.initialData?.id,
-                  name: name,
-                  groupName: _groupController.text.trim(),
-                  color: _colorToHex(_selectedColor),
-                  threeInchCount: _parseCount(CounterCountField.threeInch),
-                  fiveInchCount: _parseCount(CounterCountField.fiveInch),
-                  groupCutCount: _parseCount(CounterCountField.groupCut),
-                  threeInchShukudaiCount: _parseCount(
-                    CounterCountField.threeInchShukudai,
-                  ),
-                  fiveInchShukudaiCount: _parseCount(
-                    CounterCountField.fiveInchShukudai,
-                  ),
-                ),
-              ),
-            );
-          },
-          child: const Text('确定'),
+                  try {
+                    final personName = _personController.text.trim();
+                    final resolvedPersonId = await _resolvePersonId(personName);
+
+                    if (!mounted) {
+                      return;
+                    }
+
+                    navigator.pop(
+                      CounterDialogResult(
+                        occurredAt: _occurredAt,
+                        counter: CounterModel(
+                          id: widget.initialData?.id,
+                          name: name,
+                          groupName: _groupController.text.trim(),
+                          personId: resolvedPersonId,
+                          personName: personName,
+                          color: _colorToHex(_selectedColor),
+                          threeInchCount:
+                              _parseCount(CounterCountField.threeInch),
+                          fiveInchCount:
+                              _parseCount(CounterCountField.fiveInch),
+                          unsignedThreeInchCount: _parseCount(
+                            CounterCountField.unsignedThreeInch,
+                          ),
+                          unsignedFiveInchCount: _parseCount(
+                            CounterCountField.unsignedFiveInch,
+                          ),
+                          groupCutCount:
+                              _parseCount(CounterCountField.groupCut),
+                          threeInchShukudaiCount: _parseCount(
+                            CounterCountField.threeInchShukudai,
+                          ),
+                          fiveInchShukudaiCount: _parseCount(
+                            CounterCountField.fiveInchShukudai,
+                          ),
+                        ),
+                      ),
+                    );
+                  } finally {
+                    if (mounted) {
+                      setState(() {
+                        _saving = false;
+                      });
+                    }
+                  }
+                },
+          child: _saving
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('确定'),
         ),
       ],
     );

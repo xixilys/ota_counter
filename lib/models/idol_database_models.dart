@@ -1,5 +1,43 @@
 import 'package:lpinyin/lpinyin.dart';
 
+class IdolPerson {
+  final int? id;
+  final String name;
+  final bool isBuiltIn;
+  final String source;
+
+  const IdolPerson({
+    this.id,
+    required this.name,
+    this.isBuiltIn = false,
+    this.source = 'manual',
+  });
+
+  IdolPerson copyWith({
+    int? id,
+    String? name,
+    bool? isBuiltIn,
+    String? source,
+  }) {
+    return IdolPerson(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      isBuiltIn: isBuiltIn ?? this.isBuiltIn,
+      source: source ?? this.source,
+    );
+  }
+
+  factory IdolPerson.fromMap(Map<String, Object?> map) {
+    return IdolPerson(
+      id: map['id'] as int?,
+      name: (map['name'] ?? '') as String,
+      isBuiltIn:
+          ((map['is_builtin'] ?? map['isBuiltIn']) as num?)?.toInt() == 1,
+      source: (map['source'] ?? 'manual') as String,
+    );
+  }
+}
+
 class IdolGroup {
   final int? id;
   final String name;
@@ -47,18 +85,23 @@ class IdolGroup {
 class IdolMember {
   final int? id;
   final int groupId;
+  final int? personId;
   final String groupName;
+  final String personName;
   final String name;
   final String status;
   final bool isBuiltIn;
   final String source;
   final String namePinyin;
   final String groupPinyin;
+  final String personPinyin;
 
   IdolMember({
     this.id,
     required this.groupId,
+    this.personId,
     required this.groupName,
+    this.personName = '',
     required this.name,
     this.status = '',
     this.isBuiltIn = false,
@@ -72,12 +115,19 @@ class IdolMember {
           groupName,
           defPinyin: '#',
           format: PinyinFormat.WITHOUT_TONE,
+        ),
+        personPinyin = PinyinHelper.getPinyinE(
+          personName,
+          defPinyin: '#',
+          format: PinyinFormat.WITHOUT_TONE,
         );
 
   IdolMember copyWith({
     int? id,
     int? groupId,
+    int? personId,
     String? groupName,
+    String? personName,
     String? name,
     String? status,
     bool? isBuiltIn,
@@ -86,7 +136,9 @@ class IdolMember {
     return IdolMember(
       id: id ?? this.id,
       groupId: groupId ?? this.groupId,
+      personId: personId ?? this.personId,
       groupName: groupName ?? this.groupName,
+      personName: personName ?? this.personName,
       name: name ?? this.name,
       status: status ?? this.status,
       isBuiltIn: isBuiltIn ?? this.isBuiltIn,
@@ -96,17 +148,50 @@ class IdolMember {
 
   String get displayName => _sanitizeIdolDisplayName(name);
 
+  String get resolvedPersonName {
+    final normalized = personName.trim();
+    if (normalized.isNotEmpty) {
+      return normalized;
+    }
+    return displayName;
+  }
+
   String? get themeColorHex =>
       _extractInlineHex('$name $status') ??
       _extractIdolThemeColorHex('$name $status');
 
   String? get themeColorLabel => _extractIdolThemeColorLabel('$name $status');
 
+  bool get isFormerAffiliation {
+    final normalized = status.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return false;
+    }
+
+    const formerKeywords = [
+      '前成员',
+      '已毕业',
+      '已退团',
+      '退团',
+      '卒业',
+      '毕业',
+      '离队',
+      'former',
+      'graduated',
+      'inactive',
+    ];
+    return formerKeywords.any((keyword) => normalized.contains(keyword));
+  }
+
+  bool get isActiveAffiliation => !isFormerAffiliation;
+
   factory IdolMember.fromMap(Map<String, Object?> map) {
     return IdolMember(
       id: map['id'] as int?,
       groupId: ((map['group_id'] ?? 0) as num).toInt(),
+      personId: (map['person_id'] as num?)?.toInt(),
       groupName: (map['group_name'] ?? map['groupName'] ?? '') as String,
+      personName: (map['person_name'] ?? map['personName'] ?? '') as String,
       name: (map['name'] ?? '') as String,
       status: (map['status'] ?? '') as String,
       isBuiltIn:
@@ -124,10 +209,12 @@ class IdolMember {
     return name.toLowerCase().contains(normalized) ||
         displayName.toLowerCase().contains(normalized) ||
         groupName.toLowerCase().contains(normalized) ||
+        resolvedPersonName.toLowerCase().contains(normalized) ||
         status.toLowerCase().contains(normalized) ||
         (themeColorLabel?.toLowerCase().contains(normalized) ?? false) ||
         namePinyin.toLowerCase().contains(normalized) ||
-        groupPinyin.toLowerCase().contains(normalized);
+        groupPinyin.toLowerCase().contains(normalized) ||
+        personPinyin.toLowerCase().contains(normalized);
   }
 }
 

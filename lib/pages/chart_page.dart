@@ -27,6 +27,7 @@ class _ChartPageState extends State<ChartPage> {
   bool _loading = true;
   bool _initialComposerHandled = false;
   StatsScope _scope = StatsScope.month;
+  MemberStatsMode _memberStatsMode = MemberStatsMode.group;
   DateTime _anchor = DateTime.now();
 
   @override
@@ -155,6 +156,55 @@ class _ChartPageState extends State<ChartPage> {
     await _loadData();
   }
 
+  CounterModel? _findCounterForParticipant(ActivityParticipant participant) {
+    final normalizedGroup = _normalizedLookupPart(participant.groupName);
+    final normalizedMember = _normalizedLookupPart(participant.memberName);
+
+    for (final counter in _counters) {
+      if (_normalizedLookupPart(counter.groupName) == normalizedGroup &&
+          _normalizedLookupPart(counter.name) == normalizedMember) {
+        return counter;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _applyMultiParticipantCounts(ActivityRecordDraft draft) async {
+    final field = draft.multiField;
+    if (field == null || draft.multiQuantity <= 0) {
+      return;
+    }
+
+    var insertedNewCounter = false;
+    for (final participant in draft.multiParticipants) {
+      final existingCounter = _findCounterForParticipant(participant);
+      final baseCounter = existingCounter ??
+          CounterModel(
+            name: participant.memberName,
+            groupName: participant.groupName,
+            personId: participant.personId,
+            personName: participant.personName,
+            color: '#FFE135',
+          );
+      final updatedCounter = baseCounter.updateCount(
+        field,
+        baseCounter.countForField(field) + draft.multiQuantity,
+      );
+
+      if (existingCounter?.id != null) {
+        await DatabaseService.updateCounter(
+            existingCounter!.id!, updatedCounter);
+      } else {
+        await DatabaseService.insertCounter(updatedCounter);
+        insertedNewCounter = true;
+      }
+    }
+
+    if (insertedNewCounter) {
+      await DatabaseService.autoAssignCounterThemeColors();
+    }
+  }
+
   Future<void> _openAddRecordDialog() async {
     final draft = await showDialog<ActivityRecordDraft>(
       context: context,
@@ -179,6 +229,10 @@ class _ChartPageState extends State<ChartPage> {
             (draft.counterDeltas[CounterCountField.threeInch] ?? 0),
         fiveInchCount: counter.fiveInchCount +
             (draft.counterDeltas[CounterCountField.fiveInch] ?? 0),
+        unsignedThreeInchCount: counter.unsignedThreeInchCount +
+            (draft.counterDeltas[CounterCountField.unsignedThreeInch] ?? 0),
+        unsignedFiveInchCount: counter.unsignedFiveInchCount +
+            (draft.counterDeltas[CounterCountField.unsignedFiveInch] ?? 0),
         groupCutCount: counter.groupCutCount +
             (draft.counterDeltas[CounterCountField.groupCut] ?? 0),
         threeInchShukudaiCount: counter.threeInchShukudaiCount +
@@ -201,26 +255,30 @@ class _ChartPageState extends State<ChartPage> {
           note: draft.note,
         ),
       );
-    } else if (draft.type == ActivityRecordType.duo) {
-      final pricing = await DatabaseService.getGroupPricingByName(
-        draft.duoGroupName,
-      );
-      final resolvedPrice = draft.duoUnitPrice > 0
-          ? draft.duoUnitPrice
-          : (pricing?.doubleCutPrice ?? 0);
+    } else if (draft.type == ActivityRecordType.multi) {
+      final participantGroups = draft.multiParticipants
+          .map((participant) => participant.groupName.trim())
+          .where((groupName) => groupName.isNotEmpty)
+          .toSet();
+      final pricing = participantGroups.length == 1
+          ? await DatabaseService.getGroupPricingByName(participantGroups.first)
+          : null;
+      final pricingLabel = pricing == null
+          ? (participantGroups.length > 1 ? '跨团多人切' : '多人切')
+          : pricing.label;
 
       await DatabaseService.insertActivityRecord(
-        ActivityRecordModel.duoCut(
-          groupName: draft.duoGroupName,
-          primaryMemberName: draft.primaryMemberName,
-          secondaryMemberName: draft.secondaryMemberName,
+        ActivityRecordModel.multiCut(
+          participants: draft.multiParticipants,
+          field: draft.multiField ?? CounterCountField.threeInch,
           occurredAt: draft.occurredAt,
           note: draft.note,
-          pricingLabel: pricing?.label ?? '未配置价格',
-          quantity: draft.duoQuantity,
-          unitPrice: resolvedPrice,
+          pricingLabel: pricingLabel,
+          quantity: draft.multiQuantity,
+          totalPrice: draft.multiTotalPrice,
         ),
       );
+      await _applyMultiParticipantCounts(draft);
     } else if (draft.type == ActivityRecordType.ticket) {
       await DatabaseService.insertActivityRecord(
         ActivityRecordModel.ticket(
@@ -237,10 +295,125 @@ class _ChartPageState extends State<ChartPage> {
     await _loadData();
   }
 
+  String _normalizedLookupPart(String value) {
+    final trimmed = value.trim().toLowerCase();
+    if (trimmed.isEmpty) {
+      return '';
+    }
+    return trimmed.replaceAll(
+      RegExp(r'[\s·•・_\-~/\\\(\)\[\]\{\}]+'),
+      '',
+    );
+  }
+
   String _memberStatKey(String groupName, String subjectName) {
     final normalizedGroup = groupName.trim().toLowerCase();
     final normalizedSubject = subjectName.trim().toLowerCase();
     return '$normalizedGroup|$normalizedSubject';
+  }
+
+  GroupPricingModel? _resolvePricingByGroupName(String groupName) {
+    final normalizedGroup = groupName.trim();
+    if (normalizedGroup.isEmpty) {
+      return null;
+    }
+
+    for (final pricing in _pricings) {
+      if (pricing.groupName.trim() == normalizedGroup) {
+        return pricing;
+      }
+    }
+    return null;
+  }
+
+  String _personStatKey({
+    required int? personId,
+    required String personName,
+    required String groupName,
+    required String subjectName,
+  }) {
+    final normalizedPerson = _normalizedLookupPart(personName);
+    if (normalizedPerson.isNotEmpty) {
+      return 'person-name:$normalizedPerson';
+    }
+
+    if (personId != null) {
+      return 'person:$personId';
+    }
+
+    final normalizedGroup = _normalizedLookupPart(groupName);
+    final normalizedSubject = _normalizedLookupPart(subjectName);
+    return 'fallback:$normalizedGroup|$normalizedSubject';
+  }
+
+  bool _shouldUseCurrentPricingForRecord(ActivityRecordModel record) {
+    if (!record.isCounter || record.counterCountTotal <= 0) {
+      return false;
+    }
+
+    if (record.totalAmount != 0) {
+      return false;
+    }
+
+    for (final field in CounterCountField.values) {
+      if (record.priceForField(field) != 0) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  double _calculateCounterAmountWithPricing(
+    ActivityRecordModel record,
+    GroupPricingModel pricing,
+  ) {
+    return CounterCountField.values.fold<double>(0, (sum, field) {
+      return sum + (record.countForField(field) * pricing.priceForField(field));
+    });
+  }
+
+  double _effectiveTotalAmount(ActivityRecordModel record) {
+    if (!_shouldUseCurrentPricingForRecord(record)) {
+      if (record.isTicket &&
+          record.totalAmount == 0 &&
+          record.ticketQuantity > 0 &&
+          record.ticketUnitPrice > 0) {
+        return record.ticketQuantity * record.ticketUnitPrice;
+      }
+      return record.totalAmount;
+    }
+
+    final pricing = _resolvePricingByGroupName(record.groupName);
+    if (pricing == null) {
+      return record.totalAmount;
+    }
+    return _calculateCounterAmountWithPricing(record, pricing);
+  }
+
+  double _effectiveMultiParticipantAmountShare(ActivityRecordModel record) {
+    final participantCount = record.multiParticipantCount;
+    if (participantCount <= 0) {
+      return 0;
+    }
+    return _effectiveTotalAmount(record) / participantCount;
+  }
+
+  String _effectivePricingLabel(ActivityRecordModel record) {
+    if (!_shouldUseCurrentPricingForRecord(record)) {
+      return record.pricingLabel;
+    }
+
+    final pricing = _resolvePricingByGroupName(record.groupName);
+    if (pricing == null) {
+      return record.pricingLabel;
+    }
+
+    final label = pricing.label.trim();
+    if (label.isEmpty) {
+      return '当前团价';
+    }
+    return '$label（当前团价）';
   }
 
   @override
@@ -248,48 +421,104 @@ class _ChartPageState extends State<ChartPage> {
     final theme = Theme.of(context);
     final filteredRecords = _filteredRecords;
     final counterRecords = filteredRecords.where((record) => record.isCounter);
-    final duoRecords = filteredRecords.where((record) => record.isDuo);
+    final multiRecords = filteredRecords.where((record) => record.isMulti);
     final ticketRecords = filteredRecords.where((record) => record.isTicket);
     final recordCount = filteredRecords.length;
     final counterCountTotal = counterRecords.fold<int>(
       0,
       (sum, record) => sum + record.counterCountTotal,
     );
-    final duoCountTotal = duoRecords.fold<int>(
+    final multiCountTotal = multiRecords.fold<int>(
       0,
-      (sum, record) => sum + record.doubleCutQuantity,
+      (sum, record) => sum + record.multiTotalCount,
     );
     final ticketCountTotal = ticketRecords.fold<int>(
       0,
       (sum, record) => sum + record.ticketQuantity,
     );
+    final memberContributionTotal = counterCountTotal +
+        multiRecords.fold<int>(
+          0,
+          (sum, record) => sum + record.multiContributionTotal,
+        );
     final totalAmount = filteredRecords.fold<double>(
       0,
-      (sum, record) => sum + record.totalAmount,
+      (sum, record) => sum + _effectiveTotalAmount(record),
     );
 
     final typeTotals = {
       for (final field in CounterCountField.values)
         field: counterRecords.fold<int>(
-          0,
-          (sum, record) => sum + record.countForField(field),
-        ),
+              0,
+              (sum, record) => sum + record.countForField(field),
+            ) +
+            multiRecords.fold<int>(
+              0,
+              (sum, record) =>
+                  sum +
+                  (record.countForField(field) * record.multiParticipantCount),
+            ),
     };
 
     final memberTotals = <String, _MemberStatEntry>{};
     for (final record in counterRecords) {
-      final key = _memberStatKey(record.groupName, record.subjectName);
+      final key = _memberStatsMode == MemberStatsMode.group
+          ? _memberStatKey(record.groupName, record.subjectName)
+          : _personStatKey(
+              personId: record.personId,
+              personName: record.personName,
+              groupName: record.groupName,
+              subjectName: record.subjectName,
+            );
       final entry = memberTotals.putIfAbsent(
         key,
         () => _MemberStatEntry(
-          name: record.subjectName,
+          name: _memberStatsMode == MemberStatsMode.group
+              ? record.subjectName
+              : (record.personName.trim().isEmpty
+                  ? record.subjectName
+                  : record.personName.trim()),
           groupName: record.groupName,
+          isPersonEntry: _memberStatsMode == MemberStatsMode.person,
         ),
       );
+      entry.groups.add(record.groupName.trim());
       entry.count += record.counterCountTotal;
+      entry.amount += _effectiveTotalAmount(record);
+    }
+    for (final record in multiRecords) {
+      for (final participant in record.effectiveParticipants) {
+        final key = _memberStatsMode == MemberStatsMode.group
+            ? _memberStatKey(participant.groupName, participant.memberName)
+            : _personStatKey(
+                personId: participant.personId,
+                personName: participant.resolvedPersonName,
+                groupName: participant.groupName,
+                subjectName: participant.memberName,
+              );
+        final entry = memberTotals.putIfAbsent(
+          key,
+          () => _MemberStatEntry(
+            name: _memberStatsMode == MemberStatsMode.group
+                ? participant.memberName
+                : participant.resolvedPersonName,
+            groupName: participant.groupName,
+            isPersonEntry: _memberStatsMode == MemberStatsMode.person,
+          ),
+        );
+        entry.groups.add(participant.groupName.trim());
+        entry.count += record.effectiveMultiQuantity;
+        entry.amount += _effectiveMultiParticipantAmountShare(record);
+      }
     }
     final memberEntries = memberTotals.values.toList()
-      ..sort((a, b) => b.count.compareTo(a.count));
+      ..sort((a, b) {
+        final countCompare = b.count.compareTo(a.count);
+        if (countCompare != 0) {
+          return countCompare;
+        }
+        return b.amount.compareTo(a.amount);
+      });
 
     final groupSummaries = <String, _GroupSummary>{};
     for (final record in counterRecords) {
@@ -298,47 +527,72 @@ class _ChartPageState extends State<ChartPage> {
         key,
         () => _GroupSummary(groupName: key),
       );
-      summary.amount += record.totalAmount;
+      summary.amount += _effectiveTotalAmount(record);
       summary.recordCount += 1;
       for (final field in CounterCountField.values) {
         summary.counts[field] =
             (summary.counts[field] ?? 0) + record.countForField(field);
       }
     }
-    for (final record in duoRecords) {
-      final key = record.groupName.trim().isEmpty ? '未分组' : record.groupName;
-      final summary = groupSummaries.putIfAbsent(
-        key,
-        () => _GroupSummary(groupName: key),
-      );
-      summary.amount += record.totalAmount;
-      summary.recordCount += 1;
-      summary.duoCount += record.doubleCutQuantity;
+    for (final record in multiRecords) {
+      final participantsByGroup = <String, int>{};
+      for (final participant in record.effectiveParticipants) {
+        final key = participant.groupName.trim().isEmpty
+            ? (record.groupName.trim().isEmpty ? '未分组' : record.groupName)
+            : participant.groupName.trim();
+        participantsByGroup[key] = (participantsByGroup[key] ?? 0) + 1;
+      }
+      if (participantsByGroup.isEmpty) {
+        final fallbackGroup =
+            record.groupName.trim().isEmpty ? '未分组' : record.groupName;
+        participantsByGroup[fallbackGroup] = 1;
+      }
+
+      participantsByGroup.forEach((groupName, participantSlots) {
+        final summary = groupSummaries.putIfAbsent(
+          groupName,
+          () => _GroupSummary(groupName: groupName),
+        );
+        summary.amount +=
+            _effectiveMultiParticipantAmountShare(record) * participantSlots;
+        summary.recordCount += 1;
+        summary.multiCount += record.effectiveMultiQuantity * participantSlots;
+      });
     }
     final sortedGroupSummaries = groupSummaries.values.toList()
       ..sort((a, b) => b.totalCount.compareTo(a.totalCount));
 
-    final duoSummaries = <String, _DuoSummary>{};
-    for (final record in duoRecords) {
+    final multiSummaries = <String, _MultiSummary>{};
+    for (final record in multiRecords) {
       final dateKey = _formatDate(record.occurredAt);
-      final groupKey = record.groupName.trim();
-      final pairKey = record.duoDisplayName;
-      final key = '$dateKey|$groupKey|$pairKey';
-      final summary = duoSummaries.putIfAbsent(
+      final labelKey = record.multiDisplayName;
+      final key = '$dateKey|$labelKey';
+      final summary = multiSummaries.putIfAbsent(
         key,
-        () => _DuoSummary(
-          pairName: pairKey,
-          groupName: groupKey,
+        () => _MultiSummary(
+          title: labelKey,
           date: dateKey,
         ),
       );
-      summary.quantity += record.doubleCutQuantity;
-      summary.amount += record.totalAmount;
+      if (record.multiFieldLabel.isNotEmpty) {
+        summary.specLabel = record.multiFieldLabel;
+      }
+      summary.groups.addAll(
+        record.effectiveParticipants
+            .map((participant) => participant.groupName.trim())
+            .where((groupName) => groupName.isNotEmpty),
+      );
+      summary.quantity += record.effectiveMultiQuantity;
+      summary.participantCount =
+          summary.participantCount > record.multiParticipantCount
+              ? summary.participantCount
+              : record.multiParticipantCount;
+      summary.amount += _effectiveTotalAmount(record);
       if (record.note.trim().isNotEmpty) {
         summary.notes.add(record.note.trim());
       }
     }
-    final sortedDuoSummaries = duoSummaries.values.toList()
+    final sortedMultiSummaries = multiSummaries.values.toList()
       ..sort((a, b) => b.date.compareTo(a.date));
 
     final ticketSummaries = <String, _TicketSummary>{};
@@ -355,7 +609,7 @@ class _ChartPageState extends State<ChartPage> {
         ),
       );
       summary.quantity += record.ticketQuantity;
-      summary.amount += record.totalAmount;
+      summary.amount += _effectiveTotalAmount(record);
       summary.notes.add(record.note);
     }
     final sortedTicketSummaries = ticketSummaries.values.toList()
@@ -536,6 +790,27 @@ class _ChartPageState extends State<ChartPage> {
                               ),
                             ],
                           ),
+                          const SizedBox(height: 16),
+                          SegmentedButton<MemberStatsMode>(
+                            segments: const [
+                              ButtonSegment<MemberStatsMode>(
+                                value: MemberStatsMode.group,
+                                label: Text('按团籍'),
+                                icon: Icon(Icons.groups_2_outlined),
+                              ),
+                              ButtonSegment<MemberStatsMode>(
+                                value: MemberStatsMode.person,
+                                label: Text('按真人'),
+                                icon: Icon(Icons.person_search_outlined),
+                              ),
+                            ],
+                            selected: {_memberStatsMode},
+                            onSelectionChanged: (selection) {
+                              setState(() {
+                                _memberStatsMode = selection.first;
+                              });
+                            },
+                          ),
                         ],
                       ),
                     ),
@@ -573,9 +848,9 @@ class _ChartPageState extends State<ChartPage> {
                             SizedBox(
                               width: itemWidth,
                               child: _SummaryCard(
-                                label: '双人切总数',
-                                value: '$duoCountTotal',
-                                hint: '按双人切记录统计',
+                                label: '多人切总数',
+                                value: '$multiCountTotal',
+                                hint: '按参与人数统计',
                                 icon: Icons.people_alt_outlined,
                               ),
                             ),
@@ -617,9 +892,18 @@ class _ChartPageState extends State<ChartPage> {
                               SizedBox(
                                 width: chartWidth,
                                 child: _PieBreakdownCard(
-                                  title: '成员占比',
-                                  emptyMessage: '当前周期内还没有成员记录。',
-                                  centerLabel: '成员',
+                                  title:
+                                      _memberStatsMode == MemberStatsMode.group
+                                          ? '成员占比'
+                                          : '真人占比',
+                                  emptyMessage:
+                                      _memberStatsMode == MemberStatsMode.group
+                                          ? '当前周期内还没有成员记录。'
+                                          : '当前周期内还没有真人维度数据。',
+                                  centerLabel:
+                                      _memberStatsMode == MemberStatsMode.group
+                                          ? '成员'
+                                          : '真人',
                                   data: memberPieData,
                                 ),
                               ),
@@ -697,20 +981,20 @@ class _ChartPageState extends State<ChartPage> {
                                         Wrap(
                                           spacing: 8,
                                           runSpacing: 8,
-                                        children: CounterCountField.values
-                                            .map((field) {
+                                          children: CounterCountField.values
+                                              .map((field) {
                                             return _MetricChip(
                                               label: field.shortLabel,
                                               value:
                                                   '${summary.counts[field] ?? 0}',
                                             );
                                           }).toList()
-                                          ..add(
-                                            _MetricChip(
-                                              label: '双人切',
-                                              value: '${summary.duoCount}',
+                                            ..add(
+                                              _MetricChip(
+                                                label: '多人切',
+                                                value: '${summary.multiCount}',
+                                              ),
                                             ),
-                                          ),
                                         ),
                                       ],
                                     ),
@@ -721,26 +1005,31 @@ class _ChartPageState extends State<ChartPage> {
                     ),
                     const SizedBox(height: 16),
                     _SectionCard(
-                      title: '双人切',
-                      child: sortedDuoSummaries.isEmpty
-                          ? const Text('当前周期内还没有双人切记录。')
+                      title: '多人切',
+                      child: sortedMultiSummaries.isEmpty
+                          ? const Text('当前周期内还没有多人切记录。')
                           : Column(
-                              children: sortedDuoSummaries.map((summary) {
+                              children: sortedMultiSummaries.map((summary) {
                                 return ListTile(
                                   contentPadding: EdgeInsets.zero,
-                                  leading: const Icon(Icons.people_alt_outlined),
-                                  title: Text(summary.pairName),
+                                  leading:
+                                      const Icon(Icons.people_alt_outlined),
+                                  title: Text(summary.title),
                                   subtitle: Text(
                                     [
                                       summary.date,
-                                      if (summary.groupName.isNotEmpty)
-                                        summary.groupName,
+                                      if (summary.groupLabel.isNotEmpty)
+                                        summary.groupLabel,
+                                      if (summary.specLabel.isNotEmpty)
+                                        summary.specLabel,
+                                      if (summary.participantCount > 0)
+                                        '${summary.participantCount} 人',
                                       if (summary.notes.isNotEmpty)
                                         summary.notes.last,
                                     ].join(' · '),
                                   ),
                                   trailing: Text(
-                                    '${summary.quantity} 张\n¥${_formatAmount(summary.amount)}',
+                                    '${summary.quantity} 次\n¥${_formatAmount(summary.amount)}',
                                     textAlign: TextAlign.right,
                                   ),
                                 );
@@ -779,14 +1068,20 @@ class _ChartPageState extends State<ChartPage> {
                     ),
                     const SizedBox(height: 16),
                     _SectionCard(
-                      title: '成员贡献',
+                      title: _memberStatsMode == MemberStatsMode.group
+                          ? '成员贡献'
+                          : '真人贡献',
                       child: memberEntries.isEmpty
-                          ? const Text('当前周期内还没有成员记录。')
+                          ? Text(
+                              _memberStatsMode == MemberStatsMode.group
+                                  ? '当前周期内还没有成员记录。'
+                                  : '当前周期内还没有真人维度数据。',
+                            )
                           : Column(
                               children: memberEntries.take(20).map((entry) {
-                                final percent = counterCountTotal == 0
+                                final percent = memberContributionTotal == 0
                                     ? 0.0
-                                    : entry.count / counterCountTotal;
+                                    : entry.count / memberContributionTotal;
                                 return Padding(
                                   padding: const EdgeInsets.only(bottom: 12),
                                   child: Column(
@@ -808,9 +1103,9 @@ class _ChartPageState extends State<ChartPage> {
                                                     fontWeight: FontWeight.w700,
                                                   ),
                                                 ),
-                                                if (entry.groupName.isNotEmpty)
+                                                if (entry.groupLabel.isNotEmpty)
                                                   Text(
-                                                    entry.groupName,
+                                                    entry.groupLabel,
                                                     style: theme
                                                         .textTheme.bodySmall,
                                                   ),
@@ -851,7 +1146,14 @@ class _ChartPageState extends State<ChartPage> {
                           : Column(
                               children: filteredRecords.take(50).map((record) {
                                 final trailingAmount =
-                                    '¥${_formatAmount(record.totalAmount)}';
+                                    '¥${_formatAmount(_effectiveTotalAmount(record))}';
+                                final multiGroupLabel = record
+                                    .effectiveParticipants
+                                    .map((participant) =>
+                                        participant.groupName.trim())
+                                    .where((groupName) => groupName.isNotEmpty)
+                                    .toSet()
+                                    .join(' / ');
                                 final subtitle = record.isTicket
                                     ? [
                                         _formatOccurredAtLabel(
@@ -861,49 +1163,57 @@ class _ChartPageState extends State<ChartPage> {
                                         '门票 ${record.ticketQuantity} 张',
                                         if (record.note.isNotEmpty) record.note,
                                       ].join(' · ')
-                                    : record.isDuo
+                                    : record.isMulti
                                         ? [
+                                            _formatOccurredAtLabel(
+                                                record.occurredAt),
+                                            if (multiGroupLabel.isNotEmpty)
+                                              multiGroupLabel,
+                                            _effectivePricingLabel(record),
+                                            if (record
+                                                .multiFieldLabel.isNotEmpty)
+                                              record.multiFieldLabel,
+                                            '多人切 ${record.multiParticipantCount} 人',
+                                            if (record.effectiveMultiQuantity >
+                                                1)
+                                              '每人 ${record.effectiveMultiQuantity}',
+                                            if (record.note.isNotEmpty)
+                                              record.note,
+                                          ].join(' · ')
+                                        : [
                                             _formatOccurredAtLabel(
                                                 record.occurredAt),
                                             if (record.groupName.isNotEmpty)
                                               record.groupName,
-                                            record.pricingLabel,
-                                            '双人切 ${record.doubleCutQuantity}',
+                                            _effectivePricingLabel(record),
+                                            CounterCountField.values
+                                                .where(
+                                                  (field) =>
+                                                      record.countForField(
+                                                          field) !=
+                                                      0,
+                                                )
+                                                .map(
+                                                  (field) =>
+                                                      '${field.shortLabel} ${record.countForField(field)}',
+                                                )
+                                                .join(' / '),
                                             if (record.note.isNotEmpty)
                                               record.note,
-                                          ].join(' · ')
-                                    : [
-                                        _formatOccurredAtLabel(
-                                            record.occurredAt),
-                                        if (record.groupName.isNotEmpty)
-                                          record.groupName,
-                                        record.pricingLabel,
-                                        CounterCountField.values
-                                            .where(
-                                              (field) =>
-                                                  record.countForField(field) !=
-                                                  0,
-                                            )
-                                            .map(
-                                              (field) =>
-                                                  '${field.shortLabel} ${record.countForField(field)}',
-                                            )
-                                            .join(' / '),
-                                        if (record.note.isNotEmpty) record.note,
-                                      ].join(' · ');
+                                          ].join(' · ');
 
                                 return ListTile(
                                   contentPadding: EdgeInsets.zero,
                                   leading: Icon(
                                     record.isTicket
                                         ? Icons.confirmation_num_outlined
-                                        : record.isDuo
+                                        : record.isMulti
                                             ? Icons.people_alt_outlined
                                             : Icons.photo_library_outlined,
                                   ),
                                   title: Text(
-                                    record.isDuo
-                                        ? record.duoDisplayName
+                                    record.isMulti
+                                        ? record.multiDisplayName
                                         : record.subjectName,
                                   ),
                                   subtitle: Text(subtitle),
@@ -925,6 +1235,11 @@ class _ChartPageState extends State<ChartPage> {
     }
     return value.toStringAsFixed(2);
   }
+}
+
+enum MemberStatsMode {
+  group,
+  person,
 }
 
 enum StatsScope {
@@ -1239,43 +1554,83 @@ class _GroupSummary {
   final Map<CounterCountField, int> counts = {};
   double amount = 0;
   int recordCount = 0;
-  int duoCount = 0;
+  int multiCount = 0;
 
   _GroupSummary({
     required this.groupName,
   });
 
   int get totalCount =>
-      counts.values.fold(0, (sum, value) => sum + value) + duoCount;
+      counts.values.fold(0, (sum, value) => sum + value) + multiCount;
 }
 
 class _MemberStatEntry {
   final String name;
   final String groupName;
+  final bool isPersonEntry;
+  final Set<String> groups = {};
   int count = 0;
+  double amount = 0;
 
   _MemberStatEntry({
     required this.name,
     required this.groupName,
-  });
+    required this.isPersonEntry,
+  }) {
+    if (groupName.trim().isNotEmpty) {
+      groups.add(groupName.trim());
+    }
+  }
+
+  String get groupLabel {
+    final visibleGroups = groups
+        .where((groupName) => groupName.trim().isNotEmpty)
+        .toList()
+      ..sort();
+    if (visibleGroups.isEmpty) {
+      return '';
+    }
+    if (!isPersonEntry || visibleGroups.length == 1) {
+      return visibleGroups.first;
+    }
+    if (visibleGroups.length == 2) {
+      return visibleGroups.join(' / ');
+    }
+    return '${visibleGroups[0]} / ${visibleGroups[1]} 等${visibleGroups.length}团';
+  }
 
   String get chartLabel =>
-      groupName.trim().isEmpty ? name : '$name · $groupName';
+      groupLabel.isEmpty || isPersonEntry ? name : '$name · $groupLabel';
 }
 
-class _DuoSummary {
-  final String pairName;
-  final String groupName;
+class _MultiSummary {
+  final String title;
   final String date;
   int quantity = 0;
+  int participantCount = 0;
   double amount = 0;
+  String specLabel = '';
+  final Set<String> groups = {};
   final List<String> notes = [];
 
-  _DuoSummary({
-    required this.pairName,
-    required this.groupName,
+  _MultiSummary({
+    required this.title,
     required this.date,
   });
+
+  String get groupLabel {
+    final visibleGroups = groups
+        .where((groupName) => groupName.trim().isNotEmpty)
+        .toList()
+      ..sort();
+    if (visibleGroups.isEmpty) {
+      return '';
+    }
+    if (visibleGroups.length <= 2) {
+      return visibleGroups.join(' / ');
+    }
+    return '${visibleGroups[0]} / ${visibleGroups[1]} 等${visibleGroups.length}团';
+  }
 }
 
 class _TicketSummary {

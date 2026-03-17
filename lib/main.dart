@@ -4,9 +4,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'app_metadata.dart';
 import 'models/activity_record_model.dart';
 import 'models/counter_model.dart';
 import 'pages/chart_page.dart';
+import 'pages/group_pricing_page.dart';
 import 'pages/idol_database_page.dart';
 import 'pages/image_page.dart';
 import 'services/database_service.dart';
@@ -37,7 +39,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: '计数器',
+      title: kAppDisplayName,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
@@ -54,10 +56,24 @@ class MyHomePage extends StatefulWidget {
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
+class _HomeCounterEntry {
+  final String key;
+  final CounterModel displayCounter;
+  final CounterModel primaryCounter;
+  final List<CounterModel> sourceCounters;
+
+  const _HomeCounterEntry({
+    required this.key,
+    required this.displayCounter,
+    required this.primaryCounter,
+    required this.sourceCounters,
+  });
+}
+
 class _MyHomePageState extends State<MyHomePage> {
   static const double _overviewCardHorizontalPadding = 10;
   static const double _overviewCardVerticalPadding = 10;
-  static const double _overviewCardHeaderHeight = 44;
+  static const double _overviewCardHeaderHeight = 50;
   static const double _overviewCardBorderExtent = 2;
   static const double _overviewCardSectionGap = 8;
   static const double _overviewChipSpacing = 6;
@@ -65,6 +81,7 @@ class _MyHomePageState extends State<MyHomePage> {
   static const double _topHeaderGap = 10;
 
   final List<CounterModel> _counters = [];
+  final List<ActivityRecordModel> _activityRecords = [];
   double _gridSize = 2;
   bool _sortAscending = true;
   String _sortType = SettingsService.sortByCount; // 添加排序类型
@@ -103,9 +120,13 @@ class _MyHomePageState extends State<MyHomePage> {
       await DatabaseService.syncActivityRecordsToCounters('ota_site');
       await DatabaseService.autoAssignCounterThemeColors();
       final counters = await DatabaseService.getCounters();
+      final activityRecords = await DatabaseService.getActivityRecords();
       setState(() {
         _counters.clear();
         _counters.addAll(counters);
+        _activityRecords
+          ..clear()
+          ..addAll(activityRecords);
         _applySort(_counters);
       });
     } catch (e) {
@@ -117,25 +138,287 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
-  List<CounterModel> get _homeCounters => _showHiddenCounters
-      ? List.unmodifiable(_counters)
-      : List.unmodifiable(_counters.where((counter) => !counter.isHidden));
+  String _normalizedLookupPart(String value) {
+    final trimmed = value.trim().toLowerCase();
+    if (trimmed.isEmpty) {
+      return '';
+    }
+    return trimmed.replaceAll(
+      RegExp(r'[\s·•・_\-~/\\\(\)\[\]\{\}]+'),
+      '',
+    );
+  }
 
-  int get _total =>
-      _homeCounters.fold<int>(0, (sum, counter) => sum + counter.count);
+  List<CounterModel> get _scopedCounters {
+    return _showHiddenCounters
+        ? List<CounterModel>.from(_counters)
+        : _counters.where((counter) => !counter.isHidden).toList();
+  }
 
-  Map<CounterCountField, int> get _typeTotals {
+  bool _participantMatchesCounter(
+    ActivityParticipant participant,
+    CounterModel counter,
+  ) {
+    final participantGroup = _normalizedLookupPart(participant.groupName);
+    final counterGroup = _normalizedLookupPart(counter.groupName);
+    if (participantGroup.isNotEmpty &&
+        counterGroup.isNotEmpty &&
+        participantGroup != counterGroup) {
+      return false;
+    }
+
+    if (participant.personId != null && counter.personId != null) {
+      return participant.personId == counter.personId;
+    }
+
+    final participantPersonName = _normalizedLookupPart(participant.personName);
+    final counterPersonName = _normalizedLookupPart(counter.personName);
+    if (participantPersonName.isNotEmpty && counterPersonName.isNotEmpty) {
+      return participantPersonName == counterPersonName;
+    }
+
+    return _normalizedLookupPart(participant.memberName) ==
+        _normalizedLookupPart(counter.name);
+  }
+
+  int _visibleParticipantCountForMultiRecord(ActivityRecordModel record) {
+    final scopedCounters = _scopedCounters;
+    if (scopedCounters.isEmpty) {
+      return 0;
+    }
+
+    return record.effectiveParticipants.where((participant) {
+      return scopedCounters.any(
+        (counter) => _participantMatchesCounter(participant, counter),
+      );
+    }).length;
+  }
+
+  String _homeEntryKey(CounterModel counter) {
+    final personName = counter.personName.trim();
+    if (personName.isNotEmpty) {
+      return 'person-name:${personName.toLowerCase()}';
+    }
+
+    if (counter.personId != null) {
+      return 'person-id:${counter.personId}';
+    }
+
+    return 'counter:${counter.groupName.trim().toLowerCase()}|${counter.name.trim().toLowerCase()}';
+  }
+
+  CounterModel _selectPrimaryCounter(List<CounterModel> counters) {
+    final sorted = [...counters]..sort((a, b) {
+        final countCompare = b.count.compareTo(a.count);
+        if (countCompare != 0) {
+          return countCompare;
+        }
+
+        final groupCompare = a.groupName.toLowerCase().compareTo(
+              b.groupName.toLowerCase(),
+            );
+        if (groupCompare != 0) {
+          return groupCompare;
+        }
+
+        return a.namePinyin.compareTo(b.namePinyin);
+      });
+    return sorted.first;
+  }
+
+  String _buildHomeGroupLabel(List<CounterModel> counters) {
+    final groups = counters
+        .map((counter) => counter.groupName.trim())
+        .where((groupName) => groupName.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    if (groups.isEmpty) {
+      return '';
+    }
+    if (groups.length <= 2) {
+      return groups.join(' / ');
+    }
+    return '${groups.take(2).join(' / ')} 等${groups.length}团';
+  }
+
+  String _buildHomeDisplayName(
+    List<CounterModel> counters,
+    CounterModel primaryCounter,
+  ) {
+    final names = counters
+        .map((counter) => counter.name.trim())
+        .where((name) => name.isNotEmpty)
+        .toSet();
+    if (names.length <= 1) {
+      return primaryCounter.name;
+    }
+
+    final personName = primaryCounter.personName.trim();
+    if (personName.isNotEmpty) {
+      return personName;
+    }
+    return primaryCounter.name;
+  }
+
+  CounterModel _buildHomeDisplayCounter(List<CounterModel> counters) {
+    final primaryCounter = _selectPrimaryCounter(counters);
+
+    int sum(int Function(CounterModel counter) selector) {
+      return counters.fold<int>(
+          0, (total, counter) => total + selector(counter));
+    }
+
+    return primaryCounter.copyWith(
+      name: _buildHomeDisplayName(counters, primaryCounter),
+      groupName: _buildHomeGroupLabel(counters),
+      isHidden: counters.every((counter) => counter.isHidden),
+      threeInchCount: sum((counter) => counter.threeInchCount),
+      fiveInchCount: sum((counter) => counter.fiveInchCount),
+      unsignedThreeInchCount: sum((counter) => counter.unsignedThreeInchCount),
+      unsignedFiveInchCount: sum((counter) => counter.unsignedFiveInchCount),
+      groupCutCount: sum((counter) => counter.groupCutCount),
+      threeInchShukudaiCount: sum((counter) => counter.threeInchShukudaiCount),
+      fiveInchShukudaiCount: sum((counter) => counter.fiveInchShukudaiCount),
+    );
+  }
+
+  void _applyHomeEntrySort(List<_HomeCounterEntry> entries) {
+    int compareByDirection(int value) => _sortAscending ? value : -value;
+
+    switch (_sortType) {
+      case SettingsService.sortByCount:
+        entries.sort((a, b) => compareByDirection(
+              a.displayCounter.count.compareTo(b.displayCounter.count),
+            ));
+      case SettingsService.sortByName:
+        entries.sort((a, b) => compareByDirection(
+              a.displayCounter.namePinyin.compareTo(
+                b.displayCounter.namePinyin,
+              ),
+            ));
+      case SettingsService.sortByColor:
+        entries.sort((a, b) {
+          final aHsv = a.displayCounter.hsvColor;
+          final bHsv = b.displayCounter.hsvColor;
+          final hueCompare = aHsv.hue.compareTo(bHsv.hue);
+          if (hueCompare != 0) {
+            return compareByDirection(hueCompare);
+          }
+
+          final satCompare = aHsv.saturation.compareTo(bHsv.saturation);
+          if (satCompare != 0) {
+            return compareByDirection(satCompare);
+          }
+
+          return compareByDirection(aHsv.value.compareTo(bHsv.value));
+        });
+      default:
+        entries.sort((a, b) => compareByDirection(
+              a.displayCounter.count.compareTo(b.displayCounter.count),
+            ));
+    }
+  }
+
+  List<_HomeCounterEntry> get _homeEntries {
+    final scopedCounters = _scopedCounters;
+
+    final groupedCounters = <String, List<CounterModel>>{};
+    for (final counter in scopedCounters) {
+      groupedCounters
+          .putIfAbsent(_homeEntryKey(counter), () => [])
+          .add(counter);
+    }
+
+    final entries = groupedCounters.entries.map((entry) {
+      final counters = entry.value;
+      final primaryCounter = _selectPrimaryCounter(counters);
+      return _HomeCounterEntry(
+        key: entry.key,
+        displayCounter: _buildHomeDisplayCounter(counters),
+        primaryCounter: primaryCounter,
+        sourceCounters: counters,
+      );
+    }).toList();
+
+    _applyHomeEntrySort(entries);
+    return List.unmodifiable(entries);
+  }
+
+  int get _memberTotal => _homeEntries.fold<int>(
+      0, (sum, entry) => sum + entry.displayCounter.count);
+
+  Map<CounterCountField, int> get _memberTypeTotals {
     return {
-      for (final field in CounterCountField.values)
-        field: _homeCounters.fold<int>(
-          0,
-          (sum, counter) => sum + counter.countForField(field),
-        ),
+      CounterCountField.threeInch: _homeEntries.fold<int>(
+        0,
+        (sum, entry) => sum + entry.displayCounter.aggregatedThreeInchCount,
+      ),
+      CounterCountField.fiveInch: _homeEntries.fold<int>(
+        0,
+        (sum, entry) => sum + entry.displayCounter.aggregatedFiveInchCount,
+      ),
+      CounterCountField.threeInchShukudai: _homeEntries.fold<int>(
+        0,
+        (sum, entry) => sum + entry.displayCounter.threeInchShukudaiCount,
+      ),
+      CounterCountField.fiveInchShukudai: _homeEntries.fold<int>(
+        0,
+        (sum, entry) => sum + entry.displayCounter.fiveInchShukudaiCount,
+      ),
+      CounterCountField.groupCut: _homeEntries.fold<int>(
+        0,
+        (sum, entry) => sum + entry.displayCounter.groupCutCount,
+      ),
     };
   }
 
+  Map<CounterCountField, int> get _overviewTypeTotals {
+    final totals = Map<CounterCountField, int>.from(_memberTypeTotals);
+
+    for (final record in _activityRecords.where((record) => record.isMulti)) {
+      final visibleParticipantCount =
+          _visibleParticipantCountForMultiRecord(record);
+      if (visibleParticipantCount <= 1) {
+        continue;
+      }
+
+      final duplicateContribution =
+          record.multiTotalCount * (visibleParticipantCount - 1);
+      final rawField = record.multiCountField;
+      if (rawField == null) {
+        continue;
+      }
+
+      final overviewField = rawField.aggregatedBaseField;
+      final currentValue = totals[overviewField] ?? 0;
+      totals[overviewField] = math.max(
+        0,
+        currentValue - duplicateContribution,
+      );
+    }
+
+    return totals;
+  }
+
+  int get _overviewTotal {
+    var duplicateContributionTotal = 0;
+    for (final record in _activityRecords.where((record) => record.isMulti)) {
+      final visibleParticipantCount =
+          _visibleParticipantCountForMultiRecord(record);
+      if (visibleParticipantCount <= 1) {
+        continue;
+      }
+      duplicateContributionTotal +=
+          record.multiTotalCount * (visibleParticipantCount - 1);
+    }
+
+    return math.max(0, _memberTotal - duplicateContributionTotal);
+  }
+
   double _getPercentage(int count) {
-    return _total == 0 ? 0 : count / _total;
+    return _memberTotal == 0 ? 0 : count / _memberTotal;
   }
 
   void _toggleLock() {
@@ -143,6 +426,15 @@ class _MyHomePageState extends State<MyHomePage> {
       _isLocked = !_isLocked;
       SettingsService.saveLockState(_isLocked); // 保存锁定状态
     });
+  }
+
+  void _showAboutApp() {
+    showAboutDialog(
+      context: context,
+      applicationName: kAppDisplayName,
+      applicationVersion: kAppVersionLabel,
+      applicationLegalese: '$kAppDescription\nBuild $kAppVersion',
+    );
   }
 
   Map<CounterCountField, int> _buildCounterDeltas(
@@ -180,15 +472,33 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
-  Future<void> _saveCounter(
+  Future<CounterModel> _saveCounter(
     CounterModel updatedCounter, {
     required DateTime occurredAt,
     String note = '快捷计数',
   }) async {
     final index =
         _counters.indexWhere((counter) => counter.id == updatedCounter.id);
-    if (index == -1) {
-      return;
+    if (index == -1 || updatedCounter.id == null) {
+      final insertedId = await DatabaseService.insertCounter(updatedCounter);
+      final insertedCounter = updatedCounter.copyWith(id: insertedId);
+      final deltas = {
+        for (final field in CounterCountField.values)
+          field: insertedCounter.countForField(field),
+      };
+
+      setState(() {
+        _counters.add(insertedCounter);
+        _applySort(_counters);
+      });
+
+      await _recordCounterChange(
+        counter: insertedCounter,
+        deltas: deltas,
+        occurredAt: occurredAt,
+        note: note,
+      );
+      return insertedCounter;
     }
 
     final previousCounter = _counters[index];
@@ -208,6 +518,8 @@ class _MyHomePageState extends State<MyHomePage> {
         note: note,
       );
     }
+
+    return updatedCounter;
   }
 
   void _openCounterSheet(CounterModel counter) {
@@ -219,8 +531,9 @@ class _MyHomePageState extends State<MyHomePage> {
       showDragHandle: true,
       builder: (context) => CounterCountSheet(
         counter: counter,
+        allCounters: _counters,
         onCounterChanged: (updatedCounter, occurredAt) async {
-          await _saveCounter(
+          return _saveCounter(
             updatedCounter,
             occurredAt: occurredAt,
           );
@@ -279,12 +592,61 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
-  void _deleteCounter(CounterModel counter) {
-    showDialog<bool>(
+  Future<void> _editHomeEntry(_HomeCounterEntry entry) async {
+    if (entry.sourceCounters.length == 1) {
+      await _editCounter(entry.primaryCounter);
+      return;
+    }
+
+    final selectedCounter = await showModalBottomSheet<CounterModel>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: Text(entry.displayCounter.name),
+              subtitle: const Text('选择要编辑的团体记录'),
+            ),
+            ...entry.sourceCounters.map((counter) {
+              final subtitle = counter.groupName.trim().isEmpty
+                  ? '当前总数 ${counter.count}'
+                  : '${counter.groupName} · 当前总数 ${counter.count}';
+              return ListTile(
+                leading: const Icon(Icons.edit_outlined),
+                title: Text(counter.name),
+                subtitle: Text(subtitle),
+                onTap: () => Navigator.of(context).pop(counter),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+
+    if (selectedCounter == null) {
+      return;
+    }
+    await _editCounter(selectedCounter);
+  }
+
+  Future<void> _deleteHomeEntry(_HomeCounterEntry entry) async {
+    final deletableCounters =
+        entry.sourceCounters.where((counter) => counter.id != null).toList();
+    if (deletableCounters.isEmpty) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('确认删除'),
-        content: const Text('确定要删除这个计数器吗？'),
+        content: Text(
+          entry.sourceCounters.length == 1
+              ? '确定要删除这个计数器吗？会同时删除这张卡对应的成员流水记录。'
+              : '确定删除 ${entry.displayCounter.name} 名下的 ${entry.sourceCounters.length} 张团体计数卡吗？对应的成员流水记录也会一起删除。',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -296,23 +658,32 @@ class _MyHomePageState extends State<MyHomePage> {
           ),
         ],
       ),
-    ).then((confirmed) async {
-      if (confirmed ?? false) {
-        if (counter.id != null) {
-          await DatabaseService.deleteCounter(counter.id!);
-          await _loadCounters();
-        }
-      }
-    });
-  }
+    );
 
-  Future<void> _toggleCounterHidden(CounterModel counter) async {
-    if (counter.id == null) {
+    if (confirmed != true) {
       return;
     }
 
-    final updatedCounter = counter.copyWith(isHidden: !counter.isHidden);
-    await DatabaseService.updateCounter(counter.id!, updatedCounter);
+    for (final counter in deletableCounters) {
+      await DatabaseService.deleteCounter(counter.id!);
+    }
+    await _loadCounters();
+  }
+
+  Future<void> _toggleHomeEntryHidden(_HomeCounterEntry entry) async {
+    final countersToUpdate =
+        entry.sourceCounters.where((counter) => counter.id != null).toList();
+    if (countersToUpdate.isEmpty) {
+      return;
+    }
+
+    final shouldHide = !countersToUpdate.every((counter) => counter.isHidden);
+    for (final counter in countersToUpdate) {
+      await DatabaseService.updateCounter(
+        counter.id!,
+        counter.copyWith(isHidden: shouldHide),
+      );
+    }
 
     if (!mounted) {
       return;
@@ -320,19 +691,22 @@ class _MyHomePageState extends State<MyHomePage> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(updatedCounter.isHidden
-            ? '已隐藏 ${counter.name}'
-            : '已恢复 ${counter.name}'),
+        content: Text(shouldHide
+            ? '已隐藏 ${entry.displayCounter.name}'
+            : '已恢复 ${entry.displayCounter.name}'),
         duration: const Duration(seconds: 2),
       ),
     );
     await _loadCounters();
   }
 
-  Future<void> _showCounterActions(CounterModel counter) async {
+  Future<void> _showHomeEntryActions(_HomeCounterEntry entry) async {
     if (_isLocked || !mounted) {
       return;
     }
+
+    final shouldHide =
+        !entry.sourceCounters.every((counter) => counter.isHidden);
 
     await showModalBottomSheet<void>(
       context: context,
@@ -343,15 +717,19 @@ class _MyHomePageState extends State<MyHomePage> {
           children: [
             ListTile(
               leading: Icon(
-                counter.isHidden
-                    ? Icons.visibility_rounded
-                    : Icons.visibility_off_rounded,
+                shouldHide
+                    ? Icons.visibility_off_rounded
+                    : Icons.visibility_rounded,
               ),
-              title: Text(counter.isHidden ? '取消隐藏卡片' : '隐藏这张卡片'),
-              subtitle: Text(counter.name),
+              title: Text(shouldHide ? '隐藏这张卡片' : '取消隐藏卡片'),
+              subtitle: Text(
+                entry.sourceCounters.length == 1
+                    ? entry.displayCounter.name
+                    : '${entry.displayCounter.name} · ${entry.sourceCounters.length} 个团体',
+              ),
               onTap: () async {
                 Navigator.of(context).pop();
-                await _toggleCounterHidden(counter);
+                await _toggleHomeEntryHidden(entry);
               },
             ),
           ],
@@ -644,7 +1022,7 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   double _calculateOverviewCardHeight(double width) {
-    final rows = width >= 560 ? 1 : 2;
+    final rows = width >= 640 ? 1 : 2;
     return (_overviewCardVerticalPadding * 2) +
         _overviewCardBorderExtent +
         _overviewCardHeaderHeight +
@@ -673,13 +1051,13 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Widget _buildOverviewCard(BuildContext context) {
-    final typeTotals = _typeTotals;
+    final typeTotals = _overviewTypeTotals;
     final theme = Theme.of(context);
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        final useWideSingleRow = width >= 560;
+        final useWideSingleRow = width >= 640;
 
         return Container(
           padding: const EdgeInsets.fromLTRB(
@@ -722,7 +1100,7 @@ class _MyHomePageState extends State<MyHomePage> {
                           ),
                           const SizedBox(height: 1),
                           Text(
-                            '${_counters.length} 个成员 / 项目',
+                            '${_homeEntries.length} 个成员 / 项目',
                             style: theme.textTheme.bodySmall?.copyWith(
                               fontSize: 10,
                               color:
@@ -748,12 +1126,19 @@ class _MyHomePageState extends State<MyHomePage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            Text(
-                              '$_total',
-                              textAlign: TextAlign.right,
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                height: 1,
+                            SizedBox(
+                              height: 24,
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerRight,
+                                child: Text(
+                                  '$_overviewTotal',
+                                  textAlign: TextAlign.right,
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                    height: 1,
+                                  ),
+                                ),
                               ),
                             ),
                             const SizedBox(height: 1),
@@ -762,7 +1147,8 @@ class _MyHomePageState extends State<MyHomePage> {
                               textAlign: TextAlign.right,
                               style: theme.textTheme.labelSmall?.copyWith(
                                 fontWeight: FontWeight.w700,
-                                fontSize: 10,
+                                fontSize: 9,
+                                height: 1,
                               ),
                             ),
                           ],
@@ -775,7 +1161,13 @@ class _MyHomePageState extends State<MyHomePage> {
               const SizedBox(height: _overviewCardSectionGap),
               if (useWideSingleRow)
                 _buildOverviewChipRow(
-                  fields: CounterCountField.values,
+                  fields: const [
+                    CounterCountField.threeInch,
+                    CounterCountField.fiveInch,
+                    CounterCountField.threeInchShukudai,
+                    CounterCountField.fiveInchShukudai,
+                    CounterCountField.groupCut,
+                  ],
                   totals: typeTotals,
                 )
               else
@@ -899,7 +1291,7 @@ class _MyHomePageState extends State<MyHomePage> {
       appBar: AppBar(
         backgroundColor:
             Theme.of(context).colorScheme.inversePrimary.withAlpha(204),
-        title: Text('总计 $_total'),
+        title: Text('总计 $_overviewTotal'),
         actions: [
           IconButton(
             onPressed: _showPieChart,
@@ -979,6 +1371,17 @@ class _MyHomePageState extends State<MyHomePage> {
                     ),
                   );
                   break;
+                case 'groupPricing':
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const GroupPricingPage(),
+                    ),
+                  );
+                  break;
+                case 'about':
+                  _showAboutApp();
+                  break;
               }
             },
             itemBuilder: (context) => [
@@ -1046,6 +1449,26 @@ class _MyHomePageState extends State<MyHomePage> {
                   ],
                 ),
               ),
+              const PopupMenuItem(
+                value: 'groupPricing',
+                child: Row(
+                  children: [
+                    Icon(Icons.sell_outlined),
+                    SizedBox(width: 8),
+                    Text('团体价格 / 无签'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'about',
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline),
+                    SizedBox(width: 8),
+                    Text('关于应用'),
+                  ],
+                ),
+              ),
             ],
           ),
         ],
@@ -1063,7 +1486,7 @@ class _MyHomePageState extends State<MyHomePage> {
         ),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final homeCounters = _homeCounters;
+            final homeEntries = _homeEntries;
             final gridColumns = _gridSize.toInt();
             final crossAxisSpacing = gridColumns >= 4 ? 10.0 : 12.0;
             final mainAxisSpacing = gridColumns >= 3 ? 12.0 : 16.0;
@@ -1087,22 +1510,24 @@ class _MyHomePageState extends State<MyHomePage> {
                   sliver: SliverGrid(
                     delegate: SliverChildBuilderDelegate(
                       (context, index) {
-                        final counter = homeCounters[index];
+                        final entry = homeEntries[index];
+                        final counter = entry.displayCounter;
                         return RepaintBoundary(
                           child: CounterCard(
-                            key: ValueKey(counter.id),
+                            key: ValueKey(entry.key),
                             counter: counter,
                             percentage: _getPercentage(counter.count),
-                            onTap: () => _openCounterSheet(counter),
-                            onLongPress: () => _showCounterActions(counter),
-                            onEdit: () => _editCounter(counter),
-                            onDelete: () => _deleteCounter(counter),
+                            onTap: () =>
+                                _openCounterSheet(entry.primaryCounter),
+                            onLongPress: () => _showHomeEntryActions(entry),
+                            onEdit: () => _editHomeEntry(entry),
+                            onDelete: () => _deleteHomeEntry(entry),
                             isLocked: _isLocked,
                             gridColumns: gridColumns,
                           ),
                         );
                       },
-                      childCount: homeCounters.length,
+                      childCount: homeEntries.length,
                     ),
                     gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: gridColumns,

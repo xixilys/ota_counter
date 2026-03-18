@@ -507,7 +507,7 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
               ),
               const SizedBox(height: 8),
               Text(
-                '点按 +/- 会立即保存；点中间数字可以直接输入总数。',
+                '快捷计数不提供减少按钮；点数字可以直接编辑总数，点按 +1 / +5 / +10 / +50 会立即保存，误点请到最近提交记录里删除对应记录。',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: 8),
@@ -552,9 +552,11 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
                   child: _CountAdjustRow(
                     field: field,
                     value: _counter.countForField(field),
-                    onDecrement: () => _changeCount(field, -1),
-                    onIncrement: () => _changeCount(field, 1),
                     onEditValue: () => _editCount(field),
+                    onAddOne: () => _changeCount(field, 1),
+                    onAddFive: () => _changeCount(field, 5),
+                    onAddTen: () => _changeCount(field, 10),
+                    onAddFifty: () => _changeCount(field, 50),
                   ),
                 );
               }),
@@ -661,63 +663,107 @@ class _ReadOnlyCountRow extends StatelessWidget {
 class _CountAdjustRow extends StatelessWidget {
   final CounterCountField field;
   final int value;
-  final VoidCallback onDecrement;
-  final VoidCallback onIncrement;
   final VoidCallback onEditValue;
+  final VoidCallback onAddOne;
+  final VoidCallback onAddFive;
+  final VoidCallback onAddTen;
+  final VoidCallback onAddFifty;
 
   const _CountAdjustRow({
     required this.field,
     required this.value,
-    required this.onDecrement,
-    required this.onIncrement,
     required this.onEditValue,
+    required this.onAddOne,
+    required this.onAddFive,
+    required this.onAddTen,
+    required this.onAddFifty,
   });
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        color: theme.colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(16),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Text(
-              field.label,
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-          ),
-          IconButton.filledTonal(
-            onPressed: value > 0 ? onDecrement : null,
-            icon: const Icon(Icons.remove),
-          ),
-          SizedBox(
-            width: 52,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(10),
-              onTap: onEditValue,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  field.label,
+                  style: theme.textTheme.titleMedium,
+                ),
+              ),
+              InkWell(
+                borderRadius: BorderRadius.circular(999),
+                onTap: onEditValue,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surface,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
                   child: Text(
                     '$value',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
               ),
-            ),
+            ],
           ),
-          IconButton.filled(
-            onPressed: onIncrement,
-            icon: const Icon(Icons.add),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _IncrementButton(label: '+1', onPressed: onAddOne),
+              _IncrementButton(label: '+5', onPressed: onAddFive),
+              _IncrementButton(label: '+10', onPressed: onAddTen),
+              _IncrementButton(label: '+50', onPressed: onAddFifty),
+            ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _IncrementButton extends StatelessWidget {
+  final String label;
+  final VoidCallback onPressed;
+
+  const _IncrementButton({
+    required this.label,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton.tonal(
+      onPressed: onPressed,
+      style: FilledButton.styleFrom(
+        minimumSize: const Size(72, 40),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
       ),
     );
   }

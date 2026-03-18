@@ -77,4 +77,45 @@ void main() {
     expect(find.text('只读'), findsOneWidget);
     expect(find.text('团切请通过多人切记录处理，这里仅展示当前累计数量。'), findsOneWidget);
   });
+
+  testWidgets('counter sheet quick count keeps edit and additive buttons', (
+    WidgetTester tester,
+  ) async {
+    final counter = CounterModel(
+      name: '成员A',
+      groupName: '团体A',
+      color: '#FFE135',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CounterCountSheet(
+            counter: counter,
+            allCounters: [counter],
+            onCounterChanged: (updatedCounter, occurredAt) async =>
+                updatedCounter,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.remove), findsNothing);
+    expect(find.text('+1'), findsWidgets);
+    expect(find.text('+5'), findsWidgets);
+    expect(find.text('+10'), findsWidgets);
+    expect(find.text('+50'), findsWidgets);
+    expect(find.text('+100'), findsNothing);
+
+    await tester.tap(find.text('+10').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('总计 10'), findsOneWidget);
+
+    await tester.tap(find.text('10').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('修改3寸'), findsOneWidget);
+  });
 }

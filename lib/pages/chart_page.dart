@@ -812,10 +812,7 @@ class _ChartPageState extends State<ChartPage> {
         summary.counts[CounterCountField.groupCut] =
             (summary.counts[CounterCountField.groupCut] ?? 0) +
                 chartGroupSummaryGroupCutContribution(record);
-        summary.multiCount += chartGroupSummaryMultiContribution(
-          record,
-          participantSlots: participantSlots,
-        );
+        summary.multiCount += chartGroupSummaryMultiContribution(record);
       });
     }
     final sortedGroupSummaries = groupSummaries.values.toList()

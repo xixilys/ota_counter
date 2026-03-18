@@ -30,13 +30,11 @@ int chartGroupSummaryGroupCutContribution(ActivityRecordModel record) {
 }
 
 int chartGroupSummaryMultiContribution(
-  ActivityRecordModel record, {
-  required int participantSlots,
-}) {
-  if (!record.isMulti ||
-      participantSlots <= 0 ||
-      isGroupCutMultiRecord(record)) {
+  ActivityRecordModel record,
+) {
+  // Group summaries count one multi-cut record per involved group.
+  if (!record.isMulti || isGroupCutMultiRecord(record)) {
     return 0;
   }
-  return record.effectiveMultiQuantity * participantSlots;
+  return 1;
 }

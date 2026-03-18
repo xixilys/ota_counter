@@ -27,12 +27,12 @@ void main() {
     );
     expect(chartGroupSummaryGroupCutContribution(record), 1);
     expect(
-      chartGroupSummaryMultiContribution(record, participantSlots: 5),
+      chartGroupSummaryMultiContribution(record),
       0,
     );
   });
 
-  test('regular multi records still use participant-based chart stats', () {
+  test('regular multi records count once per involved group in summaries', () {
     final record = ActivityRecordModel.multiCut(
       participants: const [
         ActivityParticipant(memberName: 'A', groupName: 'G'),
@@ -51,9 +51,23 @@ void main() {
       6,
     );
     expect(chartGroupSummaryGroupCutContribution(record), 0);
-    expect(
-      chartGroupSummaryMultiContribution(record, participantSlots: 3),
-      6,
+    expect(chartGroupSummaryMultiContribution(record), 1);
+  });
+
+  test('cross-group multi records count once for each involved group', () {
+    final record = ActivityRecordModel.multiCut(
+      participants: const [
+        ActivityParticipant(memberName: 'A', groupName: 'G1'),
+        ActivityParticipant(memberName: 'B', groupName: 'G1'),
+        ActivityParticipant(memberName: 'C', groupName: 'G2'),
+      ],
+      field: CounterCountField.fiveInch,
+      occurredAt: DateTime(2026, 3, 18),
+      quantity: 4,
+      totalPrice: 220,
     );
+
+    expect(isGroupCutMultiRecord(record), isFalse);
+    expect(chartGroupSummaryMultiContribution(record), 1);
   });
 }

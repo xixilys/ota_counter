@@ -11,6 +11,7 @@ import 'pages/chart_page.dart';
 import 'pages/group_pricing_page.dart';
 import 'pages/idol_database_page.dart';
 import 'pages/image_page.dart';
+import 'pages/recent_records_page.dart';
 import 'services/database_service.dart';
 import 'services/export_import_service.dart';
 import 'services/idol_database_service.dart';
@@ -1343,13 +1344,22 @@ class _MyHomePageState extends State<MyHomePage> {
           ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
-            onSelected: (value) {
+            onSelected: (value) async {
               switch (value) {
                 case 'export':
                   _exportData();
                   break;
                 case 'import':
                   _importData();
+                  break;
+                case 'recentRecords':
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const RecentRecordsPage(),
+                    ),
+                  );
+                  await _loadCounters();
                   break;
                 case 'grid':
                   _showGridSizeDialog();
@@ -1402,6 +1412,16 @@ class _MyHomePageState extends State<MyHomePage> {
                     Icon(Icons.download),
                     SizedBox(width: 8),
                     Text('导入数据'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'recentRecords',
+                child: Row(
+                  children: [
+                    Icon(Icons.history_rounded),
+                    SizedBox(width: 8),
+                    Text('最近提交记录'),
                   ],
                 ),
               ),

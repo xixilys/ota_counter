@@ -723,14 +723,23 @@ class _CountAdjustRow extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          Row(
             children: [
-              _IncrementButton(label: '+1', onPressed: onAddOne),
-              _IncrementButton(label: '+5', onPressed: onAddFive),
-              _IncrementButton(label: '+10', onPressed: onAddTen),
-              _IncrementButton(label: '+50', onPressed: onAddFifty),
+              Expanded(
+                child: _IncrementButton(label: '+1', onPressed: onAddOne),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: _IncrementButton(label: '+5', onPressed: onAddFive),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: _IncrementButton(label: '+10', onPressed: onAddTen),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: _IncrementButton(label: '+50', onPressed: onAddFifty),
+              ),
             ],
           ),
         ],
@@ -753,11 +762,12 @@ class _IncrementButton extends StatelessWidget {
     return FilledButton.tonal(
       onPressed: onPressed,
       style: FilledButton.styleFrom(
-        minimumSize: const Size(72, 40),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        minimumSize: const Size(0, 36),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
         ),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
       child: Text(
         label,

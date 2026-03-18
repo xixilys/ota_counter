@@ -118,4 +118,43 @@ void main() {
 
     expect(find.text('修改3寸'), findsOneWidget);
   });
+
+  testWidgets('counter sheet keeps quick buttons on one row in compact width', (
+    WidgetTester tester,
+  ) async {
+    final counter = CounterModel(
+      name: '成员A',
+      groupName: '团体A',
+      color: '#FFE135',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 320,
+              child: CounterCountSheet(
+                counter: counter,
+                allCounters: [counter],
+                onCounterChanged: (updatedCounter, occurredAt) async =>
+                    updatedCounter,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+
+    final firstButtonY = tester.getCenter(find.text('+1').first).dy;
+    for (final label in ['+5', '+10', '+50']) {
+      expect(
+        (tester.getCenter(find.text(label).first).dy - firstButtonY).abs(),
+        lessThan(1),
+      );
+    }
+  });
 }

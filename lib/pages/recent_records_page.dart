@@ -40,7 +40,8 @@ class _RecentRecordsPageState extends State<RecentRecordsPage> {
       return;
     }
 
-    final nextRecords = records.where(_canMutateRecord).toList();
+    final nextRecords = records.where(_canMutateRecord).toList()
+      ..sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
     final nextIds =
         nextRecords.map((record) => record.id).whereType<int>().toSet();
 

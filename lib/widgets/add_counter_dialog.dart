@@ -783,6 +783,7 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
     final visibleFields = CounterCountField.visibleValues(
       enableUnsigned: _enableUnsignedOptions ||
           (widget.initialData?.hasUnsignedCounts ?? false),
+      includeGroupCut: false,
     );
     final selectedGroup = _findGroupById(_selectedIdolGroupId);
     final selectedMember = _findMemberById(_selectedIdolMemberId);

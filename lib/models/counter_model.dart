@@ -71,10 +71,10 @@ class CounterCountField {
     fiveInch,
     unsignedThreeInch,
     unsignedFiveInch,
+    groupCut,
   ];
 
-  bool get isUnsigned =>
-      this == unsignedThreeInch || this == unsignedFiveInch;
+  bool get isUnsigned => this == unsignedThreeInch || this == unsignedFiveInch;
 
   bool get isPhoto =>
       this == threeInch ||
@@ -165,11 +165,9 @@ class CounterModel {
       threeInchShukudaiCount +
       fiveInchShukudaiCount;
 
-  int get aggregatedThreeInchCount =>
-      threeInchCount + unsignedThreeInchCount;
+  int get aggregatedThreeInchCount => threeInchCount + unsignedThreeInchCount;
 
-  int get aggregatedFiveInchCount =>
-      fiveInchCount + unsignedFiveInchCount;
+  int get aggregatedFiveInchCount => fiveInchCount + unsignedFiveInchCount;
 
   bool get hasUnsignedCounts =>
       unsignedThreeInchCount > 0 || unsignedFiveInchCount > 0;

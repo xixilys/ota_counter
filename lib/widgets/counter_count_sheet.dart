@@ -471,6 +471,7 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
   Widget build(BuildContext context) {
     final visibleFields = CounterCountField.visibleValues(
       enableUnsigned: _enableUnsignedOptions,
+      includeGroupCut: false,
     );
     return SafeArea(
       child: Padding(

@@ -15,6 +15,7 @@ class ActivityRecordDraft {
   final Map<CounterCountField, int> counterDeltas;
   final List<ActivityParticipant> multiParticipants;
   final CounterCountField? multiField;
+  final bool multiAsGroupCut;
   final int multiQuantity;
   final double multiTotalPrice;
   final String eventName;
@@ -30,6 +31,7 @@ class ActivityRecordDraft {
     this.counterDeltas = const {},
     this.multiParticipants = const [],
     this.multiField,
+    this.multiAsGroupCut = false,
     this.multiQuantity = 1,
     this.multiTotalPrice = 0,
     this.eventName = '',
@@ -80,6 +82,10 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
   bool _idolLoading = false;
   List<ActivityParticipant> _selectedParticipants = [];
   CounterCountField _selectedMultiField = CounterCountField.threeInch;
+  bool _multiAsGroupCut = false;
+  bool _multiPriceEditedInSession = false;
+  bool _isApplyingSuggestedMultiPrice = false;
+  String? _lastSuggestedMultiPriceText;
   DateTime _occurredAt = DateTime.now();
 
   @override
@@ -137,7 +143,11 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     _selectedParticipants = List<ActivityParticipant>.from(
       draft.multiParticipants,
     );
-    _selectedMultiField = draft.multiField ?? _selectedMultiField;
+    _multiAsGroupCut = draft.multiAsGroupCut;
+    if (draft.multiField != null &&
+        draft.multiField != CounterCountField.groupCut) {
+      _selectedMultiField = draft.multiField!;
+    }
     _occurredAt = draft.occurredAt;
 
     _noteController.text = draft.note;
@@ -196,6 +206,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     final pricing = _selectedPricing;
     return CounterCountField.visibleValues(
       enableUnsigned: pricing.hasUnsignedPrices,
+      includeGroupCut: false,
     ).fold<double>(0, (sum, field) {
       return sum + (_parseCount(field) * pricing.priceForField(field));
     });
@@ -212,6 +223,20 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
 
     final groupName = groupNames.first;
     return _resolvePricingByGroupName(groupName);
+  }
+
+  double? get _multiSuggestedUnitPrice {
+    final pricing = _multiSuggestedPricing;
+    if (pricing == null) {
+      return null;
+    }
+
+    final suggestedPrice =
+        _multiAsGroupCut ? pricing.groupCutPrice : pricing.doubleCutPrice;
+    if (suggestedPrice <= 0) {
+      return null;
+    }
+    return suggestedPrice;
   }
 
   bool get _multiAllowsUnsignedOptions {
@@ -240,6 +265,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     return CounterCountField.visibleValues(
       enableUnsigned: _selectedPricing.hasUnsignedPrices ||
           (_selectedCounter?.hasUnsignedCounts ?? false),
+      includeGroupCut: false,
     );
   }
 
@@ -247,6 +273,42 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     return CounterCountField.multiVisibleValues(
       enableUnsigned: _multiAllowsUnsignedOptions,
     );
+  }
+
+  CounterCountField get _effectiveMultiField {
+    return _multiAsGroupCut ? CounterCountField.groupCut : _selectedMultiField;
+  }
+
+  void _suggestMultiPriceIfNeeded() {
+    final suggestedPrice = _multiSuggestedUnitPrice;
+    if (suggestedPrice == null) {
+      return;
+    }
+
+    final suggestedText = _formatEditableNumber(suggestedPrice);
+    final currentText = _multiPriceController.text.trim();
+    final shouldReplace = !_multiPriceEditedInSession ||
+        currentText.isEmpty ||
+        currentText == '0' ||
+        currentText == _lastSuggestedMultiPriceText;
+    if (!shouldReplace) {
+      return;
+    }
+
+    _isApplyingSuggestedMultiPrice = true;
+    _multiPriceController.text = suggestedText;
+    _isApplyingSuggestedMultiPrice = false;
+    _lastSuggestedMultiPriceText = suggestedText;
+  }
+
+  void _handleMultiPriceChanged(String value) {
+    if (_isApplyingSuggestedMultiPrice) {
+      return;
+    }
+
+    _multiPriceEditedInSession = true;
+    _lastSuggestedMultiPriceText = null;
+    setState(() {});
   }
 
   List<IdolMember> get _fallbackMembers {
@@ -327,8 +389,15 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
       return;
     }
 
+    final previousCounter = _selectedCounter;
     setState(() {
       _selectedCounter = selected;
+      final changedCounter = previousCounter?.id != selected.id ||
+          previousCounter?.name != selected.name ||
+          previousCounter?.groupName != selected.groupName;
+      if (changedCounter) {
+        _countControllers[CounterCountField.groupCut.key]!.text = '0';
+      }
     });
   }
 
@@ -373,9 +442,6 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
         .map((participant) => participant.groupName.trim())
         .where((groupName) => groupName.isNotEmpty)
         .toSet();
-    final nextPricing = nextGroupNames.length == 1
-        ? _resolvePricingByGroupName(nextGroupNames.first)
-        : null;
     final nextAllowsUnsigned = nextGroupNames.isNotEmpty &&
         nextGroupNames.every(
           (groupName) =>
@@ -391,14 +457,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     setState(() {
       _selectedParticipants = nextParticipants;
       _selectedMultiField = nextSelectedField;
-      final suggestedPricing = nextPricing;
-      if ((_multiPriceController.text.trim().isEmpty ||
-              _multiPriceController.text.trim() == '0') &&
-          suggestedPricing != null &&
-          suggestedPricing.doubleCutPrice > 0) {
-        _multiPriceController.text =
-            suggestedPricing.doubleCutPrice.toStringAsFixed(0);
-      }
+      _suggestMultiPriceIfNeeded();
     });
   }
 
@@ -408,7 +467,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
       next.removeAt(index);
       _selectedParticipants = next;
       final visibleFields = _multiVisibleFields;
-      if (!visibleFields.contains(_selectedMultiField)) {
+      if (!_multiAsGroupCut && !visibleFields.contains(_selectedMultiField)) {
         _selectedMultiField = visibleFields.first;
       }
     });
@@ -421,7 +480,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
       }
 
       final counterDeltas = {
-        for (final field in _counterVisibleFields) field: _parseCount(field),
+        for (final field in CounterCountField.values) field: _parseCount(field),
       };
       final hasCount = counterDeltas.values.any((value) => value != 0);
       if (!hasCount) {
@@ -442,8 +501,9 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
 
     if (_type == ActivityRecordType.multi) {
       if (_selectedParticipants.length < 2 ||
-          _multiQuantity <= 0 ||
-          !_multiVisibleFields.contains(_selectedMultiField)) {
+          (!_multiAsGroupCut && _multiQuantity <= 0) ||
+          (!_multiAsGroupCut &&
+              !_multiVisibleFields.contains(_selectedMultiField))) {
         return;
       }
 
@@ -453,8 +513,9 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
           occurredAt: _occurredAt,
           note: _noteController.text.trim(),
           multiParticipants: _selectedParticipants,
-          multiField: _selectedMultiField,
-          multiQuantity: _multiQuantity,
+          multiField: _effectiveMultiField,
+          multiAsGroupCut: _multiAsGroupCut,
+          multiQuantity: _multiAsGroupCut ? 1 : _multiQuantity,
           multiTotalPrice:
               double.tryParse(_multiPriceController.text.trim()) ?? 0,
         ),
@@ -483,7 +544,6 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
   @override
   Widget build(BuildContext context) {
     final pricing = _selectedPricing;
-    final multiSuggestedPricing = _multiSuggestedPricing;
     final participantGroups = _selectedParticipants
         .map((participant) => participant.groupName.trim())
         .where((groupName) => groupName.isNotEmpty)
@@ -636,13 +696,13 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
                   ),
                   _MetricPill(
                     label: '当前规格',
-                    value: _selectedMultiField.label,
+                    value: _effectiveMultiField.label,
                   ),
-                  if (multiSuggestedPricing != null)
+                  if (_multiSuggestedUnitPrice != null)
                     _MetricPill(
                       label: '单团参考价',
                       value:
-                          '¥${multiSuggestedPricing.doubleCutPrice.toStringAsFixed(multiSuggestedPricing.doubleCutPrice == multiSuggestedPricing.doubleCutPrice.roundToDouble() ? 0 : 2)}',
+                          '¥${_multiSuggestedUnitPrice!.toStringAsFixed(_multiSuggestedUnitPrice! == _multiSuggestedUnitPrice!.roundToDouble() ? 0 : 2)}',
                     ),
                 ],
               ),
@@ -702,48 +762,79 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
-              Text(
-                '规格',
-                style: Theme.of(context).textTheme.titleSmall,
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('按团切计算'),
+                subtitle: Text(
+                  _multiAsGroupCut
+                      ? '开启后每位参与成员会增加 1 个团切，切奇总览只记 1 个团切。'
+                      : '关闭后按原来的多人切规格处理。',
+                ),
+                value: _multiAsGroupCut,
+                onChanged: (value) {
+                  setState(() {
+                    _multiAsGroupCut = value;
+                    if (!_multiAsGroupCut &&
+                        !_multiVisibleFields.contains(_selectedMultiField)) {
+                      _selectedMultiField = _multiVisibleFields.first;
+                    }
+                    _suggestMultiPriceIfNeeded();
+                  });
+                },
               ),
               const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: _multiVisibleFields.map((field) {
-                  final selected = field == _selectedMultiField;
-                  return ChoiceChip(
-                    label: Text(field.label),
-                    selected: selected,
-                    onSelected: (_) {
-                      setState(() {
-                        _selectedMultiField = field;
-                      });
-                    },
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 12),
-              NoAutofillTextField(
-                controller: _multiQuantityController,
-                decoration: const InputDecoration(
-                  labelText: '每人成交数量',
-                  hintText: '1',
+              if (_multiAsGroupCut)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Text(
+                    '团切模式下固定按每人 1 个团切处理。',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                )
+              else ...[
+                Text(
+                  '规格',
+                  style: Theme.of(context).textTheme.titleSmall,
                 ),
-                keyboardType: TextInputType.number,
-                onChanged: (_) => setState(() {}),
-              ),
-              const SizedBox(height: 12),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _multiVisibleFields.map((field) {
+                    final selected = field == _selectedMultiField;
+                    return ChoiceChip(
+                      label: Text(field.label),
+                      selected: selected,
+                      onSelected: (_) {
+                        setState(() {
+                          _selectedMultiField = field;
+                        });
+                      },
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 12),
+                NoAutofillTextField(
+                  controller: _multiQuantityController,
+                  decoration: const InputDecoration(
+                    labelText: '每人成交数量',
+                    hintText: '1',
+                  ),
+                  keyboardType: TextInputType.number,
+                  onChanged: (_) => setState(() {}),
+                ),
+                const SizedBox(height: 12),
+              ],
               NoAutofillTextField(
                 controller: _multiPriceController,
-                decoration: const InputDecoration(
-                  labelText: '多人切总价',
+                decoration: InputDecoration(
+                  labelText: _multiAsGroupCut ? '团切总价' : '多人切总价',
                   prefixText: '¥',
                 ),
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
-                onChanged: (_) => setState(() {}),
+                onChanged: _handleMultiPriceChanged,
               ),
               const SizedBox(height: 12),
               Text(

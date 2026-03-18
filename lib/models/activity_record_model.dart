@@ -243,6 +243,8 @@ class ActivityRecordModel {
     int quantity = 1,
     double totalPrice = 0,
   }) {
+    final normalizedQuantity =
+        field == CounterCountField.groupCut ? 1 : quantity;
     final normalizedParticipants = participants
         .where((participant) => participant.memberName.trim().isNotEmpty)
         .toList(growable: false);
@@ -263,8 +265,9 @@ class ActivityRecordModel {
       type: ActivityRecordType.multi,
       source: 'local',
       sourceRecordId: null,
-      subjectName:
-          normalizedParticipants.isNotEmpty ? normalizedParticipants.first.memberName : '',
+      subjectName: normalizedParticipants.isNotEmpty
+          ? normalizedParticipants.first.memberName
+          : '',
       secondarySubjectName: normalizedParticipants.length > 1
           ? normalizedParticipants[1].memberName
           : '',
@@ -272,13 +275,17 @@ class ActivityRecordModel {
       note: note,
       occurredAt: occurredAt,
       pricingLabel: pricingLabel,
-      threeInchCount: field == CounterCountField.threeInch ? quantity : 0,
-      fiveInchCount: field == CounterCountField.fiveInch ? quantity : 0,
+      threeInchCount:
+          field == CounterCountField.threeInch ? normalizedQuantity : 0,
+      fiveInchCount:
+          field == CounterCountField.fiveInch ? normalizedQuantity : 0,
       unsignedThreeInchCount:
-          field == CounterCountField.unsignedThreeInch ? quantity : 0,
+          field == CounterCountField.unsignedThreeInch ? normalizedQuantity : 0,
       unsignedFiveInchCount:
-          field == CounterCountField.unsignedFiveInch ? quantity : 0,
-      multiCutQuantity: quantity,
+          field == CounterCountField.unsignedFiveInch ? normalizedQuantity : 0,
+      groupCutCount:
+          field == CounterCountField.groupCut ? normalizedQuantity : 0,
+      multiCutQuantity: normalizedQuantity,
       totalAmount: totalPrice,
       participants: normalizedParticipants,
     );
@@ -390,9 +397,8 @@ class ActivityRecordModel {
     );
   }
 
-  int get effectiveMultiQuantity => isMulti
-      ? (multiCutQuantity > 0 ? multiCutQuantity : 1)
-      : 0;
+  int get effectiveMultiQuantity =>
+      isMulti ? (multiCutQuantity > 0 ? multiCutQuantity : 1) : 0;
 
   int get multiParticipantCount => effectiveParticipants.length;
 
@@ -533,7 +539,9 @@ class ActivityRecordModel {
       'ticket_unit_price': ticketUnitPrice,
       'total_amount': totalAmount,
       'multi_participants_json': jsonEncode(
-        effectiveParticipants.map((participant) => participant.toMap()).toList(),
+        effectiveParticipants
+            .map((participant) => participant.toMap())
+            .toList(),
       ),
     };
   }

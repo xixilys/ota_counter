@@ -36,6 +36,8 @@ if (flutterVersionName == null) {
     flutterVersionName = '1.0'
 }
 
+def releaseApkFileName = "OTA-Counter-v${flutterVersionName}.apk"
+
 android {
     namespace = "top.huangxuanqi.otacounter"
     compileSdk = flutter.compileSdkVersion
@@ -72,8 +74,8 @@ android {
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
+        versionCode = flutterVersionCode.toInteger()
+        versionName = flutterVersionName
     }
 
     buildTypes {
@@ -81,6 +83,28 @@ android {
             // Prefer the local release keystore when it exists so future APKs
             // can upgrade in place. Keep the debug fallback for clean clones.
             signingConfig keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+}
+
+android.applicationVariants.configureEach { variant ->
+    if (variant.buildType.name == "release") {
+        variant.outputs.all {
+            outputFileName = releaseApkFileName
+        }
+
+        variant.assembleProvider.configure {
+            doLast {
+                def packageApplication = variant.packageApplicationProvider.get()
+                def outputDirectory = packageApplication.outputDirectory.get().asFile
+                def releaseOutputFile = new File(outputDirectory, releaseApkFileName)
+                if (releaseOutputFile.exists()) {
+                    copy {
+                        from(releaseOutputFile)
+                        into(layout.buildDirectory.dir("outputs/flutter-apk"))
+                    }
+                }
+            }
         }
     }
 }

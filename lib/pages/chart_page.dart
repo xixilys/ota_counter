@@ -224,12 +224,16 @@ class _ChartPageState extends State<ChartPage> {
     }
 
     if (record.isMulti) {
+      final multiField = record.multiCountField;
       return ActivityRecordDraft(
         type: ActivityRecordType.multi,
         occurredAt: record.occurredAt,
         note: record.note,
         multiParticipants: record.effectiveParticipants,
-        multiField: record.multiCountField ?? CounterCountField.threeInch,
+        multiField: multiField == CounterCountField.groupCut
+            ? CounterCountField.threeInch
+            : (multiField ?? CounterCountField.threeInch),
+        multiAsGroupCut: multiField == CounterCountField.groupCut,
         multiQuantity: record.effectiveMultiQuantity,
         multiTotalPrice: record.totalAmount,
       );
@@ -273,6 +277,7 @@ class _ChartPageState extends State<ChartPage> {
     }
 
     if (draft.type == ActivityRecordType.multi) {
+      final isGroupCut = draft.multiAsGroupCut;
       final participantGroups = draft.multiParticipants
           .map((participant) => participant.groupName.trim())
           .where((groupName) => groupName.isNotEmpty)
@@ -281,16 +286,20 @@ class _ChartPageState extends State<ChartPage> {
           ? _resolvePricingByGroupName(participantGroups.first)
           : null;
       final pricingLabel = pricing == null
-          ? (participantGroups.length > 1 ? '跨团多人切' : '多人切')
+          ? (participantGroups.length > 1
+              ? (isGroupCut ? '跨团团切' : '跨团多人切')
+              : (isGroupCut ? '团切' : '多人切'))
           : pricing.label;
       return ActivityRecordModel.multiCut(
         id: id,
         participants: draft.multiParticipants,
-        field: draft.multiField ?? CounterCountField.threeInch,
+        field: isGroupCut
+            ? CounterCountField.groupCut
+            : (draft.multiField ?? CounterCountField.threeInch),
         occurredAt: draft.occurredAt,
         note: draft.note,
         pricingLabel: pricingLabel,
-        quantity: draft.multiQuantity,
+        quantity: isGroupCut ? 1 : draft.multiQuantity,
         totalPrice: draft.multiTotalPrice,
       ).copyWith(
         source: source,

@@ -2,8 +2,8 @@
 
 面向 OTA / 切奇记录的 Flutter 计数器应用。
 
-当前版本：`v1.2.1`  
-Android build：`1.2.1+5`
+当前版本：`v1.2.2`  
+Android build：`1.2.2+6`
 
 ## 主要功能
 
@@ -43,13 +43,16 @@ flutter run
 flutter build apk --release
 ```
 
-默认输出文件：
+构建完成后，`build/app/outputs/flutter-apk/` 目录下会同时看到：
 
-- `build/app/outputs/flutter-apk/app-release.apk`
+- Flutter 默认产物：`app-release.apk`
+- `build/app/outputs/flutter-apk/OTA-Counter-v1.2.2.apk`
 
-对外分发时建议统一重命名为：
+GitHub Release 建议继续保持：
 
-- `OTA-Counter-v1.2.1.apk`
+- release 标题：`OTA Counter v1.2.2`
+- tag：`v1.2.2`
+- APK 资产：`OTA-Counter-v1.2.2.apk`
 
 当前仓库已接入 `android/key.properties` 形式的本地签名配置：
 
@@ -63,7 +66,7 @@ flutter build apk --release
 2. 保持同一个 Android `applicationId`
 3. 每次发版递增 `versionCode`
 
-当前 Android `applicationId` 为 `top.huangxuanqi.otacounter`。当前版本号为 `1.2.1+5`。
+当前 Android `applicationId` 为 `top.huangxuanqi.otacounter`。当前版本号为 `1.2.2+6`。
 
 ## 数据脚本
 

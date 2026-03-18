@@ -14,7 +14,7 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
-  testWidgets('counter card breakdown keeps group cut visible', (
+  testWidgets('counter card breakdown hides group cut', (
     WidgetTester tester,
   ) async {
     final counter = CounterModel(
@@ -22,6 +22,9 @@ void main() {
       groupName: '团体A',
       color: '#FFE135',
       threeInchCount: 2,
+      fiveInchCount: 1,
+      threeInchShukudaiCount: 4,
+      fiveInchShukudaiCount: 5,
       groupCutCount: 3,
     );
 
@@ -46,7 +49,11 @@ void main() {
       ),
     );
 
-    expect(find.text('团切'), findsOneWidget);
+    expect(find.text('3寸'), findsOneWidget);
+    expect(find.text('5寸'), findsOneWidget);
+    expect(find.text('3寸宿'), findsOneWidget);
+    expect(find.text('5寸宿'), findsOneWidget);
+    expect(find.text('团切'), findsNothing);
   });
 
   testWidgets('counter sheet shows group cut as read only', (

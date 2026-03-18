@@ -2,6 +2,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
 import '../models/activity_record_model.dart';
+import '../models/chart_stats_helpers.dart';
 import '../models/counter_model.dart';
 import '../models/group_pricing_model.dart';
 import '../services/database_service.dart';
@@ -704,13 +705,11 @@ class _ChartPageState extends State<ChartPage> {
       for (final field in CounterCountField.values)
         field: counterRecords.fold<int>(
               0,
-              (sum, record) => sum + record.countForField(field),
+              (sum, record) => sum + chartTypeFieldContribution(record, field),
             ) +
             multiRecords.fold<int>(
               0,
-              (sum, record) =>
-                  sum +
-                  (record.countForField(field) * record.multiParticipantCount),
+              (sum, record) => sum + chartTypeFieldContribution(record, field),
             ),
     };
 
@@ -810,7 +809,13 @@ class _ChartPageState extends State<ChartPage> {
         summary.amount +=
             _effectiveMultiParticipantAmountShare(record) * participantSlots;
         summary.recordCount += 1;
-        summary.multiCount += record.effectiveMultiQuantity * participantSlots;
+        summary.counts[CounterCountField.groupCut] =
+            (summary.counts[CounterCountField.groupCut] ?? 0) +
+                chartGroupSummaryGroupCutContribution(record);
+        summary.multiCount += chartGroupSummaryMultiContribution(
+          record,
+          participantSlots: participantSlots,
+        );
       });
     }
     final sortedGroupSummaries = groupSummaries.values.toList()

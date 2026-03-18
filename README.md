@@ -2,12 +2,12 @@
 
 面向 OTA / 切奇记录的 Flutter 计数器应用。
 
-当前版本：`v1.2.2`  
-Android build：`1.2.2+6`
+当前版本：`v1.2.4`  
+Android build：`1.2.4+8`
 
 ## 主要功能
 
-- 成员卡片计数，首页展示 `3寸`、`5寸`、`3寸宿题`、`5寸宿题`、`团切`
+- 成员卡片计数，首页展示 `3寸`、`5寸`、`3寸宿题`、`5寸宿题`；`团切` 在卡片详情里查看
 - 支持“单成员多团 / 兼任 / 重生改名”场景：同一个真人可以绑定多个团籍，首页按真人聚合为同一张卡片，不会因为换团或改名被拆散
 - 支持手动绑定或解绑真人主档，不再只靠名字猜测；填同一个真人主档名，或并入已有真人卡片后，就能把跨团时期接到一起
 - 快捷计数支持切换“记录到团体”，同一个真人在不同团的切可以分别落到对应团籍，默认仍用当前团
@@ -35,6 +35,13 @@ flutter run
 
 如果本地 Flutter / Android SDK 不在系统默认路径，请先自行配置环境变量，例如 `ANDROID_HOME`、`ANDROID_SDK_ROOT`。
 
+## 开发约定
+
+- 日常开发默认在 `codex/v1.2-prep` 分支进行，不直接在 `main` 上开发
+- 需要发版或推 GitHub Release 时，默认先把 `codex/v1.2-prep` 合并到 `main`，除非明确说明“不要合并”
+- release 完成后默认切回 `codex/v1.2-prep`，后续继续在开发分支推进
+- Android 发版时同步递增 `pubspec.yaml` 里的版本号，并保持 GitHub release 标题、tag、APK 文件名三者一致
+
 ## Android Release
 
 正式包构建命令：
@@ -46,13 +53,13 @@ flutter build apk --release
 构建完成后，`build/app/outputs/flutter-apk/` 目录下会同时看到：
 
 - Flutter 默认产物：`app-release.apk`
-- `build/app/outputs/flutter-apk/OTA-Counter-v1.2.2.apk`
+- `build/app/outputs/flutter-apk/OTA-Counter-v1.2.4.apk`
 
 GitHub Release 建议继续保持：
 
-- release 标题：`OTA Counter v1.2.2`
-- tag：`v1.2.2`
-- APK 资产：`OTA-Counter-v1.2.2.apk`
+- release 标题：`OTA Counter v1.2.4`
+- tag：`v1.2.4`
+- APK 资产：`OTA-Counter-v1.2.4.apk`
 
 当前仓库已接入 `android/key.properties` 形式的本地签名配置：
 
@@ -66,7 +73,7 @@ GitHub Release 建议继续保持：
 2. 保持同一个 Android `applicationId`
 3. 每次发版递增 `versionCode`
 
-当前 Android `applicationId` 为 `top.huangxuanqi.otacounter`。当前版本号为 `1.2.2+6`。
+当前 Android `applicationId` 为 `top.huangxuanqi.otacounter`。当前版本号为 `1.2.4+8`。
 
 ## 数据脚本
 

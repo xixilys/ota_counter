@@ -474,100 +474,185 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
       includeGroupCut: false,
     );
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _counter.name,
-                        style: Theme.of(context).textTheme.headlineSmall,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '总计 ${_counter.count}',
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                    ],
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _counter.name,
+                          style: Theme.of(context).textTheme.headlineSmall,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '总计 ${_counter.count}',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ],
+                    ),
                   ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '点按 +/- 会立即保存；点中间数字可以直接输入总数。',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 8),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.schedule_outlined),
+                title: const Text('记录日期'),
+                subtitle: Text(_formatDate(_occurredAt)),
+                trailing: const Icon(Icons.edit_calendar_outlined),
+                onTap: _pickDateTime,
+              ),
+              if (_targetsLoading) ...[
+                const SizedBox(height: 8),
+                const LinearProgressIndicator(),
+              ],
+              if (_targets.length > 1) ...[
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  initialValue: _selectedTargetKey,
+                  decoration: const InputDecoration(
+                    labelText: '记录到团体',
+                    helperText: '默认当前卡片所属团体，也可以切到这个真人的其他团籍',
+                  ),
+                  items: _targets.map((target) {
+                    return DropdownMenuItem<String>(
+                      value: target.key,
+                      child: Text(target.label),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    if (value == null || value == _selectedTargetKey) {
+                      return;
+                    }
+                    _selectTarget(value);
+                  },
                 ),
-                IconButton(
+              ],
+              const SizedBox(height: 16),
+              ...visibleFields.map((field) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _CountAdjustRow(
+                    field: field,
+                    value: _counter.countForField(field),
+                    onDecrement: () => _changeCount(field, -1),
+                    onIncrement: () => _changeCount(field, 1),
+                    onEditValue: () => _editCount(field),
+                  ),
+                );
+              }),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _ReadOnlyCountRow(
+                  field: CounterCountField.groupCut,
+                  value: _counter.groupCutCount,
+                  helperText: '团切请通过多人切记录处理，这里仅展示当前累计数量。',
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
                   onPressed: () => Navigator.of(context).pop(),
-                  icon: const Icon(Icons.close),
+                  icon: const Icon(Icons.check),
+                  label: const Text('完成'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReadOnlyCountRow extends StatelessWidget {
+  final CounterCountField field;
+  final int value;
+  final String helperText;
+
+  const _ReadOnlyCountRow({
+    required this.field,
+    required this.value,
+    required this.helperText,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  field.label,
+                  style: theme.textTheme.titleMedium,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  helperText,
+                  style: theme.textTheme.bodySmall,
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              '点按 +/- 会立即保存；点中间数字可以直接输入总数。',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 8),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.schedule_outlined),
-              title: const Text('记录日期'),
-              subtitle: Text(_formatDate(_occurredAt)),
-              trailing: const Icon(Icons.edit_calendar_outlined),
-              onTap: _pickDateTime,
-            ),
-            if (_targetsLoading) ...[
-              const SizedBox(height: 8),
-              const LinearProgressIndicator(),
-            ],
-            if (_targets.length > 1) ...[
-              const SizedBox(height: 8),
-              DropdownButtonFormField<String>(
-                initialValue: _selectedTargetKey,
-                decoration: const InputDecoration(
-                  labelText: '记录到团体',
-                  helperText: '默认当前卡片所属团体，也可以切到这个真人的其他团籍',
+          ),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 4,
                 ),
-                items: _targets.map((target) {
-                  return DropdownMenuItem<String>(
-                    value: target.key,
-                    child: Text(target.label),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  if (value == null || value == _selectedTargetKey) {
-                    return;
-                  }
-                  _selectTarget(value);
-                },
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '只读',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '$value',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ],
-            const SizedBox(height: 16),
-            ...visibleFields.map((field) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: _CountAdjustRow(
-                  field: field,
-                  value: _counter.countForField(field),
-                  onDecrement: () => _changeCount(field, -1),
-                  onIncrement: () => _changeCount(field, 1),
-                  onEditValue: () => _editCount(field),
-                ),
-              );
-            }),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.check),
-                label: const Text('完成'),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

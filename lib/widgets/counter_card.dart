@@ -418,6 +418,10 @@ class _CountGrid extends StatelessWidget {
         CounterCountField.fiveInchShukudai,
         counter.fiveInchShukudaiCount,
       ),
+      MapEntry(
+        CounterCountField.groupCut,
+        counter.groupCutCount,
+      ),
     ];
 
     return LayoutBuilder(

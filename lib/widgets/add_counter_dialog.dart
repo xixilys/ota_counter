@@ -780,6 +780,7 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.initialData != null;
+    final groupCutCount = _parseCount(CounterCountField.groupCut);
     final visibleFields = CounterCountField.visibleValues(
       enableUnsigned: _enableUnsignedOptions ||
           (widget.initialData?.hasUnsignedCounts ?? false),
@@ -966,6 +967,54 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
                 ],
               ],
             ),
+            if (isEditing || groupCutCount > 0) ...[
+              const SizedBox(height: 4),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '团切',
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '当前累计 $groupCutCount。团切改动请通过多人切记录处理，这里不支持直接编辑。',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surface,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        '只读',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 16),
             const Text('选择颜色:'),
             const SizedBox(height: 8),

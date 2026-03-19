@@ -2,7 +2,10 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'app_metadata.dart';
 import 'models/activity_record_model.dart';
@@ -11,15 +14,16 @@ import 'pages/chart_page.dart';
 import 'pages/group_pricing_page.dart';
 import 'pages/idol_database_page.dart';
 import 'pages/image_page.dart';
+import 'pages/member_detail_page.dart';
 import 'pages/recent_records_page.dart';
 import 'services/database_service.dart';
 import 'services/export_import_service.dart';
 import 'services/idol_database_service.dart';
 import 'services/ota_admin_import_service.dart';
 import 'services/settings_service.dart';
+import 'services/update_service.dart';
 import 'widgets/add_counter_dialog.dart';
 import 'widgets/counter_card.dart';
-import 'widgets/counter_count_sheet.dart';
 
 void main() async {
   // 确保 Flutter 绑定初始化
@@ -39,10 +43,30 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final lightScheme = ColorScheme.fromSeed(
+      seedColor: const Color(0xFF2F6FED),
+      brightness: Brightness.light,
+    );
+    final darkScheme = ColorScheme.fromSeed(
+      seedColor: const Color(0xFF6AA7FF),
+      brightness: Brightness.dark,
+    );
+
     return MaterialApp(
       title: kAppDisplayName,
+      locale: const Locale('zh', 'CN'),
+      supportedLocales: const [
+        Locale('zh', 'CN'),
+        Locale('en', 'US'),
+      ],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
+      themeMode: ThemeMode.system,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+        colorScheme: lightScheme,
+        useMaterial3: true,
+      ),
+      darkTheme: ThemeData(
+        colorScheme: darkScheme,
         useMaterial3: true,
       ),
       home: const MyHomePage(),
@@ -62,24 +86,25 @@ class _HomeCounterEntry {
   final CounterModel displayCounter;
   final CounterModel primaryCounter;
   final List<CounterModel> sourceCounters;
+  final Map<String, int> customCounts;
+  final int totalCount;
+  final List<CounterCountBadgeData> breakdownEntries;
 
   const _HomeCounterEntry({
     required this.key,
     required this.displayCounter,
     required this.primaryCounter,
     required this.sourceCounters,
+    this.customCounts = const <String, int>{},
+    required this.totalCount,
+    this.breakdownEntries = const <CounterCountBadgeData>[],
   });
 }
 
 class _MyHomePageState extends State<MyHomePage> {
   static const double _overviewCardHorizontalPadding = 10;
   static const double _overviewCardVerticalPadding = 10;
-  static const double _overviewCardHeaderHeight = 50;
-  static const double _overviewCardBorderExtent = 2;
-  static const double _overviewCardSectionGap = 8;
   static const double _overviewChipSpacing = 6;
-  static const double _overviewChipHeight = 40;
-  static const double _topHeaderGap = 10;
 
   final List<CounterModel> _counters = [];
   final List<ActivityRecordModel> _activityRecords = [];
@@ -88,17 +113,62 @@ class _MyHomePageState extends State<MyHomePage> {
   String _sortType = SettingsService.sortByCount; // 添加排序类型
   bool _isLocked = false;
   bool _showHiddenCounters = false;
+  Set<String> _selectedOverviewMetricIds = <String>{};
+  List<String> _overviewMetricOrder = const <String>[];
+  int _overviewMetricColumns = SettingsService.defaultOverviewMetricColumns;
+  String _appVersionLabel = '读取中';
+  String _appBuildLabel = '';
+  int _appVersionCode = 0;
+  bool _autoUpdateCheckScheduled = false;
 
   @override
   void initState() {
     super.initState();
     _loadCounters();
     _loadSettings();
+    _loadPackageInfo();
     _initializeIdolDatabase();
   }
 
   Future<void> _initializeIdolDatabase() async {
     await IdolDatabaseService.initializeBuiltInDataIfNeeded();
+  }
+
+  Future<void> _loadPackageInfo() async {
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      final version = packageInfo.version.trim();
+      final buildNumber = packageInfo.buildNumber.trim();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _appVersionLabel = version.isEmpty ? '未知版本' : 'v$version';
+        _appBuildLabel =
+            buildNumber.isEmpty ? '' : 'Build ${packageInfo.buildNumber}';
+        _appVersionCode = int.tryParse(buildNumber) ?? 0;
+      });
+      _scheduleAutoUpdateCheck();
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _appVersionLabel = '未知版本';
+        _appBuildLabel = '';
+        _appVersionCode = 0;
+      });
+    }
+  }
+
+  void _scheduleAutoUpdateCheck() {
+    if (_autoUpdateCheckScheduled || _appVersionCode <= 0) {
+      return;
+    }
+    _autoUpdateCheckScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkForUpdates(manual: false);
+    });
   }
 
   Future<void> _loadSettings() async {
@@ -107,12 +177,19 @@ class _MyHomePageState extends State<MyHomePage> {
     final sortType = await SettingsService.getSortType();
     final isLocked = await SettingsService.getLockState(); // 加载锁定状态
     final showHiddenCounters = await SettingsService.getShowHiddenCounters();
+    final overviewMetricIds = await SettingsService.getOverviewMetricIds();
+    final overviewMetricOrder = await SettingsService.getOverviewMetricOrder();
+    final overviewMetricColumns =
+        await SettingsService.getOverviewMetricColumns();
     setState(() {
       _gridSize = size;
       _sortAscending = sortDirection;
       _sortType = sortType;
       _isLocked = isLocked; // 设置锁定状态
       _showHiddenCounters = showHiddenCounters;
+      _selectedOverviewMetricIds = overviewMetricIds.toSet();
+      _overviewMetricOrder = overviewMetricOrder;
+      _overviewMetricColumns = overviewMetricColumns;
     });
   }
 
@@ -285,13 +362,97 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
+  bool _counterRecordMatchesCounter(
+    ActivityRecordModel record,
+    CounterModel counter,
+  ) {
+    if (!record.isCounter) {
+      return false;
+    }
+
+    if (record.counterId != null && counter.id != null) {
+      return record.counterId == counter.id;
+    }
+
+    if (record.personId != null && counter.personId != null) {
+      return record.personId == counter.personId;
+    }
+
+    final recordPersonName = _normalizedLookupPart(record.personName);
+    final counterPersonName = _normalizedLookupPart(counter.personName);
+    if (recordPersonName.isNotEmpty && counterPersonName.isNotEmpty) {
+      return recordPersonName == counterPersonName;
+    }
+
+    return _normalizedLookupPart(record.groupName) ==
+            _normalizedLookupPart(counter.groupName) &&
+        _normalizedLookupPart(record.subjectName) ==
+            _normalizedLookupPart(counter.name);
+  }
+
+  Map<String, int> _buildHomeCustomTypeTotals(List<CounterModel> counters) {
+    final totals = <String, int>{};
+    for (final record in _activityRecords) {
+      if (!record.isCounter || record.effectiveCustomChekiCounts.isEmpty) {
+        continue;
+      }
+      final matchesCounter = counters.any(
+        (counter) => _counterRecordMatchesCounter(record, counter),
+      );
+      if (!matchesCounter) {
+        continue;
+      }
+
+      for (final item in record.effectiveCustomChekiCounts) {
+        final label = item.label.trim();
+        if (label.isEmpty) {
+          continue;
+        }
+        totals[label] = (totals[label] ?? 0) + item.count;
+      }
+    }
+    return totals;
+  }
+
+  List<CounterCountBadgeData> _buildHomeBreakdownEntries(
+    CounterModel counter,
+    Map<String, int> customCounts,
+  ) {
+    final sortedCustomEntries = customCounts.entries.toList()
+      ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
+    return [
+      CounterCountBadgeData(
+        label: CounterCountField.threeInch.shortLabel,
+        value: counter.aggregatedThreeInchCount,
+      ),
+      CounterCountBadgeData(
+        label: CounterCountField.fiveInch.shortLabel,
+        value: counter.aggregatedFiveInchCount,
+      ),
+      CounterCountBadgeData(
+        label: CounterCountField.threeInchShukudai.shortLabel,
+        value: counter.threeInchShukudaiCount,
+      ),
+      CounterCountBadgeData(
+        label: CounterCountField.fiveInchShukudai.shortLabel,
+        value: counter.fiveInchShukudaiCount,
+      ),
+      ...sortedCustomEntries.map((entry) {
+        return CounterCountBadgeData(
+          label: entry.key,
+          value: entry.value,
+        );
+      }),
+    ];
+  }
+
   void _applyHomeEntrySort(List<_HomeCounterEntry> entries) {
     int compareByDirection(int value) => _sortAscending ? value : -value;
 
     switch (_sortType) {
       case SettingsService.sortByCount:
         entries.sort((a, b) => compareByDirection(
-              a.displayCounter.count.compareTo(b.displayCounter.count),
+              a.totalCount.compareTo(b.totalCount),
             ));
       case SettingsService.sortByName:
         entries.sort((a, b) => compareByDirection(
@@ -317,7 +478,7 @@ class _MyHomePageState extends State<MyHomePage> {
         });
       default:
         entries.sort((a, b) => compareByDirection(
-              a.displayCounter.count.compareTo(b.displayCounter.count),
+              a.totalCount.compareTo(b.totalCount),
             ));
     }
   }
@@ -335,11 +496,21 @@ class _MyHomePageState extends State<MyHomePage> {
     final entries = groupedCounters.entries.map((entry) {
       final counters = entry.value;
       final primaryCounter = _selectPrimaryCounter(counters);
+      final displayCounter = _buildHomeDisplayCounter(counters);
+      final customCounts = _buildHomeCustomTypeTotals(counters);
+      final totalCount = displayCounter.count +
+          customCounts.values.fold<int>(0, (sum, value) => sum + value);
       return _HomeCounterEntry(
         key: entry.key,
-        displayCounter: _buildHomeDisplayCounter(counters),
+        displayCounter: displayCounter,
         primaryCounter: primaryCounter,
         sourceCounters: counters,
+        customCounts: customCounts,
+        totalCount: totalCount,
+        breakdownEntries: _buildHomeBreakdownEntries(
+          displayCounter,
+          customCounts,
+        ),
       );
     }).toList();
 
@@ -347,8 +518,8 @@ class _MyHomePageState extends State<MyHomePage> {
     return List.unmodifiable(entries);
   }
 
-  int get _memberTotal => _homeEntries.fold<int>(
-      0, (sum, entry) => sum + entry.displayCounter.count);
+  int get _memberTotal =>
+      _homeEntries.fold<int>(0, (sum, entry) => sum + entry.totalCount);
 
   Map<CounterCountField, int> get _memberTypeTotals {
     return {
@@ -373,6 +544,20 @@ class _MyHomePageState extends State<MyHomePage> {
         (sum, entry) => sum + entry.displayCounter.groupCutCount,
       ),
     };
+  }
+
+  Map<String, int> get _overviewCustomTypeTotals {
+    final totals = <String, int>{};
+    for (final entry in _homeEntries) {
+      for (final customEntry in entry.customCounts.entries) {
+        final label = customEntry.key.trim();
+        if (label.isEmpty) {
+          continue;
+        }
+        totals[label] = (totals[label] ?? 0) + customEntry.value;
+      }
+    }
+    return totals;
   }
 
   Map<CounterCountField, int> get _overviewTypeTotals {
@@ -418,6 +603,101 @@ class _MyHomePageState extends State<MyHomePage> {
     return math.max(0, _memberTotal - duplicateContributionTotal);
   }
 
+  String _overviewMetricIdForField(CounterCountField field) {
+    return 'builtin:${field.key}';
+  }
+
+  String _overviewMetricIdForCustomLabel(String label) {
+    return 'custom:${_normalizedLookupPart(label)}';
+  }
+
+  List<_OverviewMetricData> get _allOverviewMetrics {
+    final builtInTotals = _overviewTypeTotals;
+    final customEntries = _overviewCustomTypeTotals.entries.toList()
+      ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
+
+    return [
+      _OverviewMetricData(
+        id: _overviewMetricIdForField(CounterCountField.threeInch),
+        label: CounterCountField.threeInch.shortLabel,
+        value: builtInTotals[CounterCountField.threeInch] ?? 0,
+        isCustom: false,
+      ),
+      _OverviewMetricData(
+        id: _overviewMetricIdForField(CounterCountField.fiveInch),
+        label: CounterCountField.fiveInch.shortLabel,
+        value: builtInTotals[CounterCountField.fiveInch] ?? 0,
+        isCustom: false,
+      ),
+      _OverviewMetricData(
+        id: _overviewMetricIdForField(CounterCountField.threeInchShukudai),
+        label: CounterCountField.threeInchShukudai.shortLabel,
+        value: builtInTotals[CounterCountField.threeInchShukudai] ?? 0,
+        isCustom: false,
+      ),
+      _OverviewMetricData(
+        id: _overviewMetricIdForField(CounterCountField.fiveInchShukudai),
+        label: CounterCountField.fiveInchShukudai.shortLabel,
+        value: builtInTotals[CounterCountField.fiveInchShukudai] ?? 0,
+        isCustom: false,
+      ),
+      _OverviewMetricData(
+        id: _overviewMetricIdForField(CounterCountField.groupCut),
+        label: CounterCountField.groupCut.shortLabel,
+        value: builtInTotals[CounterCountField.groupCut] ?? 0,
+        isCustom: false,
+      ),
+      ...customEntries.map((entry) {
+        return _OverviewMetricData(
+          id: _overviewMetricIdForCustomLabel(entry.key),
+          label: entry.key,
+          value: entry.value,
+          isCustom: true,
+        );
+      }),
+    ];
+  }
+
+  List<_OverviewMetricData> get _orderedOverviewMetrics {
+    final metrics = List<_OverviewMetricData>.from(_allOverviewMetrics);
+    if (_overviewMetricOrder.isEmpty) {
+      return metrics;
+    }
+
+    final orderIndex = <String, int>{
+      for (var index = 0; index < _overviewMetricOrder.length; index++)
+        _overviewMetricOrder[index]: index,
+    };
+
+    metrics.sort((a, b) {
+      final aIndex = orderIndex[a.id];
+      final bIndex = orderIndex[b.id];
+      if (aIndex != null && bIndex != null) {
+        return aIndex.compareTo(bIndex);
+      }
+      if (aIndex != null) {
+        return -1;
+      }
+      if (bIndex != null) {
+        return 1;
+      }
+      return 0;
+    });
+    return metrics;
+  }
+
+  List<_OverviewMetricData> get _visibleOverviewMetrics {
+    final allMetrics = _orderedOverviewMetrics;
+    if (_selectedOverviewMetricIds.isEmpty) {
+      return allMetrics;
+    }
+
+    final visible = allMetrics.where((metric) {
+      return _selectedOverviewMetricIds.contains(metric.id);
+    }).toList();
+    return visible.isEmpty ? allMetrics : visible;
+  }
+
   double _getPercentage(int count) {
     return _memberTotal == 0 ? 0 : count / _memberTotal;
   }
@@ -433,8 +713,171 @@ class _MyHomePageState extends State<MyHomePage> {
     showAboutDialog(
       context: context,
       applicationName: kAppDisplayName,
-      applicationVersion: kAppVersionLabel,
-      applicationLegalese: '$kAppDescription\nBuild $kAppVersion',
+      applicationVersion: _appBuildLabel.isEmpty
+          ? _appVersionLabel
+          : '$_appVersionLabel ($_appBuildLabel)',
+      applicationLegalese: kAppDescription,
+      children: [
+        const SizedBox(height: 8),
+        Text('开发者 ID：@$kAppAuthorId'),
+      ],
+    );
+  }
+
+  Future<void> _checkForUpdates({required bool manual}) async {
+    if (_appVersionCode <= 0) {
+      if (manual && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('版本信息还没准备好，请稍后再试')),
+        );
+      }
+      return;
+    }
+
+    final ignoredVersionCode =
+        manual ? 0 : await SettingsService.getIgnoredUpdateVersionCode();
+
+    AppUpdateInfo? updateInfo;
+    try {
+      updateInfo = await UpdateService.fetchLatestRelease();
+    } catch (error) {
+      if (manual && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('检查更新失败: $error')),
+        );
+      }
+      return;
+    }
+
+    if (!mounted || updateInfo == null) {
+      return;
+    }
+
+    if (updateInfo.versionCode <= _appVersionCode) {
+      if (manual) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('当前已经是最新版本')),
+        );
+      }
+      return;
+    }
+
+    if (!manual &&
+        !updateInfo.force &&
+        ignoredVersionCode == updateInfo.versionCode) {
+      return;
+    }
+
+    await _showUpdateDialog(updateInfo, manual: manual);
+  }
+
+  Future<void> _showUpdateDialog(
+    AppUpdateInfo updateInfo, {
+    required bool manual,
+  }) async {
+    final action = await showDialog<String>(
+      context: context,
+      barrierDismissible: !updateInfo.force,
+      builder: (context) {
+        final notes = updateInfo.notes;
+        return AlertDialog(
+          title: Text(manual ? '发现可用更新' : '发现新版本'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  updateInfo.title.isEmpty
+                      ? updateInfo.versionLabel
+                      : updateInfo.title,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '当前版本：$_appVersionLabel${_appBuildLabel.isEmpty ? '' : ' ($_appBuildLabel)'}',
+                ),
+                Text(
+                  '最新版本：${updateInfo.versionLabel} (Build ${updateInfo.versionCode})',
+                ),
+                if (notes.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  Text(
+                    '更新内容',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const SizedBox(height: 8),
+                  ...notes.map(
+                    (note) => Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Text('• $note'),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            if (!updateInfo.force)
+              TextButton(
+                onPressed: () => Navigator.of(context).pop('ignore'),
+                child: Text(manual ? '关闭' : '忽略这版'),
+              ),
+            if (updateInfo.hasBackupUrl)
+              TextButton(
+                onPressed: () => Navigator.of(context).pop('backup'),
+                child: const Text('备用链接'),
+              ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop('primary'),
+              child: const Text('去下载'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted || action == null) {
+      return;
+    }
+
+    if (action == 'ignore') {
+      await SettingsService.saveIgnoredUpdateVersionCode(
+          updateInfo.versionCode);
+      return;
+    }
+
+    final targetUrl =
+        action == 'backup' ? updateInfo.backupUrl : updateInfo.preferredOpenUrl;
+    await _openUpdateUrl(targetUrl);
+  }
+
+  Future<void> _openUpdateUrl(String value) async {
+    final uri = Uri.tryParse(value.trim());
+    if (uri == null) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('更新链接无效')),
+      );
+      return;
+    }
+
+    final opened = await launchUrl(
+      uri,
+      mode: LaunchMode.externalApplication,
+    );
+    if (opened || !mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('无法打开更新链接')),
     );
   }
 
@@ -523,24 +966,27 @@ class _MyHomePageState extends State<MyHomePage> {
     return updatedCounter;
   }
 
-  void _openCounterSheet(CounterModel counter) {
+  Future<void> _openCounterSheet(_HomeCounterEntry entry) async {
     if (_isLocked) return;
 
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (context) => CounterCountSheet(
-        counter: counter,
-        allCounters: _counters,
-        onCounterChanged: (updatedCounter, occurredAt) async {
-          return _saveCounter(
-            updatedCounter,
-            occurredAt: occurredAt,
-          );
-        },
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (context) => MemberDetailPage(
+          displayCounter: entry.displayCounter,
+          primaryCounter: entry.primaryCounter,
+          sourceCounters: entry.sourceCounters,
+          onCounterChanged: (updatedCounter, occurredAt) async {
+            return _saveCounter(
+              updatedCounter,
+              occurredAt: occurredAt,
+            );
+          },
+        ),
       ),
     );
+    if (changed == true) {
+      await _loadCounters();
+    }
   }
 
   Future<void> _addCounter() async {
@@ -795,6 +1241,231 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
+  Future<void> _showOverviewMetricsDialog() async {
+    final metrics = _orderedOverviewMetrics;
+    final initialSelection = _selectedOverviewMetricIds.isEmpty
+        ? metrics.map((metric) => metric.id).toSet()
+        : Set<String>.from(_selectedOverviewMetricIds);
+
+    final result = await showModalBottomSheet<_OverviewMetricConfigResult>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        var orderedMetrics = List<_OverviewMetricData>.from(metrics);
+        final selected = Set<String>.from(initialSelection);
+        var selectedColumns = _overviewMetricColumns.clamp(2, 3);
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return SafeArea(
+              child: SizedBox(
+                height: math.min(
+                  MediaQuery.of(context).size.height * 0.82,
+                  560,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '总览显示项',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '点按勾选控制显示，拖动右侧手柄调整块的位置顺序。',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        '每行排布',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                      const SizedBox(height: 8),
+                      SegmentedButton<int>(
+                        showSelectedIcon: false,
+                        segments: const [
+                          ButtonSegment<int>(
+                            value: 2,
+                            label: Text('一排两个'),
+                          ),
+                          ButtonSegment<int>(
+                            value: 3,
+                            label: Text('一排三个'),
+                          ),
+                        ],
+                        selected: <int>{selectedColumns},
+                        onSelectionChanged: (selection) {
+                          setSheetState(() {
+                            selectedColumns = selection.first;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          TextButton(
+                            onPressed: () {
+                              setSheetState(() {
+                                selected
+                                  ..clear()
+                                  ..addAll(
+                                    orderedMetrics.map((metric) => metric.id),
+                                  );
+                              });
+                            },
+                            child: const Text('全部显示'),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              setSheetState(() {
+                                orderedMetrics = List<_OverviewMetricData>.from(
+                                  _allOverviewMetrics,
+                                );
+                                selected
+                                  ..clear()
+                                  ..addAll(
+                                    orderedMetrics.map((metric) => metric.id),
+                                  );
+                                selectedColumns = SettingsService
+                                    .defaultOverviewMetricColumns;
+                              });
+                            },
+                            child: const Text('恢复默认'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Expanded(
+                        child: ReorderableListView.builder(
+                          buildDefaultDragHandles: false,
+                          itemCount: orderedMetrics.length,
+                          onReorder: (oldIndex, newIndex) {
+                            setSheetState(() {
+                              if (newIndex > oldIndex) {
+                                newIndex -= 1;
+                              }
+                              final item = orderedMetrics.removeAt(oldIndex);
+                              orderedMetrics.insert(newIndex, item);
+                            });
+                          },
+                          itemBuilder: (context, index) {
+                            final metric = orderedMetrics[index];
+                            final visible = selected.contains(metric.id);
+                            return Container(
+                              key: ValueKey(metric.id),
+                              margin: const EdgeInsets.only(bottom: 8),
+                              decoration: BoxDecoration(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .surfaceContainerLow,
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                              child: ListTile(
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 2,
+                                ),
+                                onTap: () {
+                                  setSheetState(() {
+                                    if (visible) {
+                                      selected.remove(metric.id);
+                                    } else {
+                                      selected.add(metric.id);
+                                    }
+                                  });
+                                },
+                                leading: Checkbox(
+                                  value: visible,
+                                  onChanged: (value) {
+                                    setSheetState(() {
+                                      if (value == true) {
+                                        selected.add(metric.id);
+                                      } else {
+                                        selected.remove(metric.id);
+                                      }
+                                    });
+                                  },
+                                ),
+                                title: Text(metric.label),
+                                subtitle: Text(
+                                  '${metric.isCustom ? '自定义' : '内置'} · 当前 ${metric.value}',
+                                ),
+                                trailing: ReorderableDragStartListener(
+                                  index: index,
+                                  child: const Icon(Icons.drag_indicator),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.of(context).pop(),
+                              child: const Text('取消'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: () {
+                                final orderedIds = orderedMetrics
+                                    .map((metric) => metric.id)
+                                    .toList(growable: false);
+                                final visibleIds = orderedMetrics
+                                    .where(
+                                      (metric) => selected.contains(metric.id),
+                                    )
+                                    .map((metric) => metric.id)
+                                    .toList(growable: false);
+                                Navigator.of(context).pop(
+                                  _OverviewMetricConfigResult(
+                                    orderedIds: orderedIds,
+                                    visibleIds: visibleIds.isEmpty
+                                        ? orderedIds
+                                        : visibleIds,
+                                    columns: selectedColumns,
+                                  ),
+                                );
+                              },
+                              child: const Text('保存'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (result == null) {
+      return;
+    }
+
+    setState(() {
+      _selectedOverviewMetricIds = result.visibleIds.toSet();
+      _overviewMetricOrder = result.orderedIds;
+      _overviewMetricColumns = result.columns;
+    });
+    await SettingsService.saveOverviewMetricIds(result.visibleIds);
+    await SettingsService.saveOverviewMetricOrder(result.orderedIds);
+    await SettingsService.saveOverviewMetricColumns(result.columns);
+  }
+
   void _toggleShowHiddenCounters() {
     setState(() {
       _showHiddenCounters = !_showHiddenCounters;
@@ -877,7 +1548,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Future<void> _exportData() async {
     try {
-      await ExportImportService.exportData(_counters);
+      await ExportImportService.exportData();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -937,6 +1608,83 @@ class _MyHomePageState extends State<MyHomePage> {
         return;
       }
 
+      if (payload.isFullBackup) {
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('恢复完整备份'),
+            content: Text(
+              '检测到 ${payload.fileName} 是完整备份。\n'
+              '继续后会覆盖当前的卡片、价格、流水、存图和偶像库数据。',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('继续恢复'),
+              ),
+            ],
+          ),
+        );
+
+        if (confirmed != true || !mounted || payload.fullBackup == null) {
+          return;
+        }
+
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const Center(
+            child: Card(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text('正在恢复完整备份...'),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+
+        try {
+          await ExportImportService.restoreFullBackup(payload.fullBackup!);
+          if (!mounted) {
+            return;
+          }
+          Navigator.of(context, rootNavigator: true).pop();
+          await _loadCounters();
+          if (!mounted) {
+            return;
+          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${payload.fileName} 已恢复完成'),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        } catch (error) {
+          if (!mounted) {
+            return;
+          }
+          Navigator.of(context, rootNavigator: true).pop();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('导入失败: $error'),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+        return;
+      }
+
       showDialog<void>(
         context: context,
         barrierDismissible: false,
@@ -975,7 +1723,7 @@ class _MyHomePageState extends State<MyHomePage> {
               '${payload.fileName} 导入完成，'
               '新增 ${result.importedCount} 条历史记录，'
               '跳过 ${result.skippedCount} 条重复记录，'
-              '同步 ${result.pricingCount} 个团体价格，'
+              '同步 ${result.pricingCount} 个团体配置，'
               '补充 ${result.syncedMemberCount} 名成员',
             ),
             duration: const Duration(seconds: 4),
@@ -1022,177 +1770,169 @@ class _MyHomePageState extends State<MyHomePage> {
     };
   }
 
-  double _calculateOverviewCardHeight(double width) {
-    final rows = width >= 640 ? 1 : 2;
-    return (_overviewCardVerticalPadding * 2) +
-        _overviewCardBorderExtent +
-        _overviewCardHeaderHeight +
-        _overviewCardSectionGap +
-        (rows * _overviewChipHeight) +
-        ((rows - 1) * _overviewChipSpacing);
-  }
-
-  Widget _buildOverviewChipRow({
-    required List<CounterCountField> fields,
-    required Map<CounterCountField, int> totals,
-  }) {
-    return Row(
-      children: [
-        for (var index = 0; index < fields.length; index++) ...[
-          if (index > 0) const SizedBox(width: _overviewChipSpacing),
-          Expanded(
-            child: _OverviewChip(
-              label: fields[index].shortLabel,
-              value: totals[fields[index]] ?? 0,
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
   Widget _buildOverviewCard(BuildContext context) {
-    final typeTotals = _overviewTypeTotals;
+    final metrics = _visibleOverviewMetrics;
     final theme = Theme.of(context);
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        final useWideSingleRow = width >= 640;
+        final columns = _overviewMetricColumns.clamp(2, 3);
+        final compactAddButton = width < 360;
+        final subtitle = '${_homeEntries.length} 个成员 / 项目 · 点按配置显示项、顺序和排布';
 
-        return Container(
-          padding: const EdgeInsets.fromLTRB(
-            _overviewCardHorizontalPadding,
-            _overviewCardVerticalPadding,
-            _overviewCardHorizontalPadding,
-            _overviewCardVerticalPadding,
-          ),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                theme.colorScheme.primary.withAlpha(28),
-                theme.colorScheme.secondary.withAlpha(20),
-              ],
-            ),
-            border: Border.all(
-              color: theme.colorScheme.primary.withAlpha(20),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(
-                height: _overviewCardHeaderHeight,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '切奇总览',
-                            style: theme.textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 1),
-                          Text(
-                            '${_homeEntries.length} 个成员 / 项目',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              fontSize: 10,
-                              color:
-                                  theme.textTheme.bodyMedium?.color?.withValues(
-                                alpha: 0.72,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    SizedBox(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(14),
-                          color: theme.colorScheme.surface.withAlpha(180),
-                        ),
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(22),
+            onTap: _showOverviewMetricsDialog,
+            child: Ink(
+              padding: const EdgeInsets.fromLTRB(
+                _overviewCardHorizontalPadding,
+                _overviewCardVerticalPadding,
+                _overviewCardHorizontalPadding,
+                _overviewCardVerticalPadding,
+              ),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(22),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    theme.colorScheme.primary.withAlpha(28),
+                    theme.colorScheme.secondary.withAlpha(20),
+                  ],
+                ),
+                border: Border.all(
+                  color: theme.colorScheme.primary.withAlpha(24),
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            SizedBox(
-                              height: 24,
-                              child: FittedBox(
-                                fit: BoxFit.scaleDown,
-                                alignment: Alignment.centerRight,
-                                child: Text(
-                                  '$_overviewTotal',
-                                  textAlign: TextAlign.right,
-                                  style: theme.textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                    height: 1,
-                                  ),
-                                ),
+                            Text(
+                              '切奇总览',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w900,
                               ),
                             ),
-                            const SizedBox(height: 1),
+                            const SizedBox(height: 3),
                             Text(
-                              '总数',
-                              textAlign: TextAlign.right,
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 9,
-                                height: 1,
+                              subtitle,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                fontSize: 11,
+                                color: theme.textTheme.bodyMedium?.color
+                                    ?.withValues(
+                                  alpha: 0.72,
+                                ),
                               ),
                             ),
                           ],
                         ),
                       ),
+                      const SizedBox(width: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          color: theme.colorScheme.surface.withAlpha(196),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              '$_overviewTotal',
+                              style: theme.textTheme.headlineSmall?.copyWith(
+                                fontWeight: FontWeight.w900,
+                                height: 1,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '总数',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '拖动排序和勾选显示项都在这里配置',
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color:
+                                theme.textTheme.bodyMedium?.color?.withValues(
+                              alpha: 0.66,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton.tonalIcon(
+                        onPressed: _openAddRecordEntry,
+                        icon: const Icon(Icons.edit_note_rounded, size: 18),
+                        label: compactAddButton
+                            ? const Text('新增')
+                            : const Text('新增记录'),
+                        style: FilledButton.styleFrom(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: compactAddButton ? 12 : 14,
+                            vertical: 10,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  if (metrics.isNotEmpty)
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: metrics.length,
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: columns,
+                        crossAxisSpacing: _overviewChipSpacing,
+                        mainAxisSpacing: _overviewChipSpacing,
+                        mainAxisExtent: 52,
+                      ),
+                      itemBuilder: (context, index) {
+                        final metric = metrics[index];
+                        return _OverviewChip(
+                          label: metric.label,
+                          value: metric.value,
+                          isCustom: metric.isCustom,
+                        );
+                      },
+                    ),
+                  if (metrics.isEmpty) ...[
+                    Text(
+                      '当前没有可显示的统计项',
+                      style: theme.textTheme.bodySmall,
                     ),
                   ],
-                ),
+                ],
               ),
-              const SizedBox(height: _overviewCardSectionGap),
-              if (useWideSingleRow)
-                _buildOverviewChipRow(
-                  fields: const [
-                    CounterCountField.threeInch,
-                    CounterCountField.fiveInch,
-                    CounterCountField.threeInchShukudai,
-                    CounterCountField.fiveInchShukudai,
-                    CounterCountField.groupCut,
-                  ],
-                  totals: typeTotals,
-                )
-              else
-                Column(
-                  children: [
-                    _buildOverviewChipRow(
-                      fields: const [
-                        CounterCountField.threeInch,
-                        CounterCountField.fiveInch,
-                      ],
-                      totals: typeTotals,
-                    ),
-                    const SizedBox(height: _overviewChipSpacing),
-                    _buildOverviewChipRow(
-                      fields: const [
-                        CounterCountField.threeInchShukudai,
-                        CounterCountField.fiveInchShukudai,
-                        CounterCountField.groupCut,
-                      ],
-                      totals: typeTotals,
-                    ),
-                  ],
-                ),
-            ],
+            ),
           ),
         );
       },
@@ -1200,90 +1940,7 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Widget _buildTopHeaderRow(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth;
-        final actionWidth = width >= 390
-            ? 86.0
-            : width >= 340
-                ? 76.0
-                : 70.0;
-        final minimumOverviewWidth = width >= 360 ? 200.0 : 186.0;
-        final useSideAction =
-            width >= (actionWidth + _topHeaderGap + minimumOverviewWidth);
-
-        if (!useSideAction) {
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildOverviewCard(context),
-              const SizedBox(height: _topHeaderGap),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _openAddRecordEntry,
-                  icon: const Icon(Icons.edit_note_rounded),
-                  label: const Text('新增记录'),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          );
-        }
-
-        final overviewWidth =
-            math.max(0.0, width - actionWidth - _topHeaderGap);
-        final headerHeight = _calculateOverviewCardHeight(overviewWidth);
-
-        return SizedBox(
-          height: headerHeight,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(
-                child: _buildOverviewCard(context),
-              ),
-              const SizedBox(width: _topHeaderGap),
-              SizedBox(
-                width: actionWidth,
-                child: FilledButton(
-                  onPressed: _openAddRecordEntry,
-                  style: FilledButton.styleFrom(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.edit_note_rounded, size: 24),
-                      const SizedBox(height: 6),
-                      Text(
-                        '新增\n记录',
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.labelLarge?.copyWith(
-                          color: theme.colorScheme.onPrimary,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
+    return _buildOverviewCard(context);
   }
 
   @override
@@ -1389,6 +2046,9 @@ class _MyHomePageState extends State<MyHomePage> {
                     ),
                   );
                   break;
+                case 'checkUpdate':
+                  await _checkForUpdates(manual: true);
+                  break;
                 case 'about':
                   _showAboutApp();
                   break;
@@ -1475,7 +2135,17 @@ class _MyHomePageState extends State<MyHomePage> {
                   children: [
                     Icon(Icons.sell_outlined),
                     SizedBox(width: 8),
-                    Text('团体价格 / 无签'),
+                    Text('团体配置'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'checkUpdate',
+                child: Row(
+                  children: [
+                    Icon(Icons.system_update_alt_rounded),
+                    SizedBox(width: 8),
+                    Text('检查更新'),
                   ],
                 ),
               ),
@@ -1536,9 +2206,10 @@ class _MyHomePageState extends State<MyHomePage> {
                           child: CounterCard(
                             key: ValueKey(entry.key),
                             counter: counter,
-                            percentage: _getPercentage(counter.count),
-                            onTap: () =>
-                                _openCounterSheet(entry.primaryCounter),
+                            totalCount: entry.totalCount,
+                            breakdownEntries: entry.breakdownEntries,
+                            percentage: _getPercentage(entry.totalCount),
+                            onTap: () => _openCounterSheet(entry),
                             onLongPress: () => _showHomeEntryActions(entry),
                             onEdit: () => _editHomeEntry(entry),
                             onDelete: () => _deleteHomeEntry(entry),
@@ -1585,47 +2256,84 @@ class _MyHomePageState extends State<MyHomePage> {
 class _OverviewChip extends StatelessWidget {
   final String label;
   final int value;
+  final bool isCustom;
 
   const _OverviewChip({
     required this.label,
     required this.value,
+    this.isCustom = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final baseColor =
+        isCustom ? theme.colorScheme.tertiary : theme.colorScheme.primary;
 
     return Container(
-      height: 40,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      height: 52,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface.withAlpha(192),
-        borderRadius: BorderRadius.circular(10),
+        color: baseColor.withAlpha(isCustom ? 22 : 18),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: baseColor.withAlpha(48),
+        ),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Expanded(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                fontSize: 11,
-              ),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              fontSize: 11,
+              color: baseColor.withAlpha(210),
             ),
           ),
-          const SizedBox(width: 6),
-          Text(
-            '$value',
-            textAlign: TextAlign.right,
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w800,
-              fontSize: 16,
+          Align(
+            alignment: Alignment.centerRight,
+            child: Text(
+              '$value',
+              textAlign: TextAlign.right,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w900,
+                fontSize: 18,
+                height: 1,
+              ),
             ),
           ),
         ],
       ),
     );
   }
+}
+
+class _OverviewMetricData {
+  final String id;
+  final String label;
+  final int value;
+  final bool isCustom;
+
+  const _OverviewMetricData({
+    required this.id,
+    required this.label,
+    required this.value,
+    required this.isCustom,
+  });
+}
+
+class _OverviewMetricConfigResult {
+  final List<String> orderedIds;
+  final List<String> visibleIds;
+  final int columns;
+
+  const _OverviewMetricConfigResult({
+    required this.orderedIds,
+    required this.visibleIds,
+    required this.columns,
+  });
 }

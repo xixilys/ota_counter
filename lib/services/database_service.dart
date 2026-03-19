@@ -1,8 +1,12 @@
+import 'dart:io';
+
 import 'package:path/path.dart';
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../models/activity_record_model.dart';
+import '../models/activity_record_media_model.dart';
 import '../models/counter_model.dart';
 import '../models/group_pricing_model.dart';
 import '../models/idol_database_models.dart';
@@ -13,8 +17,9 @@ class DatabaseService {
   static const String tableName = 'counters';
   static const String groupPricingTableName = 'group_pricings';
   static const String activityRecordTableName = 'activity_records';
+  static const String activityRecordMediaTableName = 'activity_record_media';
   static const String counterSyncTableName = 'counter_sync_log';
-  static const int _version = 12;
+  static const int _version = 15;
 
   static Database? _database;
 
@@ -99,6 +104,15 @@ class DatabaseService {
     if (oldVersion < 12) {
       await _migrateToV12(db);
     }
+    if (oldVersion < 13) {
+      await _migrateToV13(db);
+    }
+    if (oldVersion < 14) {
+      await _migrateToV14(db);
+    }
+    if (oldVersion < 15) {
+      await _migrateToV15(db);
+    }
     await _ensureLatestSchema(db);
   }
 
@@ -140,6 +154,7 @@ class DatabaseService {
         double_cut_price REAL NOT NULL DEFAULT 0,
         three_inch_shukudai_price REAL NOT NULL DEFAULT 0,
         five_inch_shukudai_price REAL NOT NULL DEFAULT 0,
+        custom_cheki_types_json TEXT NOT NULL DEFAULT '[]',
         updated_at TEXT NOT NULL
       )
     ''');
@@ -179,7 +194,8 @@ class DatabaseService {
         five_inch_shukudai_price REAL NOT NULL DEFAULT 0,
         ticket_unit_price REAL NOT NULL DEFAULT 0,
         total_amount REAL NOT NULL DEFAULT 0,
-        multi_participants_json TEXT NOT NULL DEFAULT '[]'
+        multi_participants_json TEXT NOT NULL DEFAULT '[]',
+        custom_cheki_counts_json TEXT NOT NULL DEFAULT '[]'
       )
     ''');
     await db.execute('''
@@ -193,6 +209,20 @@ class DatabaseService {
     await db.execute('''
       CREATE UNIQUE INDEX IF NOT EXISTS idx_activity_records_source_remote
       ON $activityRecordTableName(source, source_record_id)
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $activityRecordMediaTableName(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        record_id INTEGER NOT NULL,
+        path TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        media_type TEXT NOT NULL DEFAULT 'memory',
+        processing_mode TEXT NOT NULL DEFAULT 'none'
+      )
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_activity_record_media_record_id
+      ON $activityRecordMediaTableName(record_id, created_at DESC)
     ''');
     await db.execute('''
       CREATE TABLE IF NOT EXISTS $counterSyncTableName(
@@ -396,6 +426,57 @@ class DatabaseService {
     );
   }
 
+  static Future<void> _migrateToV13(Database db) async {
+    await db.execute(
+      "ALTER TABLE $activityRecordTableName ADD COLUMN activity_name TEXT NOT NULL DEFAULT ''",
+    );
+    await db.execute(
+      "ALTER TABLE $activityRecordTableName ADD COLUMN venue_name TEXT NOT NULL DEFAULT ''",
+    );
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $activityRecordMediaTableName(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        record_id INTEGER NOT NULL,
+        path TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        media_type TEXT NOT NULL DEFAULT 'memory',
+        processing_mode TEXT NOT NULL DEFAULT 'none'
+      )
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_activity_record_media_record_id
+      ON $activityRecordMediaTableName(record_id, created_at DESC)
+    ''');
+  }
+
+  static Future<void> _migrateToV14(Database db) async {
+    await _ensureColumns(
+      db,
+      activityRecordMediaTableName,
+      {
+        'media_type': "TEXT NOT NULL DEFAULT 'memory'",
+        'processing_mode': "TEXT NOT NULL DEFAULT 'none'",
+      },
+    );
+  }
+
+  static Future<void> _migrateToV15(Database db) async {
+    await _ensureColumns(
+      db,
+      groupPricingTableName,
+      {
+        'custom_cheki_types_json': "TEXT NOT NULL DEFAULT '[]'",
+      },
+    );
+    await _ensureColumns(
+      db,
+      activityRecordTableName,
+      {
+        'custom_cheki_counts_json': "TEXT NOT NULL DEFAULT '[]'",
+      },
+    );
+  }
+
   static Future<void> _ensureLatestSchema(DatabaseExecutor db) async {
     await _createSchema(db);
 
@@ -431,6 +512,7 @@ class DatabaseService {
         'double_cut_price': 'REAL NOT NULL DEFAULT 0',
         'three_inch_shukudai_price': 'REAL NOT NULL DEFAULT 0',
         'five_inch_shukudai_price': 'REAL NOT NULL DEFAULT 0',
+        'custom_cheki_types_json': "TEXT NOT NULL DEFAULT '[]'",
         'updated_at': "TEXT NOT NULL DEFAULT ''",
       },
     );
@@ -446,6 +528,8 @@ class DatabaseService {
         'person_name': "TEXT NOT NULL DEFAULT ''",
         'secondary_subject_name': "TEXT NOT NULL DEFAULT ''",
         'group_name': "TEXT NOT NULL DEFAULT ''",
+        'activity_name': "TEXT NOT NULL DEFAULT ''",
+        'venue_name': "TEXT NOT NULL DEFAULT ''",
         'session_label': "TEXT NOT NULL DEFAULT ''",
         'note': "TEXT NOT NULL DEFAULT ''",
         'pricing_label': "TEXT NOT NULL DEFAULT ''",
@@ -470,8 +554,32 @@ class DatabaseService {
         'ticket_unit_price': 'REAL NOT NULL DEFAULT 0',
         'total_amount': 'REAL NOT NULL DEFAULT 0',
         'multi_participants_json': "TEXT NOT NULL DEFAULT '[]'",
+        'custom_cheki_counts_json': "TEXT NOT NULL DEFAULT '[]'",
       },
     );
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $activityRecordMediaTableName(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        record_id INTEGER NOT NULL,
+        path TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        media_type TEXT NOT NULL DEFAULT 'memory',
+        processing_mode TEXT NOT NULL DEFAULT 'none'
+      )
+    ''');
+    await _ensureColumns(
+      db,
+      activityRecordMediaTableName,
+      {
+        'media_type': "TEXT NOT NULL DEFAULT 'memory'",
+        'processing_mode': "TEXT NOT NULL DEFAULT 'none'",
+      },
+    );
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_activity_record_media_record_id
+      ON $activityRecordMediaTableName(record_id, created_at DESC)
+    ''');
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS $counterSyncTableName(
@@ -587,6 +695,19 @@ class DatabaseService {
   static Future<void> deleteCounter(int id) async {
     final db = await database;
     await db.transaction((txn) async {
+      final relatedRecords = await txn.query(
+        activityRecordTableName,
+        columns: ['id'],
+        where: 'counter_id = ?',
+        whereArgs: [id],
+      );
+      final recordIds = relatedRecords
+          .map((row) => (row['id'] as num?)?.toInt())
+          .whereType<int>()
+          .toList(growable: false);
+      if (recordIds.isNotEmpty) {
+        await _deleteActivityRecordMediaRows(txn, recordIds: recordIds);
+      }
       await txn.delete(
         activityRecordTableName,
         where: 'counter_id = ?',
@@ -705,21 +826,189 @@ class DatabaseService {
 
   static Future<void> deleteActivityRecord(int id) async {
     final db = await database;
-    await db.delete(
-      activityRecordTableName,
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await db.transaction((txn) async {
+      await _deleteActivityRecordMediaRows(txn, recordIds: [id]);
+      await txn.delete(
+        activityRecordTableName,
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    });
   }
 
   static Future<void> clearAppData() async {
     final db = await database;
     await db.transaction((txn) async {
+      await _deleteActivityRecordMediaRows(txn);
+      await txn.delete(activityRecordMediaTableName);
       await txn.delete(counterSyncTableName);
       await txn.delete(activityRecordTableName);
       await txn.delete(groupPricingTableName);
       await txn.delete(tableName);
     });
+  }
+
+  static Future<List<ActivityRecordMediaModel>> getActivityRecordMedia({
+    int? recordId,
+    Iterable<int>? recordIds,
+  }) async {
+    final db = await database;
+    final scopedRecordIds =
+        recordIds?.toSet().toList(growable: false) ?? <int>[];
+
+    String? where;
+    List<Object?>? whereArgs;
+    if (recordId != null) {
+      where = 'record_id = ?';
+      whereArgs = [recordId];
+    } else if (scopedRecordIds.isNotEmpty) {
+      final placeholders = List.filled(scopedRecordIds.length, '?').join(', ');
+      where = 'record_id IN ($placeholders)';
+      whereArgs = scopedRecordIds;
+    }
+
+    final maps = await db.query(
+      activityRecordMediaTableName,
+      where: where,
+      whereArgs: whereArgs,
+      orderBy:
+          "CASE WHEN media_type = 'scan' THEN 0 ELSE 1 END ASC, created_at DESC, id DESC",
+    );
+    return maps.map(ActivityRecordMediaModel.fromMap).toList();
+  }
+
+  static Future<ActivityRecordMediaModel> saveActivityRecordMediaFile({
+    required int recordId,
+    required File imageFile,
+    ActivityRecordMediaType mediaType = ActivityRecordMediaType.memory,
+    ActivityRecordMediaProcessingMode processingMode =
+        ActivityRecordMediaProcessingMode.none,
+  }) async {
+    final originalExtension = extension(imageFile.path).trim();
+    final fileExtension =
+        originalExtension.isEmpty ? '.jpg' : originalExtension;
+    return _saveActivityRecordMediaBytes(
+      recordId: recordId,
+      bytes: await imageFile.readAsBytes(),
+      fileExtension: fileExtension,
+      mediaType: mediaType,
+      processingMode: processingMode,
+    );
+  }
+
+  static Future<ActivityRecordMediaModel> saveActivityRecordMediaBytes({
+    required int recordId,
+    required List<int> bytes,
+    String fileExtension = '.jpg',
+    ActivityRecordMediaType mediaType = ActivityRecordMediaType.memory,
+    ActivityRecordMediaProcessingMode processingMode =
+        ActivityRecordMediaProcessingMode.none,
+  }) async {
+    return _saveActivityRecordMediaBytes(
+      recordId: recordId,
+      bytes: bytes,
+      fileExtension: fileExtension,
+      mediaType: mediaType,
+      processingMode: processingMode,
+    );
+  }
+
+  static Future<ActivityRecordMediaModel> _saveActivityRecordMediaBytes({
+    required int recordId,
+    required List<int> bytes,
+    required String fileExtension,
+    required ActivityRecordMediaType mediaType,
+    required ActivityRecordMediaProcessingMode processingMode,
+  }) async {
+    final directory = await getApplicationDocumentsDirectory();
+    final mediaDirectory = Directory(
+      join(directory.path, 'activity_record_media'),
+    );
+    if (!await mediaDirectory.exists()) {
+      await mediaDirectory.create(recursive: true);
+    }
+
+    final normalizedExtension = fileExtension.trim().isEmpty
+        ? '.jpg'
+        : (fileExtension.startsWith('.') ? fileExtension : '.$fileExtension');
+    final fileName =
+        '${DateTime.now().microsecondsSinceEpoch}_$recordId$normalizedExtension';
+    final savedPath = join(mediaDirectory.path, fileName);
+    await File(savedPath).writeAsBytes(bytes, flush: true);
+
+    final media = ActivityRecordMediaModel(
+      recordId: recordId,
+      path: savedPath,
+      createdAt: DateTime.now(),
+      mediaType: mediaType,
+      processingMode: processingMode,
+    );
+    final db = await database;
+    final values = media.toMap()..remove('id');
+    final id = await db.insert(
+      activityRecordMediaTableName,
+      values,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    return ActivityRecordMediaModel(
+      id: id,
+      recordId: media.recordId,
+      path: media.path,
+      createdAt: media.createdAt,
+      mediaType: media.mediaType,
+      processingMode: media.processingMode,
+    );
+  }
+
+  static Future<void> deleteActivityRecordMedia(int id) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await _deleteActivityRecordMediaRows(txn, mediaIds: [id]);
+    });
+  }
+
+  static Future<void> _deleteActivityRecordMediaRows(
+    DatabaseExecutor db, {
+    Iterable<int>? recordIds,
+    Iterable<int>? mediaIds,
+  }) async {
+    final scopedRecordIds =
+        recordIds?.toSet().toList(growable: false) ?? <int>[];
+    final scopedMediaIds = mediaIds?.toSet().toList(growable: false) ?? <int>[];
+
+    String? where;
+    List<Object?>? whereArgs;
+    if (scopedMediaIds.isNotEmpty) {
+      final placeholders = List.filled(scopedMediaIds.length, '?').join(', ');
+      where = 'id IN ($placeholders)';
+      whereArgs = scopedMediaIds;
+    } else if (scopedRecordIds.isNotEmpty) {
+      final placeholders = List.filled(scopedRecordIds.length, '?').join(', ');
+      where = 'record_id IN ($placeholders)';
+      whereArgs = scopedRecordIds;
+    }
+
+    final mediaRows = await db.query(
+      activityRecordMediaTableName,
+      where: where,
+      whereArgs: whereArgs,
+    );
+    for (final row in mediaRows) {
+      final path = (row['path'] ?? '') as String;
+      if (path.isEmpty) {
+        continue;
+      }
+      final file = File(path);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    }
+
+    await db.delete(
+      activityRecordMediaTableName,
+      where: where,
+      whereArgs: whereArgs,
+    );
   }
 
   static Future<Set<String>> getActivityRecordSourceIds(String source) async {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/activity_record_model.dart';
 import '../models/counter_model.dart';
+import '../models/custom_cheki_type_model.dart';
 import '../models/group_pricing_model.dart';
 import '../models/idol_database_models.dart';
 import '../services/idol_database_service.dart';
@@ -13,12 +14,14 @@ class ActivityRecordDraft {
   final DateTime occurredAt;
   final String note;
   final Map<CounterCountField, int> counterDeltas;
+  final List<ActivityRecordCustomChekiCount> customChekiCounts;
   final List<ActivityParticipant> multiParticipants;
   final CounterCountField? multiField;
   final bool multiAsGroupCut;
   final int multiQuantity;
   final double multiTotalPrice;
-  final String eventName;
+  final String activityName;
+  final String venueName;
   final String sessionLabel;
   final int ticketQuantity;
   final double ticketUnitPrice;
@@ -29,12 +32,14 @@ class ActivityRecordDraft {
     this.counter,
     this.note = '',
     this.counterDeltas = const {},
+    this.customChekiCounts = const [],
     this.multiParticipants = const [],
     this.multiField,
     this.multiAsGroupCut = false,
     this.multiQuantity = 1,
     this.multiTotalPrice = 0,
-    this.eventName = '',
+    this.activityName = '',
+    this.venueName = '',
     this.sessionLabel = '',
     this.ticketQuantity = 0,
     this.ticketUnitPrice = 0,
@@ -68,18 +73,21 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
       TextEditingController(text: '1');
   final TextEditingController _multiPriceController =
       TextEditingController(text: '0');
-  final TextEditingController _eventNameController = TextEditingController();
+  final TextEditingController _activityNameController = TextEditingController();
+  final TextEditingController _venueController = TextEditingController();
   final TextEditingController _sessionController = TextEditingController();
   final TextEditingController _ticketQuantityController =
       TextEditingController(text: '1');
   final TextEditingController _ticketPriceController =
       TextEditingController(text: '0');
   late final Map<String, TextEditingController> _countControllers;
+  final Map<String, TextEditingController> _customCountControllers = {};
 
   ActivityRecordType _type = ActivityRecordType.counter;
   CounterModel? _selectedCounter;
   List<IdolMember> _idolMembers = [];
   bool _idolLoading = false;
+  List<CustomChekiTypeModel> _counterCustomTypes = const [];
   List<ActivityParticipant> _selectedParticipants = [];
   CounterCountField _selectedMultiField = CounterCountField.threeInch;
   bool _multiAsGroupCut = false;
@@ -96,6 +104,9 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
         field.key: TextEditingController(text: '0'),
     };
     _initializeFromDraft();
+    _syncCustomCountControllers(
+      seedCounts: widget.initialDraft?.customChekiCounts ?? const [],
+    );
     _loadIdolDatabase();
   }
 
@@ -104,11 +115,15 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     _noteController.dispose();
     _multiQuantityController.dispose();
     _multiPriceController.dispose();
-    _eventNameController.dispose();
+    _activityNameController.dispose();
+    _venueController.dispose();
     _sessionController.dispose();
     _ticketQuantityController.dispose();
     _ticketPriceController.dispose();
     for (final controller in _countControllers.values) {
+      controller.dispose();
+    }
+    for (final controller in _customCountControllers.values) {
       controller.dispose();
     }
     super.dispose();
@@ -153,7 +168,8 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     _noteController.text = draft.note;
     _multiQuantityController.text = '${draft.multiQuantity}';
     _multiPriceController.text = _formatEditableNumber(draft.multiTotalPrice);
-    _eventNameController.text = draft.eventName;
+    _activityNameController.text = draft.activityName;
+    _venueController.text = draft.venueName;
     _sessionController.text = draft.sessionLabel;
     _ticketQuantityController.text = '${draft.ticketQuantity}';
     _ticketPriceController.text = _formatEditableNumber(draft.ticketUnitPrice);
@@ -161,6 +177,55 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     for (final field in CounterCountField.values) {
       _countControllers[field.key]!.text = '${draft.counterDeltas[field] ?? 0}';
     }
+  }
+
+  void _syncCustomCountControllers({
+    List<ActivityRecordCustomChekiCount> seedCounts = const [],
+  }) {
+    final pricing = _selectedPricingOrNull;
+    final nextTypes = <CustomChekiTypeModel>[
+      ...(pricing?.availableCustomChekiTypes ?? const <CustomChekiTypeModel>[]),
+    ];
+    for (final count in seedCounts) {
+      final alreadyExists = nextTypes.any((item) => item.id == count.typeId);
+      if (alreadyExists || count.typeId.trim().isEmpty) {
+        continue;
+      }
+      nextTypes.add(
+        CustomChekiTypeModel(
+          id: count.typeId,
+          label: count.label,
+          unitPrice: count.unitPrice,
+        ),
+      );
+    }
+
+    final seedByTypeId = {
+      for (final item in seedCounts) item.typeId: item,
+    };
+    final nextControllers = <String, TextEditingController>{};
+    for (final type in nextTypes) {
+      final existing = _customCountControllers[type.id];
+      if (existing != null) {
+        nextControllers[type.id] = existing;
+        continue;
+      }
+      final seedCount = seedByTypeId[type.id];
+      nextControllers[type.id] = TextEditingController(
+        text: '${seedCount?.count ?? 0}',
+      );
+    }
+
+    for (final entry in _customCountControllers.entries) {
+      if (!nextControllers.containsKey(entry.key)) {
+        entry.value.dispose();
+      }
+    }
+
+    _customCountControllers
+      ..clear()
+      ..addAll(nextControllers);
+    _counterCustomTypes = nextTypes;
   }
 
   String _formatEditableNumber(num value) {
@@ -174,6 +239,14 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     final groupName = _selectedCounter?.groupName.trim() ?? '';
     return _resolvePricingByGroupName(groupName) ??
         GroupPricingModel.unconfigured(groupName);
+  }
+
+  GroupPricingModel? get _selectedPricingOrNull {
+    final groupName = _selectedCounter?.groupName.trim() ?? '';
+    if (groupName.isEmpty) {
+      return null;
+    }
+    return _resolvePricingByGroupName(groupName);
   }
 
   GroupPricingModel? _resolvePricingByGroupName(String groupName) {
@@ -193,6 +266,11 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     return int.tryParse(_countControllers[field.key]!.text.trim()) ?? 0;
   }
 
+  int _parseCustomCount(CustomChekiTypeModel type) {
+    return int.tryParse(_customCountControllers[type.id]?.text.trim() ?? '0') ??
+        0;
+  }
+
   int get _ticketQuantity =>
       int.tryParse(_ticketQuantityController.text.trim()) ?? 0;
 
@@ -204,12 +282,34 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
 
   double get _counterPreviewTotal {
     final pricing = _selectedPricing;
-    return CounterCountField.visibleValues(
-      enableUnsigned: pricing.hasUnsignedPrices,
+    final builtInTotal = CounterCountField.visibleValues(
+      enableUnsigned: pricing.enableUnsignedOptions,
       includeGroupCut: false,
     ).fold<double>(0, (sum, field) {
       return sum + (_parseCount(field) * pricing.priceForField(field));
     });
+    final customTotal = _counterCustomTypes.fold<double>(0, (sum, type) {
+      return sum + (_parseCustomCount(type) * type.unitPrice);
+    });
+    return builtInTotal + customTotal;
+  }
+
+  List<ActivityRecordCustomChekiCount> _buildCustomChekiCounts() {
+    return _counterCustomTypes
+        .map((type) {
+          final count = _parseCustomCount(type);
+          if (count <= 0) {
+            return null;
+          }
+          return ActivityRecordCustomChekiCount(
+            typeId: type.id,
+            label: type.label.trim(),
+            count: count,
+            unitPrice: type.unitPrice,
+          );
+        })
+        .whereType<ActivityRecordCustomChekiCount>()
+        .toList(growable: false);
   }
 
   GroupPricingModel? get _multiSuggestedPricing {
@@ -254,7 +354,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
 
     for (final groupName in groupNames) {
       final pricing = _resolvePricingByGroupName(groupName);
-      if (pricing?.hasUnsignedPrices != true) {
+      if (pricing?.enableUnsignedOptions != true) {
         return false;
       }
     }
@@ -263,8 +363,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
 
   List<CounterCountField> get _counterVisibleFields {
     return CounterCountField.visibleValues(
-      enableUnsigned: _selectedPricing.hasUnsignedPrices ||
-          (_selectedCounter?.hasUnsignedCounts ?? false),
+      enableUnsigned: _selectedPricing.enableUnsignedOptions,
       includeGroupCut: false,
     );
   }
@@ -397,6 +496,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
           previousCounter?.groupName != selected.groupName;
       if (changedCounter) {
         _countControllers[CounterCountField.groupCut.key]!.text = '0';
+        _syncCustomCountControllers();
       }
     });
   }
@@ -445,7 +545,8 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     final nextAllowsUnsigned = nextGroupNames.isNotEmpty &&
         nextGroupNames.every(
           (groupName) =>
-              _resolvePricingByGroupName(groupName)?.hasUnsignedPrices == true,
+              _resolvePricingByGroupName(groupName)?.enableUnsignedOptions ==
+              true,
         );
     final nextVisibleFields = CounterCountField.multiVisibleValues(
       enableUnsigned: nextAllowsUnsigned,
@@ -482,7 +583,9 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
       final counterDeltas = {
         for (final field in CounterCountField.values) field: _parseCount(field),
       };
-      final hasCount = counterDeltas.values.any((value) => value != 0);
+      final customChekiCounts = _buildCustomChekiCounts();
+      final hasCount = counterDeltas.values.any((value) => value != 0) ||
+          customChekiCounts.isNotEmpty;
       if (!hasCount) {
         return;
       }
@@ -492,8 +595,11 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
           type: _type,
           counter: _selectedCounter,
           occurredAt: _occurredAt,
+          activityName: _activityNameController.text.trim(),
+          venueName: _venueController.text.trim(),
           note: _noteController.text.trim(),
           counterDeltas: counterDeltas,
+          customChekiCounts: customChekiCounts,
         ),
       );
       return;
@@ -511,6 +617,8 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
         ActivityRecordDraft(
           type: _type,
           occurredAt: _occurredAt,
+          activityName: _activityNameController.text.trim(),
+          venueName: _venueController.text.trim(),
           note: _noteController.text.trim(),
           multiParticipants: _selectedParticipants,
           multiField: _effectiveMultiField,
@@ -523,8 +631,8 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
       return;
     }
 
-    final eventName = _eventNameController.text.trim();
-    if (eventName.isEmpty || _ticketQuantity <= 0) {
+    final activityName = _activityNameController.text.trim();
+    if (activityName.isEmpty || _ticketQuantity <= 0) {
       return;
     }
 
@@ -532,8 +640,9 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
       ActivityRecordDraft(
         type: _type,
         occurredAt: _occurredAt,
+        activityName: activityName,
+        venueName: _venueController.text.trim(),
         note: _noteController.text.trim(),
-        eventName: eventName,
         sessionLabel: _sessionController.text.trim(),
         ticketQuantity: _ticketQuantity,
         ticketUnitPrice: _ticketUnitPrice,
@@ -596,6 +705,25 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
               onTap: _pickDateTime,
             ),
             const SizedBox(height: 8),
+            NoAutofillTextField(
+              controller: _activityNameController,
+              decoration: InputDecoration(
+                labelText:
+                    _type == ActivityRecordType.ticket ? '活动名称' : '活动 / 见面记录',
+                hintText: _type == ActivityRecordType.ticket
+                    ? '例如 XX 公演 / Live / 特典会'
+                    : '例如 特典会 / 公演后 / 见送',
+              ),
+            ),
+            const SizedBox(height: 12),
+            NoAutofillTextField(
+              controller: _venueController,
+              decoration: const InputDecoration(
+                labelText: '场地',
+                hintText: '例如 KT Zepp Yokohama / 幕张メッセ',
+              ),
+            ),
+            const SizedBox(height: 12),
             if (_type == ActivityRecordType.counter) ...[
               ListTile(
                 contentPadding: EdgeInsets.zero,
@@ -652,6 +780,30 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
                         );
                       }).toList(),
                     ),
+                    if (_counterCustomTypes.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: _counterCustomTypes.map((type) {
+                          return Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainerLow,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              '${type.label} ¥${type.unitPrice.toStringAsFixed(type.unitPrice == type.unitPrice.roundToDouble() ? 0 : 2)}',
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -670,6 +822,27 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
                   ),
                 );
               }),
+              if (_counterCustomTypes.isNotEmpty) ...[
+                Text(
+                  '自定义 cheki 类型',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 8),
+                ..._counterCustomTypes.map((type) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: NoAutofillTextField(
+                      controller: _customCountControllers[type.id]!,
+                      decoration: InputDecoration(
+                        labelText: type.label,
+                        hintText: '0',
+                      ),
+                      keyboardType: TextInputType.number,
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  );
+                }),
+              ],
               Text(
                 '预计金额：¥${_counterPreviewTotal.toStringAsFixed(_counterPreviewTotal == _counterPreviewTotal.roundToDouble() ? 0 : 2)}',
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -844,14 +1017,6 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
                     ),
               ),
             ] else ...[
-              NoAutofillTextField(
-                controller: _eventNameController,
-                decoration: const InputDecoration(
-                  labelText: '活动名称',
-                  hintText: '例如 XX 公演 / Live / 特典会',
-                ),
-              ),
-              const SizedBox(height: 12),
               NoAutofillTextField(
                 controller: _sessionController,
                 decoration: const InputDecoration(

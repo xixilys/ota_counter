@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
+import '../models/activity_record_media_model.dart';
 import '../models/activity_record_model.dart';
 import '../models/chart_stats_helpers.dart';
 import '../models/counter_model.dart';
@@ -24,10 +27,11 @@ class ChartPage extends StatefulWidget {
 class _ChartPageState extends State<ChartPage> {
   List<CounterModel> _counters = [];
   List<ActivityRecordModel> _records = [];
+  List<ActivityRecordMediaModel> _recordMedia = [];
   List<GroupPricingModel> _pricings = [];
   bool _loading = true;
   bool _initialComposerHandled = false;
-  StatsScope _scope = StatsScope.month;
+  StatsScope _scope = StatsScope.day;
   MemberStatsMode _memberStatsMode = MemberStatsMode.group;
   DateTime _anchor = DateTime.now();
 
@@ -44,6 +48,11 @@ class _ChartPageState extends State<ChartPage> {
 
     final counters = await DatabaseService.getCounters();
     final records = await DatabaseService.getActivityRecords();
+    final recordIds =
+        records.map((record) => record.id).whereType<int>().toList();
+    final media = recordIds.isEmpty
+        ? const <ActivityRecordMediaModel>[]
+        : await DatabaseService.getActivityRecordMedia(recordIds: recordIds);
     final pricings = await DatabaseService.getGroupPricings();
 
     if (!mounted) {
@@ -53,6 +62,7 @@ class _ChartPageState extends State<ChartPage> {
     setState(() {
       _counters = counters;
       _records = records;
+      _recordMedia = media;
       _pricings = pricings;
       _loading = false;
     });
@@ -105,6 +115,169 @@ class _ChartPageState extends State<ChartPage> {
     return _formatDateTime(value);
   }
 
+  bool get _showCalendar {
+    return _scope == StatsScope.day;
+  }
+
+  DateTime get _calendarMonth {
+    return DateTime(_anchor.year, _anchor.month);
+  }
+
+  DateTime get _selectedCalendarDate {
+    return DateTime(_anchor.year, _anchor.month, _anchor.day);
+  }
+
+  Map<DateTime, _CalendarDaySummary> get _calendarMonthSummaries {
+    if (!_showCalendar) {
+      return const <DateTime, _CalendarDaySummary>{};
+    }
+    return _buildCalendarDaySummariesForMonth(_calendarMonth);
+  }
+
+  _CalendarDaySummary? get _selectedCalendarSummary {
+    return _calendarMonthSummaries[_selectedCalendarDate];
+  }
+
+  Map<DateTime, _CalendarDaySummary> _buildCalendarDaySummariesForMonth(
+    DateTime month,
+  ) {
+    final monthStart = DateTime(month.year, month.month);
+    final monthEnd = month.month == 12
+        ? DateTime(month.year + 1, 1)
+        : DateTime(month.year, month.month + 1);
+    final summaries = <DateTime, _CalendarDaySummaryBuilder>{};
+    final recordsById = <int, ActivityRecordModel>{};
+
+    for (final record in _records) {
+      final occurredDay = DateTime(
+        record.occurredAt.year,
+        record.occurredAt.month,
+        record.occurredAt.day,
+      );
+      if (occurredDay.isBefore(monthStart) || !occurredDay.isBefore(monthEnd)) {
+        continue;
+      }
+
+      final summary = summaries.putIfAbsent(
+        occurredDay,
+        () => _CalendarDaySummaryBuilder(date: occurredDay),
+      );
+      summary.recordCount += 1;
+      summary.amount += _effectiveTotalAmount(record);
+      final activityKey = _activitySummaryKey(record);
+      if (summary.activityKeys.add(activityKey)) {
+        summary.activityLabels.add(_activitySummaryLabel(record));
+      }
+      if (record.isTicket) {
+        summary.ticketCount += record.ticketQuantity;
+      } else if (record.isMulti) {
+        summary.cutCount += record.multiContributionTotal;
+      } else {
+        summary.cutCount += record.counterCountTotal;
+      }
+
+      if (record.id != null) {
+        recordsById[record.id!] = record;
+      }
+    }
+
+    for (final media in _recordMedia) {
+      if (!media.isScan) {
+        continue;
+      }
+      final record = recordsById[media.recordId];
+      if (record == null) {
+        continue;
+      }
+      final occurredDay = DateTime(
+        record.occurredAt.year,
+        record.occurredAt.month,
+        record.occurredAt.day,
+      );
+      final summary = summaries.putIfAbsent(
+        occurredDay,
+        () => _CalendarDaySummaryBuilder(date: occurredDay),
+      );
+      summary.scanCount += 1;
+    }
+
+    return {
+      for (final entry in summaries.entries) entry.key: entry.value.build(),
+    };
+  }
+
+  String _activitySummaryKey(ActivityRecordModel record) {
+    final baseLabel = record.resolvedActivityName.isNotEmpty
+        ? record.resolvedActivityName
+        : record.isTicket
+            ? record.subjectName.trim()
+            : record.isMulti
+                ? record.multiDisplayName
+                : record.subjectName.trim();
+    final parts = <String>[
+      if (baseLabel.isNotEmpty) baseLabel,
+      if (record.resolvedVenueName.isNotEmpty) record.resolvedVenueName,
+      if (record.sessionLabel.trim().isNotEmpty) record.sessionLabel.trim(),
+    ];
+    return parts.join('|');
+  }
+
+  String _activitySummaryLabel(ActivityRecordModel record) {
+    final baseLabel = record.resolvedActivityName.isNotEmpty
+        ? record.resolvedActivityName
+        : record.isTicket
+            ? record.subjectName.trim()
+            : record.isMulti
+                ? record.multiDisplayName
+                : record.subjectName.trim();
+    final parts = <String>[
+      if (baseLabel.isNotEmpty) baseLabel,
+      if (record.resolvedVenueName.isNotEmpty) record.resolvedVenueName,
+      if (record.sessionLabel.trim().isNotEmpty) record.sessionLabel.trim(),
+    ];
+    if (parts.isEmpty) {
+      return '未命名记录';
+    }
+    return parts.join(' · ');
+  }
+
+  void _handleCalendarDaySelected(DateTime date) {
+    setState(() {
+      _anchor = date;
+    });
+  }
+
+  void _changeCalendarMonth(int offset) {
+    final current = _selectedCalendarDate;
+    final targetMonth = DateTime(current.year, current.month + offset, 1);
+    final lastDay = DateTime(targetMonth.year, targetMonth.month + 1, 0).day;
+
+    setState(() {
+      _anchor = DateTime(
+        targetMonth.year,
+        targetMonth.month,
+        current.day.clamp(1, lastDay),
+      );
+    });
+  }
+
+  Future<void> _pickCalendarDate() async {
+    final selected = await showDatePicker(
+      context: context,
+      locale: const Locale('zh', 'CN'),
+      helpText: '选择日期',
+      initialDate: _selectedCalendarDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+    );
+    if (selected == null || !mounted) {
+      return;
+    }
+    setState(() {
+      _anchor = selected;
+    });
+  }
+
   String get _scopeTitle {
     final range = _activeRange;
     if (range == null) {
@@ -150,6 +323,69 @@ class _ChartPageState extends State<ChartPage> {
     );
   }
 
+  Future<void> _pickScopeAnchor() async {
+    if (_scope == StatsScope.all) {
+      return;
+    }
+
+    switch (_scope) {
+      case StatsScope.day:
+        return;
+      case StatsScope.week:
+        final selected = await showDatePicker(
+          context: context,
+          locale: const Locale('zh', 'CN'),
+          helpText: '选择一周中的任意日期',
+          initialDate: _anchor,
+          firstDate: DateTime(2020),
+          lastDate: DateTime(2100),
+        );
+        if (selected == null || !mounted) {
+          return;
+        }
+        setState(() {
+          _anchor = _scope == StatsScope.week
+              ? StatsScope.week.rangeFor(selected)!.start
+              : selected;
+        });
+        return;
+      case StatsScope.month:
+        final selected = await showDatePicker(
+          context: context,
+          locale: const Locale('zh', 'CN'),
+          helpText: '选择任意一天以切换月份',
+          initialDate: _anchor,
+          firstDate: DateTime(2020),
+          lastDate: DateTime(2100),
+        );
+        if (selected == null || !mounted) {
+          return;
+        }
+        setState(() {
+          _anchor = DateTime(selected.year, selected.month, 1);
+        });
+        return;
+      case StatsScope.year:
+        final selected = await showDatePicker(
+          context: context,
+          locale: const Locale('zh', 'CN'),
+          helpText: '选择任意一天以切换年份',
+          initialDate: _anchor,
+          firstDate: DateTime(2020),
+          lastDate: DateTime(2100),
+        );
+        if (selected == null || !mounted) {
+          return;
+        }
+        setState(() {
+          _anchor = DateTime(selected.year, 1, 1);
+        });
+        return;
+      case StatsScope.all:
+        return;
+    }
+  }
+
   Future<void> _openPricingPage() async {
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (context) => const GroupPricingPage()),
@@ -158,7 +394,7 @@ class _ChartPageState extends State<ChartPage> {
   }
 
   bool _canMutateRecord(ActivityRecordModel record) {
-    return record.id != null && record.source == 'local';
+    return record.id != null;
   }
 
   CounterModel? _findCounterForRecord(ActivityRecordModel record) {
@@ -219,8 +455,11 @@ class _ChartPageState extends State<ChartPage> {
               color: '#FFE135',
             ),
         occurredAt: record.occurredAt,
+        activityName: record.resolvedActivityName,
+        venueName: record.resolvedVenueName,
         note: record.note,
         counterDeltas: _counterDeltasFromRecord(record),
+        customChekiCounts: record.customChekiCounts,
       );
     }
 
@@ -229,6 +468,8 @@ class _ChartPageState extends State<ChartPage> {
       return ActivityRecordDraft(
         type: ActivityRecordType.multi,
         occurredAt: record.occurredAt,
+        activityName: record.resolvedActivityName,
+        venueName: record.resolvedVenueName,
         note: record.note,
         multiParticipants: record.effectiveParticipants,
         multiField: multiField == CounterCountField.groupCut
@@ -243,8 +484,9 @@ class _ChartPageState extends State<ChartPage> {
     return ActivityRecordDraft(
       type: ActivityRecordType.ticket,
       occurredAt: record.occurredAt,
+      activityName: record.resolvedActivityName,
+      venueName: record.resolvedVenueName,
       note: record.note,
-      eventName: record.subjectName,
       sessionLabel: record.sessionLabel,
       ticketQuantity: record.ticketQuantity > 0 ? record.ticketQuantity : 1,
       ticketUnitPrice: record.ticketUnitPrice,
@@ -270,7 +512,10 @@ class _ChartPageState extends State<ChartPage> {
         occurredAt: draft.occurredAt,
         deltas: draft.counterDeltas,
         pricing: pricing,
+        activityName: draft.activityName,
+        venueName: draft.venueName,
         note: draft.note,
+        customChekiCounts: draft.customChekiCounts,
       ).copyWith(
         source: source,
         sourceRecordId: sourceRecordId,
@@ -298,6 +543,8 @@ class _ChartPageState extends State<ChartPage> {
             ? CounterCountField.groupCut
             : (draft.multiField ?? CounterCountField.threeInch),
         occurredAt: draft.occurredAt,
+        activityName: draft.activityName,
+        venueName: draft.venueName,
         note: draft.note,
         pricingLabel: pricingLabel,
         quantity: isGroupCut ? 1 : draft.multiQuantity,
@@ -310,8 +557,9 @@ class _ChartPageState extends State<ChartPage> {
 
     return ActivityRecordModel.ticket(
       id: id,
-      eventName: draft.eventName,
+      eventName: draft.activityName,
       occurredAt: draft.occurredAt,
+      venueName: draft.venueName,
       sessionLabel: draft.sessionLabel,
       note: draft.note,
       quantity: draft.ticketQuantity,
@@ -602,30 +850,14 @@ class _ChartPageState extends State<ChartPage> {
   }
 
   bool _shouldUseCurrentPricingForRecord(ActivityRecordModel record) {
-    if (!record.isCounter || record.counterCountTotal <= 0) {
-      return false;
-    }
-
-    if (record.totalAmount != 0) {
-      return false;
-    }
-
-    for (final field in CounterCountField.values) {
-      if (record.priceForField(field) != 0) {
-        return false;
-      }
-    }
-
-    return true;
+    return record.shouldResolveWithCurrentPricing;
   }
 
   double _calculateCounterAmountWithPricing(
     ActivityRecordModel record,
     GroupPricingModel pricing,
   ) {
-    return CounterCountField.values.fold<double>(0, (sum, field) {
-      return sum + (record.countForField(field) * pricing.priceForField(field));
-    });
+    return record.totalAmountWithPricing(pricing);
   }
 
   double _effectiveTotalAmount(ActivityRecordModel record) {
@@ -671,9 +903,137 @@ class _ChartPageState extends State<ChartPage> {
     return '$label（当前团价）';
   }
 
+  Future<void> _previewMedia(ActivityRecordMediaModel media) async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => Dialog.fullscreen(
+        child: Stack(
+          children: [
+            Container(
+              color: Colors.black,
+              alignment: Alignment.center,
+              child: InteractiveViewer(
+                child: Image.file(File(media.path)),
+              ),
+            ),
+            Positioned(
+              top: 16,
+              left: 16,
+              child: FilledButton.tonalIcon(
+                onPressed: null,
+                icon: Icon(
+                  media.isScan
+                      ? Icons.document_scanner_outlined
+                      : Icons.photo_library_outlined,
+                ),
+                label: Text(media.isScan ? '切图' : '纪念照'),
+              ),
+            ),
+            Positioned(
+              top: 16,
+              right: 16,
+              child: IconButton.filledTonal(
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  bool _sameDay(DateTime left, DateTime right) {
+    return left.year == right.year &&
+        left.month == right.month &&
+        left.day == right.day;
+  }
+
+  String _recordTitle(ActivityRecordModel record) {
+    if (record.isMulti) {
+      return record.multiDisplayName;
+    }
+    return record.subjectName;
+  }
+
+  IconData _recordIcon(ActivityRecordModel record) {
+    if (record.isTicket) {
+      return Icons.confirmation_num_outlined;
+    }
+    if (record.isMulti) {
+      return Icons.people_alt_outlined;
+    }
+    return Icons.photo_library_outlined;
+  }
+
+  String _recordSubtitle(ActivityRecordModel record) {
+    final multiGroupLabel = record.effectiveParticipants
+        .map((participant) => participant.groupName.trim())
+        .where((groupName) => groupName.isNotEmpty)
+        .toSet()
+        .join(' / ');
+    if (record.isTicket) {
+      return [
+        _formatOccurredAtLabel(record.occurredAt),
+        if (record.resolvedVenueName.isNotEmpty) record.resolvedVenueName,
+        if (record.sessionLabel.isNotEmpty) record.sessionLabel,
+        '门票 ${record.ticketQuantity} 张',
+        if (record.note.isNotEmpty) record.note,
+      ].join(' · ');
+    }
+
+    if (record.isMulti) {
+      return [
+        _formatOccurredAtLabel(record.occurredAt),
+        if (record.resolvedActivityName.isNotEmpty) record.resolvedActivityName,
+        if (record.resolvedVenueName.isNotEmpty) record.resolvedVenueName,
+        if (multiGroupLabel.isNotEmpty) multiGroupLabel,
+        _effectivePricingLabel(record),
+        if (record.multiFieldLabel.isNotEmpty) record.multiFieldLabel,
+        '多人切 ${record.multiParticipantCount} 人',
+        if (record.effectiveMultiQuantity > 1)
+          '每人 ${record.effectiveMultiQuantity}',
+        if (record.note.isNotEmpty) record.note,
+      ].join(' · ');
+    }
+
+    return [
+      _formatOccurredAtLabel(record.occurredAt),
+      if (record.resolvedActivityName.isNotEmpty) record.resolvedActivityName,
+      if (record.resolvedVenueName.isNotEmpty) record.resolvedVenueName,
+      if (record.groupName.isNotEmpty) record.groupName,
+      _effectivePricingLabel(record),
+      if (record.counterSpecSummaryLabel.isNotEmpty)
+        record.counterSpecSummaryLabel,
+      if (record.note.isNotEmpty) record.note,
+    ].join(' · ');
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final calendarMonth = _calendarMonth;
+    final calendarSummaries = _calendarMonthSummaries;
+    final selectedCalendarDate = _selectedCalendarDate;
+    final selectedCalendarSummary = _selectedCalendarSummary;
+    final selectedDayRecords = _records.where((record) {
+      return _sameDay(record.occurredAt, selectedCalendarDate);
+    }).toList()
+      ..sort((a, b) {
+        final timeCompare = b.occurredAt.compareTo(a.occurredAt);
+        if (timeCompare != 0) {
+          return timeCompare;
+        }
+        return (b.id ?? 0).compareTo(a.id ?? 0);
+      });
+    final selectedDayMediaByRecordId = <int, List<ActivityRecordMediaModel>>{};
+    for (final media in _recordMedia) {
+      final bucket = selectedDayMediaByRecordId.putIfAbsent(
+        media.recordId,
+        () => <ActivityRecordMediaModel>[],
+      );
+      bucket.add(media);
+    }
     final filteredRecords = _filteredRecords;
     final counterRecords = filteredRecords.where((record) => record.isCounter);
     final multiRecords = filteredRecords.where((record) => record.isMulti);
@@ -712,6 +1072,16 @@ class _ChartPageState extends State<ChartPage> {
               (sum, record) => sum + chartTypeFieldContribution(record, field),
             ),
     };
+    final customTypeTotals = <String, int>{};
+    for (final record in counterRecords) {
+      for (final item in record.effectiveCustomChekiCounts) {
+        final label = item.label.trim();
+        if (label.isEmpty) {
+          continue;
+        }
+        customTypeTotals[label] = (customTypeTotals[label] ?? 0) + item.count;
+      }
+    }
 
     final memberTotals = <String, _MemberStatEntry>{};
     for (final record in counterRecords) {
@@ -785,6 +1155,14 @@ class _ChartPageState extends State<ChartPage> {
       for (final field in CounterCountField.values) {
         summary.counts[field] =
             (summary.counts[field] ?? 0) + record.countForField(field);
+      }
+      for (final item in record.effectiveCustomChekiCounts) {
+        final label = item.label.trim();
+        if (label.isEmpty) {
+          continue;
+        }
+        summary.customCounts[label] =
+            (summary.customCounts[label] ?? 0) + item.count;
       }
     }
     for (final record in multiRecords) {
@@ -944,7 +1322,7 @@ class _ChartPageState extends State<ChartPage> {
           IconButton(
             onPressed: _openPricingPage,
             icon: const Icon(Icons.sell_outlined),
-            tooltip: '团体价格',
+            tooltip: '团体配置',
           ),
         ],
       ),
@@ -1010,43 +1388,92 @@ class _ChartPageState extends State<ChartPage> {
                               }).toList(),
                             ),
                           ),
-                          const SizedBox(height: 16),
-                          Row(
-                            children: [
-                              IconButton.filledTonal(
-                                onPressed: _scope == StatsScope.all
-                                    ? null
-                                    : () => _moveScope(-1),
-                                icon: const Icon(Icons.chevron_left),
-                              ),
-                              Expanded(
-                                child: Column(
-                                  children: [
-                                    Text(
-                                      _scope.label,
-                                      style: theme.textTheme.labelLarge,
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      _scopeTitle,
-                                      textAlign: TextAlign.center,
-                                      style: theme.textTheme.headlineSmall
-                                          ?.copyWith(
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                  ],
+                          if (_scope == StatsScope.day) ...[
+                            const SizedBox(height: 12),
+                            Text(
+                              '单日直接在下方日历切换日期和月份',
+                              style: theme.textTheme.bodyMedium,
+                            ),
+                            const SizedBox(height: 16),
+                          ] else ...[
+                            const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                IconButton.filledTonal(
+                                  onPressed: _scope == StatsScope.all
+                                      ? null
+                                      : () => _moveScope(-1),
+                                  icon: const Icon(Icons.chevron_left),
                                 ),
-                              ),
-                              IconButton.filledTonal(
-                                onPressed: _canMoveForward
-                                    ? () => _moveScope(1)
-                                    : null,
-                                icon: const Icon(Icons.chevron_right),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
+                                Expanded(
+                                  child: Column(
+                                    children: [
+                                      Text(
+                                        _scope.label,
+                                        style: theme.textTheme.labelLarge,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      InkWell(
+                                        onTap: _scope == StatsScope.all
+                                            ? null
+                                            : _pickScopeAnchor,
+                                        borderRadius: BorderRadius.circular(18),
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 10,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: theme.colorScheme.surface,
+                                            borderRadius:
+                                                BorderRadius.circular(18),
+                                            border: Border.all(
+                                              color: theme
+                                                  .colorScheme.outlineVariant,
+                                            ),
+                                          ),
+                                          child: Column(
+                                            children: [
+                                              if (_scope != StatsScope.all)
+                                                Padding(
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                    bottom: 4,
+                                                  ),
+                                                  child: Icon(
+                                                    Icons
+                                                        .calendar_month_outlined,
+                                                    size: 18,
+                                                    color: theme
+                                                        .colorScheme.primary,
+                                                  ),
+                                                ),
+                                              Text(
+                                                _scopeTitle,
+                                                textAlign: TextAlign.center,
+                                                style: theme
+                                                    .textTheme.headlineSmall
+                                                    ?.copyWith(
+                                                  fontWeight: FontWeight.w800,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                IconButton.filledTonal(
+                                  onPressed: _canMoveForward
+                                      ? () => _moveScope(1)
+                                      : null,
+                                  icon: const Icon(Icons.chevron_right),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                          ],
                           SegmentedButton<MemberStatsMode>(
                             segments: const [
                               ButtonSegment<MemberStatsMode>(
@@ -1071,6 +1498,32 @@ class _ChartPageState extends State<ChartPage> {
                       ),
                     ),
                     const SizedBox(height: 16),
+                    if (_showCalendar) ...[
+                      _CalendarOverviewCard(
+                        month: calendarMonth,
+                        selectedDate: selectedCalendarDate,
+                        scope: _scope,
+                        activeRange: _activeRange,
+                        summaries: calendarSummaries,
+                        onDateSelected: _handleCalendarDaySelected,
+                        onPreviousMonth: () => _changeCalendarMonth(-1),
+                        onNextMonth: () => _changeCalendarMonth(1),
+                        onHeaderTap: _pickCalendarDate,
+                      ),
+                      const SizedBox(height: 12),
+                      _CalendarDayDetailCard(
+                        date: selectedCalendarDate,
+                        summary: selectedCalendarSummary,
+                        dateFormatter: _formatDate,
+                        records: selectedDayRecords,
+                        mediaByRecordId: selectedDayMediaByRecordId,
+                        recordSubtitleBuilder: _recordSubtitle,
+                        recordAmountBuilder: _effectiveTotalAmount,
+                        amountFormatter: _formatAmount,
+                        onPreviewMedia: _previewMedia,
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                     LayoutBuilder(
                       builder: (context, constraints) {
                         final columns = constraints.maxWidth > 720 ? 4 : 2;
@@ -1180,15 +1633,40 @@ class _ChartPageState extends State<ChartPage> {
                       const SizedBox(height: 16),
                     _SectionCard(
                       title: '规格汇总',
-                      child: Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
-                        children: CounterCountField.values.map((field) {
-                          return _MetricChip(
-                            label: field.label,
-                            value: '${typeTotals[field] ?? 0}',
-                          );
-                        }).toList(),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Wrap(
+                            spacing: 10,
+                            runSpacing: 10,
+                            children: CounterCountField.values.map((field) {
+                              return _MetricChip(
+                                label: field.label,
+                                value: '${typeTotals[field] ?? 0}',
+                              );
+                            }).toList(),
+                          ),
+                          if (customTypeTotals.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            Text(
+                              '自定义类型',
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 10,
+                              runSpacing: 10,
+                              children: customTypeTotals.entries.map((entry) {
+                                return _MetricChip(
+                                  label: entry.key,
+                                  value: '${entry.value}',
+                                );
+                              }).toList(),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -1249,6 +1727,14 @@ class _ChartPageState extends State<ChartPage> {
                                               _MetricChip(
                                                 label: '多人切',
                                                 value: '${summary.multiCount}',
+                                              ),
+                                            )
+                                            ..addAll(
+                                              summary.customCounts.entries.map(
+                                                (entry) => _MetricChip(
+                                                  label: entry.key,
+                                                  value: '${entry.value}',
+                                                ),
                                               ),
                                             ),
                                         ),
@@ -1403,75 +1889,12 @@ class _ChartPageState extends State<ChartPage> {
                               children: filteredRecords.take(50).map((record) {
                                 final trailingAmount =
                                     '¥${_formatAmount(_effectiveTotalAmount(record))}';
-                                final multiGroupLabel = record
-                                    .effectiveParticipants
-                                    .map((participant) =>
-                                        participant.groupName.trim())
-                                    .where((groupName) => groupName.isNotEmpty)
-                                    .toSet()
-                                    .join(' / ');
-                                final subtitle = record.isTicket
-                                    ? [
-                                        _formatOccurredAtLabel(
-                                            record.occurredAt),
-                                        if (record.sessionLabel.isNotEmpty)
-                                          record.sessionLabel,
-                                        '门票 ${record.ticketQuantity} 张',
-                                        if (record.note.isNotEmpty) record.note,
-                                      ].join(' · ')
-                                    : record.isMulti
-                                        ? [
-                                            _formatOccurredAtLabel(
-                                                record.occurredAt),
-                                            if (multiGroupLabel.isNotEmpty)
-                                              multiGroupLabel,
-                                            _effectivePricingLabel(record),
-                                            if (record
-                                                .multiFieldLabel.isNotEmpty)
-                                              record.multiFieldLabel,
-                                            '多人切 ${record.multiParticipantCount} 人',
-                                            if (record.effectiveMultiQuantity >
-                                                1)
-                                              '每人 ${record.effectiveMultiQuantity}',
-                                            if (record.note.isNotEmpty)
-                                              record.note,
-                                          ].join(' · ')
-                                        : [
-                                            _formatOccurredAtLabel(
-                                                record.occurredAt),
-                                            if (record.groupName.isNotEmpty)
-                                              record.groupName,
-                                            _effectivePricingLabel(record),
-                                            CounterCountField.values
-                                                .where(
-                                                  (field) =>
-                                                      record.countForField(
-                                                          field) !=
-                                                      0,
-                                                )
-                                                .map(
-                                                  (field) =>
-                                                      '${field.shortLabel} ${record.countForField(field)}',
-                                                )
-                                                .join(' / '),
-                                            if (record.note.isNotEmpty)
-                                              record.note,
-                                          ].join(' · ');
+                                final subtitle = _recordSubtitle(record);
 
                                 return ListTile(
                                   contentPadding: EdgeInsets.zero,
-                                  leading: Icon(
-                                    record.isTicket
-                                        ? Icons.confirmation_num_outlined
-                                        : record.isMulti
-                                            ? Icons.people_alt_outlined
-                                            : Icons.photo_library_outlined,
-                                  ),
-                                  title: Text(
-                                    record.isMulti
-                                        ? record.multiDisplayName
-                                        : record.subjectName,
-                                  ),
+                                  leading: Icon(_recordIcon(record)),
+                                  title: Text(_recordTitle(record)),
                                   subtitle: Text(subtitle),
                                   trailing: Row(
                                     mainAxisSize: MainAxisSize.min,
@@ -1587,6 +2010,781 @@ enum StatsScope {
       case StatsScope.all:
         return anchor;
     }
+  }
+}
+
+class _MonthSelection {
+  final int year;
+  final int month;
+
+  const _MonthSelection({
+    required this.year,
+    required this.month,
+  });
+}
+
+class _MonthPickerDialog extends StatefulWidget {
+  final DateTime initialDate;
+
+  const _MonthPickerDialog({
+    required this.initialDate,
+  });
+
+  @override
+  State<_MonthPickerDialog> createState() => _MonthPickerDialogState();
+}
+
+class _MonthPickerDialogState extends State<_MonthPickerDialog> {
+  late int _selectedYear;
+  late int _selectedMonth;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedYear = widget.initialDate.year;
+    _selectedMonth = widget.initialDate.month;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currentYear = DateTime.now().year;
+    final years = List<int>.generate(
+      12,
+      (index) => currentYear - 5 + index,
+    );
+
+    return AlertDialog(
+      title: const Text('选择月份'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          DropdownButtonFormField<int>(
+            initialValue: _selectedYear,
+            decoration: const InputDecoration(labelText: '年份'),
+            items: years
+                .map(
+                  (year) => DropdownMenuItem(
+                    value: year,
+                    child: Text('$year 年'),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) {
+              if (value == null) {
+                return;
+              }
+              setState(() {
+                _selectedYear = value;
+              });
+            },
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<int>(
+            initialValue: _selectedMonth,
+            decoration: const InputDecoration(labelText: '月份'),
+            items: List<int>.generate(12, (index) => index + 1)
+                .map(
+                  (month) => DropdownMenuItem(
+                    value: month,
+                    child: Text('$month 月'),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) {
+              if (value == null) {
+                return;
+              }
+              setState(() {
+                _selectedMonth = value;
+              });
+            },
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () {
+            Navigator.of(context).pop(
+              _MonthSelection(
+                year: _selectedYear,
+                month: _selectedMonth,
+              ),
+            );
+          },
+          child: const Text('确定'),
+        ),
+      ],
+    );
+  }
+}
+
+class _YearPickerDialog extends StatefulWidget {
+  final int initialYear;
+
+  const _YearPickerDialog({
+    required this.initialYear,
+  });
+
+  @override
+  State<_YearPickerDialog> createState() => _YearPickerDialogState();
+}
+
+class _YearPickerDialogState extends State<_YearPickerDialog> {
+  late int _selectedYear;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedYear = widget.initialYear;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currentYear = DateTime.now().year;
+    final years = List<int>.generate(
+      16,
+      (index) => currentYear - 10 + index,
+    );
+
+    return AlertDialog(
+      title: const Text('选择年份'),
+      content: DropdownButtonFormField<int>(
+        initialValue: _selectedYear,
+        decoration: const InputDecoration(labelText: '年份'),
+        items: years
+            .map(
+              (year) => DropdownMenuItem(
+                value: year,
+                child: Text('$year 年'),
+              ),
+            )
+            .toList(),
+        onChanged: (value) {
+          if (value == null) {
+            return;
+          }
+          setState(() {
+            _selectedYear = value;
+          });
+        },
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_selectedYear),
+          child: const Text('确定'),
+        ),
+      ],
+    );
+  }
+}
+
+class _CalendarDaySummary {
+  final DateTime date;
+  final int recordCount;
+  final int activityCount;
+  final int cutCount;
+  final int scanCount;
+  final int ticketCount;
+  final double amount;
+  final List<String> activityLabels;
+
+  const _CalendarDaySummary({
+    required this.date,
+    required this.recordCount,
+    required this.activityCount,
+    required this.cutCount,
+    required this.scanCount,
+    required this.ticketCount,
+    required this.amount,
+    required this.activityLabels,
+  });
+
+  bool get hasRecords => recordCount > 0;
+}
+
+class _CalendarDaySummaryBuilder {
+  final DateTime date;
+  int recordCount = 0;
+  int cutCount = 0;
+  int scanCount = 0;
+  int ticketCount = 0;
+  double amount = 0;
+  final Set<String> activityKeys = <String>{};
+  final List<String> activityLabels = <String>[];
+
+  _CalendarDaySummaryBuilder({
+    required this.date,
+  });
+
+  _CalendarDaySummary build() {
+    return _CalendarDaySummary(
+      date: date,
+      recordCount: recordCount,
+      activityCount: activityKeys.length,
+      cutCount: cutCount,
+      scanCount: scanCount,
+      ticketCount: ticketCount,
+      amount: amount,
+      activityLabels: List<String>.from(activityLabels),
+    );
+  }
+}
+
+class _CalendarOverviewCard extends StatelessWidget {
+  final DateTime month;
+  final DateTime selectedDate;
+  final StatsScope scope;
+  final DateTimeRange? activeRange;
+  final Map<DateTime, _CalendarDaySummary> summaries;
+  final ValueChanged<DateTime> onDateSelected;
+  final VoidCallback onPreviousMonth;
+  final VoidCallback onNextMonth;
+  final VoidCallback onHeaderTap;
+
+  const _CalendarOverviewCard({
+    required this.month,
+    required this.selectedDate,
+    required this.scope,
+    required this.activeRange,
+    required this.summaries,
+    required this.onDateSelected,
+    required this.onPreviousMonth,
+    required this.onNextMonth,
+    required this.onHeaderTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    const recordIndicatorColor = Color(0xFF2563EB);
+    const scanIndicatorColor = Color(0xFFD9480F);
+    final firstDay = DateTime(month.year, month.month, 1);
+    final daysInMonth = month.month == 12
+        ? DateTime(month.year + 1, 1, 0).day
+        : DateTime(month.year, month.month + 1, 0).day;
+    final leadingSlots = firstDay.weekday - 1;
+    final totalSlots = ((leadingSlots + daysInMonth + 6) ~/ 7) * 7;
+    const weekLabels = ['一', '二', '三', '四', '五', '六', '日'];
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: theme.colorScheme.shadow.withAlpha(10),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              IconButton.filledTonal(
+                onPressed: onPreviousMonth,
+                icon: const Icon(Icons.chevron_left),
+                tooltip: '上个月',
+              ),
+              Expanded(
+                child: InkWell(
+                  onTap: onHeaderTap,
+                  borderRadius: BorderRadius.circular(18),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text(
+                      '${month.year} 年 ${month.month} 月',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              IconButton.filledTonal(
+                onPressed: onNextMonth,
+                icon: const Icon(Icons.chevron_right),
+                tooltip: '下个月',
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              _CalendarLegend(
+                color: recordIndicatorColor,
+                label: '有记录',
+              ),
+              _CalendarLegend(
+                color: scanIndicatorColor,
+                label: '有切图',
+              ),
+              _CalendarLegend(
+                color: theme.colorScheme.primary.withAlpha(28),
+                label: scope == StatsScope.week ? '当前选中周' : '当前选中日期',
+                hollow: scope == StatsScope.week,
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: weekLabels.map((label) {
+              return Expanded(
+                child: Center(
+                  child: Text(
+                    label,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 10),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: totalSlots,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 7,
+              crossAxisSpacing: 8,
+              mainAxisSpacing: 8,
+              childAspectRatio: 0.78,
+            ),
+            itemBuilder: (context, index) {
+              final dayNumber = index - leadingSlots + 1;
+              if (dayNumber <= 0 || dayNumber > daysInMonth) {
+                return DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerLowest,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                );
+              }
+
+              final date = DateTime(month.year, month.month, dayNumber);
+              final summary = summaries[date];
+              final hasRecords = summary?.hasRecords ?? false;
+              final hasScans = (summary?.scanCount ?? 0) > 0;
+              final isSelected = _sameDay(date, selectedDate);
+              final isInActiveWeek = scope == StatsScope.week &&
+                  activeRange != null &&
+                  !date.isBefore(activeRange!.start) &&
+                  date.isBefore(activeRange!.end);
+
+              return Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(16),
+                  onTap: () => onDateSelected(date),
+                  child: Ink(
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? theme.colorScheme.primaryContainer
+                          : isInActiveWeek
+                              ? theme.colorScheme.primary.withAlpha(16)
+                              : theme.colorScheme.surfaceContainerLowest,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: isSelected
+                            ? theme.colorScheme.primary
+                            : isInActiveWeek
+                                ? theme.colorScheme.primary.withAlpha(80)
+                                : Colors.transparent,
+                        width: isSelected ? 1.6 : 1,
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          width: 34,
+                          height: 34,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: hasRecords
+                                ? (isSelected
+                                    ? recordIndicatorColor
+                                    : recordIndicatorColor.withAlpha(24))
+                                : Colors.transparent,
+                            border: Border.all(
+                              color: hasRecords
+                                  ? recordIndicatorColor
+                                  : theme.colorScheme.outlineVariant,
+                            ),
+                          ),
+                          child: Text(
+                            '$dayNumber',
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: hasRecords
+                                  ? (isSelected
+                                      ? Colors.white
+                                      : recordIndicatorColor)
+                                  : theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        if (hasRecords || hasScans)
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              if (hasRecords)
+                                _CalendarStatusDot(
+                                  color: recordIndicatorColor,
+                                ),
+                              if (hasScans) ...[
+                                if (hasRecords) const SizedBox(width: 4),
+                                _CalendarStatusDot(
+                                  color: scanIndicatorColor,
+                                ),
+                              ],
+                            ],
+                          )
+                        else
+                          const SizedBox(height: 7),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool _sameDay(DateTime left, DateTime right) {
+    return left.year == right.year &&
+        left.month == right.month &&
+        left.day == right.day;
+  }
+}
+
+class _CalendarDayDetailCard extends StatelessWidget {
+  final DateTime date;
+  final _CalendarDaySummary? summary;
+  final String Function(DateTime value) dateFormatter;
+  final List<ActivityRecordModel> records;
+  final Map<int, List<ActivityRecordMediaModel>> mediaByRecordId;
+  final String Function(ActivityRecordModel record) recordSubtitleBuilder;
+  final double Function(ActivityRecordModel record) recordAmountBuilder;
+  final String Function(double value) amountFormatter;
+  final ValueChanged<ActivityRecordMediaModel> onPreviewMedia;
+
+  const _CalendarDayDetailCard({
+    required this.date,
+    required this.summary,
+    required this.dateFormatter,
+    required this.records,
+    required this.mediaByRecordId,
+    required this.recordSubtitleBuilder,
+    required this.recordAmountBuilder,
+    required this.amountFormatter,
+    required this.onPreviewMedia,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final currentSummary = summary;
+
+    return _SectionCard(
+      title: '当日摘要',
+      child: currentSummary == null
+          ? Text('${dateFormatter(date)} 还没有记录。')
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  dateFormatter(date),
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    _MetricChip(
+                      label: '偶活',
+                      value: '${currentSummary.activityCount}',
+                    ),
+                    _MetricChip(
+                      label: '切数',
+                      value: '${currentSummary.cutCount}',
+                    ),
+                    if (currentSummary.scanCount > 0)
+                      _MetricChip(
+                        label: '切图',
+                        value: '${currentSummary.scanCount}',
+                      ),
+                    if (currentSummary.ticketCount > 0)
+                      _MetricChip(
+                        label: '门票',
+                        value: '${currentSummary.ticketCount}',
+                      ),
+                    _MetricChip(
+                      label: '金额',
+                      value: '¥${amountFormatter(currentSummary.amount)}',
+                    ),
+                  ],
+                ),
+                if (currentSummary.activityLabels.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children:
+                        currentSummary.activityLabels.take(6).map((label) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(label),
+                      );
+                    }).toList(),
+                  ),
+                ],
+                if (records.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    '当天记录与切图',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  ...records.map((record) {
+                    final media = record.id == null
+                        ? const <ActivityRecordMediaModel>[]
+                        : (mediaByRecordId[record.id!] ??
+                            const <ActivityRecordMediaModel>[]);
+                    final scanCount = media.where((item) => item.isScan).length;
+                    final memoryCount = media.length - scanCount;
+
+                    return Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 36,
+                                height: 36,
+                                decoration: BoxDecoration(
+                                  color: theme.colorScheme.primaryContainer,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                alignment: Alignment.center,
+                                child: Icon(
+                                  record.isTicket
+                                      ? Icons.confirmation_num_outlined
+                                      : record.isMulti
+                                          ? Icons.people_alt_outlined
+                                          : Icons.photo_library_outlined,
+                                  size: 18,
+                                  color: theme.colorScheme.onPrimaryContainer,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      record.isMulti
+                                          ? record.multiDisplayName
+                                          : record.subjectName,
+                                      style:
+                                          theme.textTheme.titleMedium?.copyWith(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      recordSubtitleBuilder(record),
+                                      style: theme.textTheme.bodySmall,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Text(
+                                '¥${amountFormatter(recordAmountBuilder(record))}',
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (media.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                if (scanCount > 0)
+                                  _MetricChip(
+                                    label: '切图',
+                                    value: '$scanCount',
+                                  ),
+                                if (memoryCount > 0)
+                                  _MetricChip(
+                                    label: '纪念照',
+                                    value: '$memoryCount',
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              height: 96,
+                              child: ListView.separated(
+                                scrollDirection: Axis.horizontal,
+                                itemCount: media.length,
+                                separatorBuilder: (_, __) =>
+                                    const SizedBox(width: 8),
+                                itemBuilder: (context, index) {
+                                  final item = media[index];
+                                  return Material(
+                                    color: Colors.transparent,
+                                    child: InkWell(
+                                      borderRadius: BorderRadius.circular(14),
+                                      onTap: () => onPreviewMedia(item),
+                                      child: Ink(
+                                        width: 78,
+                                        height: 96,
+                                        decoration: BoxDecoration(
+                                          borderRadius:
+                                              BorderRadius.circular(14),
+                                          border: Border.all(
+                                            color: item.isScan
+                                                ? const Color(0xFFD9480F)
+                                                : theme
+                                                    .colorScheme.outlineVariant,
+                                            width: item.isScan ? 2 : 1,
+                                          ),
+                                        ),
+                                        child: ClipRRect(
+                                          borderRadius:
+                                              BorderRadius.circular(13),
+                                          child: Image.file(
+                                            File(item.path),
+                                            fit: BoxFit.cover,
+                                            errorBuilder:
+                                                (context, error, stackTrace) {
+                                              return Container(
+                                                color: theme.colorScheme
+                                                    .surfaceContainerLow,
+                                                alignment: Alignment.center,
+                                                child: const Icon(
+                                                  Icons.broken_image_outlined,
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  }),
+                ],
+              ],
+            ),
+    );
+  }
+}
+
+class _CalendarLegend extends StatelessWidget {
+  final Color color;
+  final String label;
+  final bool hollow;
+
+  const _CalendarLegend({
+    required this.color,
+    required this.label,
+    this.hollow = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: hollow ? Colors.transparent : color,
+            border: Border.all(color: color),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(label),
+      ],
+    );
+  }
+}
+
+class _CalendarStatusDot extends StatelessWidget {
+  final Color color;
+
+  const _CalendarStatusDot({
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 7,
+      height: 7,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+      ),
+    );
   }
 }
 
@@ -1842,6 +3040,7 @@ class _SectionCard extends StatelessWidget {
 class _GroupSummary {
   final String groupName;
   final Map<CounterCountField, int> counts = {};
+  final Map<String, int> customCounts = {};
   double amount = 0;
   int recordCount = 0;
   int multiCount = 0;
@@ -1851,7 +3050,9 @@ class _GroupSummary {
   });
 
   int get totalCount =>
-      counts.values.fold(0, (sum, value) => sum + value) + multiCount;
+      counts.values.fold<int>(0, (sum, value) => sum + value) +
+      customCounts.values.fold<int>(0, (sum, value) => sum + value) +
+      multiCount;
 }
 
 class _MemberStatEntry {

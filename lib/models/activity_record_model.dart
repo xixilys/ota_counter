@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'counter_model.dart';
+import 'custom_cheki_type_model.dart';
 import 'group_pricing_model.dart';
 
 enum ActivityRecordType {
@@ -82,6 +83,8 @@ class ActivityRecordModel {
   final String subjectName;
   final String secondarySubjectName;
   final String groupName;
+  final String activityName;
+  final String venueName;
   final String sessionLabel;
   final String note;
   final DateTime occurredAt;
@@ -106,6 +109,7 @@ class ActivityRecordModel {
   final double ticketUnitPrice;
   final double totalAmount;
   final List<ActivityParticipant> participants;
+  final List<ActivityRecordCustomChekiCount> customChekiCounts;
 
   const ActivityRecordModel({
     this.id,
@@ -118,6 +122,8 @@ class ActivityRecordModel {
     required this.subjectName,
     this.secondarySubjectName = '',
     this.groupName = '',
+    this.activityName = '',
+    this.venueName = '',
     this.sessionLabel = '',
     this.note = '',
     required this.occurredAt,
@@ -142,6 +148,7 @@ class ActivityRecordModel {
     this.ticketUnitPrice = 0,
     required this.totalAmount,
     this.participants = const [],
+    this.customChekiCounts = const [],
   });
 
   factory ActivityRecordModel.counterAdjustment({
@@ -151,7 +158,10 @@ class ActivityRecordModel {
     required Map<CounterCountField, int> deltas,
     GroupPricingModel? pricing,
     String note = '',
+    String activityName = '',
+    String venueName = '',
     String? pricingLabel,
+    List<ActivityRecordCustomChekiCount> customChekiCounts = const [],
   }) {
     final resolvedPricing = pricing ??
         GroupPricingModel.unconfigured(
@@ -168,6 +178,9 @@ class ActivityRecordModel {
         deltas[CounterCountField.threeInchShukudai] ?? 0;
     final fiveInchShukudaiCount =
         deltas[CounterCountField.fiveInchShukudai] ?? 0;
+    final normalizedCustomChekiCounts = customChekiCounts
+        .where((item) => item.typeId.trim().isNotEmpty && item.count > 0)
+        .toList(growable: false);
 
     final totalAmount = (threeInchCount * resolvedPricing.threeInchPrice) +
         (fiveInchCount * resolvedPricing.fiveInchPrice) +
@@ -175,7 +188,10 @@ class ActivityRecordModel {
         (unsignedFiveInchCount * resolvedPricing.unsignedFiveInchPrice) +
         (groupCutCount * resolvedPricing.groupCutPrice) +
         (threeInchShukudaiCount * resolvedPricing.threeInchShukudaiPrice) +
-        (fiveInchShukudaiCount * resolvedPricing.fiveInchShukudaiPrice);
+        (fiveInchShukudaiCount * resolvedPricing.fiveInchShukudaiPrice) +
+        normalizedCustomChekiCounts.fold<double>(0, (sum, item) {
+          return sum + (item.count * item.unitPrice);
+        });
 
     return ActivityRecordModel(
       id: id,
@@ -187,6 +203,8 @@ class ActivityRecordModel {
       personName: counter.personName,
       subjectName: counter.name,
       groupName: counter.groupName,
+      activityName: activityName,
+      venueName: venueName,
       note: note,
       occurredAt: occurredAt,
       pricingLabel: pricingLabel ?? resolvedPricing.label,
@@ -205,6 +223,7 @@ class ActivityRecordModel {
       threeInchShukudaiPrice: resolvedPricing.threeInchShukudaiPrice,
       fiveInchShukudaiPrice: resolvedPricing.fiveInchShukudaiPrice,
       totalAmount: totalAmount,
+      customChekiCounts: normalizedCustomChekiCounts,
     );
   }
 
@@ -212,6 +231,7 @@ class ActivityRecordModel {
     int? id,
     required String eventName,
     required DateTime occurredAt,
+    String venueName = '',
     String sessionLabel = '',
     String note = '',
     int quantity = 1,
@@ -223,6 +243,8 @@ class ActivityRecordModel {
       source: 'local',
       sourceRecordId: null,
       subjectName: eventName,
+      activityName: eventName,
+      venueName: venueName,
       sessionLabel: sessionLabel,
       note: note,
       occurredAt: occurredAt,
@@ -230,6 +252,7 @@ class ActivityRecordModel {
       ticketQuantity: quantity,
       ticketUnitPrice: unitPrice,
       totalAmount: quantity * unitPrice,
+      customChekiCounts: const [],
     );
   }
 
@@ -238,6 +261,8 @@ class ActivityRecordModel {
     required List<ActivityParticipant> participants,
     required CounterCountField field,
     required DateTime occurredAt,
+    String activityName = '',
+    String venueName = '',
     String note = '',
     String pricingLabel = '',
     int quantity = 1,
@@ -272,6 +297,8 @@ class ActivityRecordModel {
           ? normalizedParticipants[1].memberName
           : '',
       groupName: canonicalGroupName,
+      activityName: activityName,
+      venueName: venueName,
       note: note,
       occurredAt: occurredAt,
       pricingLabel: pricingLabel,
@@ -288,6 +315,7 @@ class ActivityRecordModel {
       multiCutQuantity: normalizedQuantity,
       totalAmount: totalPrice,
       participants: normalizedParticipants,
+      customChekiCounts: const [],
     );
   }
 
@@ -302,6 +330,8 @@ class ActivityRecordModel {
     String? subjectName,
     String? secondarySubjectName,
     String? groupName,
+    String? activityName,
+    String? venueName,
     String? sessionLabel,
     String? note,
     DateTime? occurredAt,
@@ -326,6 +356,7 @@ class ActivityRecordModel {
     double? ticketUnitPrice,
     double? totalAmount,
     List<ActivityParticipant>? participants,
+    List<ActivityRecordCustomChekiCount>? customChekiCounts,
   }) {
     return ActivityRecordModel(
       id: id ?? this.id,
@@ -338,6 +369,8 @@ class ActivityRecordModel {
       subjectName: subjectName ?? this.subjectName,
       secondarySubjectName: secondarySubjectName ?? this.secondarySubjectName,
       groupName: groupName ?? this.groupName,
+      activityName: activityName ?? this.activityName,
+      venueName: venueName ?? this.venueName,
       sessionLabel: sessionLabel ?? this.sessionLabel,
       note: note ?? this.note,
       occurredAt: occurredAt ?? this.occurredAt,
@@ -370,6 +403,7 @@ class ActivityRecordModel {
       ticketUnitPrice: ticketUnitPrice ?? this.ticketUnitPrice,
       totalAmount: totalAmount ?? this.totalAmount,
       participants: participants ?? this.participants,
+      customChekiCounts: customChekiCounts ?? this.customChekiCounts,
     );
   }
 
@@ -413,6 +447,44 @@ class ActivityRecordModel {
 
   String get multiFieldLabel => multiCountField?.label ?? '';
 
+  List<ActivityRecordCustomChekiCount> get effectiveCustomChekiCounts {
+    return customChekiCounts.where((item) {
+      return item.typeId.trim().isNotEmpty && item.count > 0;
+    }).toList(growable: false);
+  }
+
+  int get customChekiCountTotal {
+    return effectiveCustomChekiCounts.fold<int>(
+      0,
+      (sum, item) => sum + item.count,
+    );
+  }
+
+  List<String> get counterSpecSummaryParts {
+    return [
+      ...CounterCountField.values
+          .where((field) => countForField(field) != 0)
+          .map((field) => '${field.shortLabel} ${countForField(field)}'),
+      ...effectiveCustomChekiCounts
+          .map((item) => '${item.label} ${item.count}'),
+    ];
+  }
+
+  String get counterSpecSummaryLabel => counterSpecSummaryParts.join(' / ');
+
+  String get resolvedActivityName {
+    final normalized = activityName.trim();
+    if (normalized.isNotEmpty) {
+      return normalized;
+    }
+    if (isTicket) {
+      return subjectName.trim();
+    }
+    return '';
+  }
+
+  String get resolvedVenueName => venueName.trim();
+
   int get multiTotalCount => effectiveMultiQuantity;
 
   int get multiContributionTotal =>
@@ -424,6 +496,21 @@ class ActivityRecordModel {
       return 0;
     }
     return totalAmount / count;
+  }
+
+  double totalAmountWithPricing(GroupPricingModel pricing) {
+    return CounterCountField.values.fold<double>(0, (sum, field) {
+          return sum + (countForField(field) * pricing.priceForField(field));
+        }) +
+        effectiveCustomChekiCounts.fold<double>(0, (sum, item) {
+          return sum +
+              (item.count *
+                  pricing.priceForCustomType(
+                    typeId: item.typeId,
+                    fallbackLabel: item.label,
+                    fallbackPrice: item.unitPrice,
+                  ));
+        });
   }
 
   String get multiDisplayName {
@@ -494,7 +581,36 @@ class ActivityRecordModel {
       unsignedFiveInchCount +
       groupCutCount +
       threeInchShukudaiCount +
-      fiveInchShukudaiCount;
+      fiveInchShukudaiCount +
+      customChekiCountTotal;
+
+  bool get shouldResolveWithCurrentPricing {
+    if (!isCounter || counterCountTotal <= 0) {
+      return false;
+    }
+
+    final normalizedLabel = pricingLabel.trim();
+    if (normalizedLabel.isEmpty ||
+        normalizedLabel == GroupPricingModel.builtInDefaultLabel) {
+      return true;
+    }
+
+    if (totalAmount != 0) {
+      return false;
+    }
+
+    for (final field in CounterCountField.values) {
+      if (priceForField(field) != 0) {
+        return false;
+      }
+    }
+
+    if (effectiveCustomChekiCounts.any((item) => item.unitPrice != 0)) {
+      return false;
+    }
+
+    return true;
+  }
 
   int get totalUnits => switch (type) {
         ActivityRecordType.counter => counterCountTotal,
@@ -514,6 +630,8 @@ class ActivityRecordModel {
       'subject_name': subjectName,
       'secondary_subject_name': secondarySubjectName,
       'group_name': groupName,
+      'activity_name': activityName,
+      'venue_name': venueName,
       'session_label': sessionLabel,
       'note': note,
       'occurred_at': occurredAt.toIso8601String(),
@@ -543,6 +661,9 @@ class ActivityRecordModel {
             .map((participant) => participant.toMap())
             .toList(),
       ),
+      'custom_cheki_counts_json': ActivityRecordCustomChekiCount.encodeList(
+        effectiveCustomChekiCounts,
+      ),
     };
   }
 
@@ -557,6 +678,9 @@ class ActivityRecordModel {
     final groupName = (map['group_name'] ?? '') as String;
     final personId = (map['person_id'] as num?)?.toInt();
     final personName = (map['person_name'] ?? '') as String;
+    final customChekiCounts = ActivityRecordCustomChekiCount.fromJsonString(
+      map['custom_cheki_counts_json'] ?? map['customChekiCountsJson'],
+    );
 
     return ActivityRecordModel(
       id: (map['id'] as num?)?.toInt(),
@@ -569,6 +693,8 @@ class ActivityRecordModel {
       subjectName: subjectName,
       secondarySubjectName: secondarySubjectName,
       groupName: groupName,
+      activityName: (map['activity_name'] ?? '') as String,
+      venueName: (map['venue_name'] ?? '') as String,
       sessionLabel: (map['session_label'] ?? '') as String,
       note: (map['note'] ?? '') as String,
       occurredAt: DateTime.tryParse((map['occurred_at'] ?? '') as String) ??
@@ -604,6 +730,7 @@ class ActivityRecordModel {
               personId: personId,
               personName: personName,
             ),
+      customChekiCounts: customChekiCounts,
     );
   }
 

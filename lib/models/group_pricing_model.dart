@@ -1,6 +1,8 @@
+import 'custom_cheki_type_model.dart';
 import 'counter_model.dart';
 
 class GroupPricingModel {
+  static const String builtInDefaultLabel = '内置默认价';
   static const double defaultThreeInchPrice = 60;
   static const double defaultFiveInchPrice = 120;
   static const double defaultUnsignedThreeInchPrice = 30;
@@ -21,6 +23,7 @@ class GroupPricingModel {
   final double doubleCutPrice;
   final double threeInchShukudaiPrice;
   final double fiveInchShukudaiPrice;
+  final List<CustomChekiTypeModel> customChekiTypes;
   final DateTime updatedAt;
 
   const GroupPricingModel({
@@ -36,14 +39,15 @@ class GroupPricingModel {
     this.doubleCutPrice = 0,
     this.threeInchShukudaiPrice = 0,
     this.fiveInchShukudaiPrice = 0,
+    this.customChekiTypes = const [],
     required this.updatedAt,
   });
 
   factory GroupPricingModel.unconfigured(String groupName) {
     return GroupPricingModel(
       groupName: groupName,
-      label: '内置默认价',
-      enableUnsignedOptions: true,
+      label: builtInDefaultLabel,
+      enableUnsignedOptions: false,
       threeInchPrice: defaultThreeInchPrice,
       fiveInchPrice: defaultFiveInchPrice,
       unsignedThreeInchPrice: defaultUnsignedThreeInchPrice,
@@ -51,6 +55,7 @@ class GroupPricingModel {
       groupCutPrice: defaultGroupCutPrice,
       threeInchShukudaiPrice: defaultThreeInchShukudaiPrice,
       fiveInchShukudaiPrice: defaultFiveInchShukudaiPrice,
+      customChekiTypes: const [],
       updatedAt: DateTime.now(),
     );
   }
@@ -68,6 +73,7 @@ class GroupPricingModel {
     double? doubleCutPrice,
     double? threeInchShukudaiPrice,
     double? fiveInchShukudaiPrice,
+    List<CustomChekiTypeModel>? customChekiTypes,
     DateTime? updatedAt,
   }) {
     return GroupPricingModel(
@@ -88,14 +94,18 @@ class GroupPricingModel {
           threeInchShukudaiPrice ?? this.threeInchShukudaiPrice,
       fiveInchShukudaiPrice:
           fiveInchShukudaiPrice ?? this.fiveInchShukudaiPrice,
+      customChekiTypes: customChekiTypes ?? this.customChekiTypes,
       updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 
-  bool get hasUnsignedPrices =>
-      enableUnsignedOptions ||
-      unsignedThreeInchPrice > 0 ||
-      unsignedFiveInchPrice > 0;
+  bool get hasUnsignedPrices => enableUnsignedOptions;
+
+  List<CustomChekiTypeModel> get availableCustomChekiTypes {
+    return customChekiTypes.where((item) {
+      return item.id.trim().isNotEmpty && item.label.trim().isNotEmpty;
+    }).toList(growable: false);
+  }
 
   double priceForField(CounterCountField field) {
     switch (field.key) {
@@ -118,6 +128,29 @@ class GroupPricingModel {
     }
   }
 
+  double priceForCustomType({
+    required String typeId,
+    String fallbackLabel = '',
+    double fallbackPrice = 0,
+  }) {
+    for (final item in availableCustomChekiTypes) {
+      if (item.id == typeId) {
+        return item.unitPrice;
+      }
+    }
+
+    final normalizedFallback = fallbackLabel.trim();
+    if (normalizedFallback.isNotEmpty) {
+      for (final item in availableCustomChekiTypes) {
+        if (item.label.trim() == normalizedFallback) {
+          return item.unitPrice;
+        }
+      }
+    }
+
+    return fallbackPrice;
+  }
+
   Map<String, Object?> toMap() {
     return {
       'id': id,
@@ -132,6 +165,8 @@ class GroupPricingModel {
       'double_cut_price': doubleCutPrice,
       'three_inch_shukudai_price': threeInchShukudaiPrice,
       'five_inch_shukudai_price': fiveInchShukudaiPrice,
+      'custom_cheki_types_json':
+          CustomChekiTypeModel.encodeList(availableCustomChekiTypes),
       'updated_at': updatedAt.toIso8601String(),
     };
   }
@@ -153,6 +188,9 @@ class GroupPricingModel {
       doubleCutPrice: _readDouble(map, 'double_cut_price'),
       threeInchShukudaiPrice: _readDouble(map, 'three_inch_shukudai_price'),
       fiveInchShukudaiPrice: _readDouble(map, 'five_inch_shukudai_price'),
+      customChekiTypes: CustomChekiTypeModel.fromJsonString(
+        map['custom_cheki_types_json'] ?? map['customChekiTypesJson'],
+      ),
       updatedAt: DateTime.tryParse((map['updated_at'] ?? '') as String) ??
           DateTime.fromMillisecondsSinceEpoch(0),
     );

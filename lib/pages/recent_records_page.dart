@@ -58,7 +58,7 @@ class _RecentRecordsPageState extends State<RecentRecordsPage> {
   }
 
   bool _canMutateRecord(ActivityRecordModel record) {
-    return record.id != null && record.source == 'local';
+    return record.id != null;
   }
 
   String _normalizedLookupPart(String value) {
@@ -157,8 +157,11 @@ class _RecentRecordsPageState extends State<RecentRecordsPage> {
               color: '#FFE135',
             ),
         occurredAt: record.occurredAt,
+        activityName: record.resolvedActivityName,
+        venueName: record.resolvedVenueName,
         note: record.note,
         counterDeltas: _counterDeltasFromRecord(record),
+        customChekiCounts: record.customChekiCounts,
       );
     }
 
@@ -167,6 +170,8 @@ class _RecentRecordsPageState extends State<RecentRecordsPage> {
       return ActivityRecordDraft(
         type: ActivityRecordType.multi,
         occurredAt: record.occurredAt,
+        activityName: record.resolvedActivityName,
+        venueName: record.resolvedVenueName,
         note: record.note,
         multiParticipants: record.effectiveParticipants,
         multiField: multiField == CounterCountField.groupCut
@@ -181,8 +186,9 @@ class _RecentRecordsPageState extends State<RecentRecordsPage> {
     return ActivityRecordDraft(
       type: ActivityRecordType.ticket,
       occurredAt: record.occurredAt,
+      activityName: record.resolvedActivityName,
+      venueName: record.resolvedVenueName,
       note: record.note,
-      eventName: record.subjectName,
       sessionLabel: record.sessionLabel,
       ticketQuantity: record.ticketQuantity > 0 ? record.ticketQuantity : 1,
       ticketUnitPrice: record.ticketUnitPrice,
@@ -222,7 +228,10 @@ class _RecentRecordsPageState extends State<RecentRecordsPage> {
         occurredAt: draft.occurredAt,
         deltas: draft.counterDeltas,
         pricing: pricing,
+        activityName: draft.activityName,
+        venueName: draft.venueName,
         note: draft.note,
+        customChekiCounts: draft.customChekiCounts,
       ).copyWith(
         source: source,
         sourceRecordId: sourceRecordId,
@@ -250,6 +259,8 @@ class _RecentRecordsPageState extends State<RecentRecordsPage> {
             ? CounterCountField.groupCut
             : (draft.multiField ?? CounterCountField.threeInch),
         occurredAt: draft.occurredAt,
+        activityName: draft.activityName,
+        venueName: draft.venueName,
         note: draft.note,
         pricingLabel: pricingLabel,
         quantity: isGroupCut ? 1 : draft.multiQuantity,
@@ -262,8 +273,9 @@ class _RecentRecordsPageState extends State<RecentRecordsPage> {
 
     return ActivityRecordModel.ticket(
       id: id,
-      eventName: draft.eventName,
+      eventName: draft.activityName,
       occurredAt: draft.occurredAt,
+      venueName: draft.venueName,
       sessionLabel: draft.sessionLabel,
       note: draft.note,
       quantity: draft.ticketQuantity,
@@ -542,30 +554,14 @@ class _RecentRecordsPageState extends State<RecentRecordsPage> {
   }
 
   bool _shouldUseCurrentPricingForRecord(ActivityRecordModel record) {
-    if (!record.isCounter || record.counterCountTotal <= 0) {
-      return false;
-    }
-
-    if (record.totalAmount != 0) {
-      return false;
-    }
-
-    for (final field in CounterCountField.values) {
-      if (record.priceForField(field) != 0) {
-        return false;
-      }
-    }
-
-    return true;
+    return record.shouldResolveWithCurrentPricing;
   }
 
   double _calculateCounterAmountWithPricing(
     ActivityRecordModel record,
     GroupPricingModel pricing,
   ) {
-    return CounterCountField.values.fold<double>(0, (sum, field) {
-      return sum + (record.countForField(field) * pricing.priceForField(field));
-    });
+    return record.totalAmountWithPricing(pricing);
   }
 
   double _effectiveTotalAmount(ActivityRecordModel record) {
@@ -644,6 +640,7 @@ class _RecentRecordsPageState extends State<RecentRecordsPage> {
     if (record.isTicket) {
       return [
         _formatOccurredAtLabel(record.occurredAt),
+        if (record.resolvedVenueName.isNotEmpty) record.resolvedVenueName,
         if (record.sessionLabel.isNotEmpty) record.sessionLabel,
         '门票 ${record.ticketQuantity} 张',
         if (record.note.isNotEmpty) record.note,
@@ -653,6 +650,8 @@ class _RecentRecordsPageState extends State<RecentRecordsPage> {
     if (record.isMulti) {
       return [
         _formatOccurredAtLabel(record.occurredAt),
+        if (record.resolvedActivityName.isNotEmpty) record.resolvedActivityName,
+        if (record.resolvedVenueName.isNotEmpty) record.resolvedVenueName,
         if (multiGroupLabel.isNotEmpty) multiGroupLabel,
         _effectivePricingLabel(record),
         if (record.multiFieldLabel.isNotEmpty) record.multiFieldLabel,
@@ -665,12 +664,12 @@ class _RecentRecordsPageState extends State<RecentRecordsPage> {
 
     return [
       _formatOccurredAtLabel(record.occurredAt),
+      if (record.resolvedActivityName.isNotEmpty) record.resolvedActivityName,
+      if (record.resolvedVenueName.isNotEmpty) record.resolvedVenueName,
       if (record.groupName.isNotEmpty) record.groupName,
       _effectivePricingLabel(record),
-      CounterCountField.values
-          .where((field) => record.countForField(field) != 0)
-          .map((field) => '${field.shortLabel} ${record.countForField(field)}')
-          .join(' / '),
+      if (record.counterSpecSummaryLabel.isNotEmpty)
+        record.counterSpecSummaryLabel,
       if (record.note.isNotEmpty) record.note,
     ].join(' · ');
   }

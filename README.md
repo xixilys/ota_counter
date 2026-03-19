@@ -2,12 +2,12 @@
 
 面向 OTA / 切奇记录的 Flutter 计数器应用。
 
-当前版本：`v1.2.2`  
-Android build：`1.2.2+6`
+当前版本：`v1.3.1`  
+Android build：`1.3.1+10`
 
 ## 主要功能
 
-- 成员卡片计数，首页展示 `3寸`、`5寸`、`3寸宿题`、`5寸宿题`、`团切`
+- 成员卡片计数，首页展示 `3寸`、`5寸`、`3寸宿题`、`5寸宿题`；`团切` 在卡片详情里查看
 - 支持“单成员多团 / 兼任 / 重生改名”场景：同一个真人可以绑定多个团籍，首页按真人聚合为同一张卡片，不会因为换团或改名被拆散
 - 支持手动绑定或解绑真人主档，不再只靠名字猜测；填同一个真人主档名，或并入已有真人卡片后，就能把跨团时期接到一起
 - 快捷计数支持切换“记录到团体”，同一个真人在不同团的切可以分别落到对应团籍，默认仍用当前团
@@ -35,6 +35,14 @@ flutter run
 
 如果本地 Flutter / Android SDK 不在系统默认路径，请先自行配置环境变量，例如 `ANDROID_HOME`、`ANDROID_SDK_ROOT`。
 
+## 开发约定
+
+- 日常开发默认在 `codex/v1.3-prep` 分支进行，不直接在 `main` 上开发
+- 需要发版或推 GitHub Release 时，默认先把 `codex/v1.3-prep` 合并到 `main`，除非明确说明“不要合并”
+- release 完成后默认切回 `codex/v1.3-prep`，后续继续在开发分支推进
+- Android 发版时同步递增 `pubspec.yaml` 里的版本号，并保持 GitHub release 标题、tag、APK 文件名三者一致
+- 可运行 `dart run tool/release_metadata.dart` 获取当前统一的 release 元信息，避免手写出错
+
 ## Android Release
 
 正式包构建命令：
@@ -46,13 +54,22 @@ flutter build apk --release
 构建完成后，`build/app/outputs/flutter-apk/` 目录下会同时看到：
 
 - Flutter 默认产物：`app-release.apk`
-- `build/app/outputs/flutter-apk/OTA-Counter-v1.2.2.apk`
+- `build/app/outputs/flutter-apk/OTA-Counter-v1.3.1.apk`
 
 GitHub Release 建议继续保持：
 
-- release 标题：`OTA Counter v1.2.2`
-- tag：`v1.2.2`
-- APK 资产：`OTA-Counter-v1.2.2.apk`
+- release 标题：`OTA Counter v1.3.1`
+- tag：`v1.3.1`
+- APK 资产：`OTA-Counter-v1.3.1.apk`
+
+也可以直接用脚本读取：
+
+```bash
+dart run tool/release_metadata.dart
+dart run tool/release_metadata.dart --field=releaseTitle
+dart run tool/release_metadata.dart --field=tag
+dart run tool/release_metadata.dart --field=apkFileName
+```
 
 当前仓库已接入 `android/key.properties` 形式的本地签名配置：
 
@@ -66,7 +83,36 @@ GitHub Release 建议继续保持：
 2. 保持同一个 Android `applicationId`
 3. 每次发版递增 `versionCode`
 
-当前 Android `applicationId` 为 `top.huangxuanqi.otacounter`。当前版本号为 `1.2.2+6`。
+当前 Android `applicationId` 为 `top.huangxuanqi.otacounter`。当前版本号为 `1.3.1+10`。
+
+更新站点发布可直接使用：
+
+```bash
+tool/deploy_update_site.sh
+```
+
+这条命令会通过 SSH / SCP 把以下文件推到服务器的
+`/home/xixilys/domains/peace.huangxuanqi.top/public_nodejs/public/ota-counter`：
+
+- `release/update_site/index.html`
+- `release/update_site/latest.json`
+- `build/app/outputs/flutter-apk/OTA-Counter-v1.3.1.apk`
+
+支持的辅助参数：
+
+```bash
+tool/deploy_update_site.sh --dry-run
+tool/deploy_update_site.sh --skip-apk
+```
+
+如果后续更换服务器或目录，可通过环境变量覆盖：
+
+```bash
+OTA_UPDATE_SSH_USER=your-user \
+OTA_UPDATE_SSH_HOST=your-host \
+OTA_UPDATE_REMOTE_DIR=/your/remote/path \
+tool/deploy_update_site.sh
+```
 
 ## 数据脚本
 

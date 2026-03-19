@@ -3,8 +3,20 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../models/counter_model.dart';
 
+class CounterCountBadgeData {
+  final String label;
+  final int value;
+
+  const CounterCountBadgeData({
+    required this.label,
+    required this.value,
+  });
+}
+
 class CounterCard extends StatelessWidget {
   final CounterModel counter;
+  final int totalCount;
+  final List<CounterCountBadgeData> breakdownEntries;
   final double percentage;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
@@ -16,6 +28,8 @@ class CounterCard extends StatelessWidget {
   const CounterCard({
     super.key,
     required this.counter,
+    required this.totalCount,
+    this.breakdownEntries = const [],
     required this.percentage,
     required this.onTap,
     this.onLongPress,
@@ -220,7 +234,7 @@ class CounterCard extends StatelessWidget {
                                             fit: BoxFit.scaleDown,
                                             alignment: Alignment.centerRight,
                                             child: Text(
-                                              counter.count.toString(),
+                                              totalCount.toString(),
                                               textAlign: TextAlign.right,
                                               style: TextStyle(
                                                 fontSize: countFontSize,
@@ -298,7 +312,7 @@ class CounterCard extends StatelessWidget {
                                                 alignment:
                                                     Alignment.centerRight,
                                                 child: Text(
-                                                  counter.count.toString(),
+                                                  totalCount.toString(),
                                                   textAlign: TextAlign.right,
                                                   style: TextStyle(
                                                     fontSize: countFontSize,
@@ -333,7 +347,7 @@ class CounterCard extends StatelessWidget {
                                   child: Align(
                                     alignment: Alignment.topLeft,
                                     child: _CountGrid(
-                                      counter: counter,
+                                      entries: breakdownEntries,
                                       backgroundColor: cardColor,
                                       textColor: textColor,
                                     ),
@@ -389,36 +403,26 @@ class CounterCard extends StatelessWidget {
 }
 
 class _CountGrid extends StatelessWidget {
-  final CounterModel counter;
+  final List<CounterCountBadgeData> entries;
   final Color backgroundColor;
   final Color textColor;
 
   const _CountGrid({
-    required this.counter,
+    required this.entries,
     required this.backgroundColor,
     required this.textColor,
   });
 
   @override
   Widget build(BuildContext context) {
-    final entries = <MapEntry<CounterCountField, int>>[
-      MapEntry(
-        CounterCountField.threeInch,
-        counter.aggregatedThreeInchCount,
-      ),
-      MapEntry(
-        CounterCountField.fiveInch,
-        counter.aggregatedFiveInchCount,
-      ),
-      MapEntry(
-        CounterCountField.threeInchShukudai,
-        counter.threeInchShukudaiCount,
-      ),
-      MapEntry(
-        CounterCountField.fiveInchShukudai,
-        counter.fiveInchShukudaiCount,
-      ),
-    ];
+    final visibleEntries = entries.isEmpty
+        ? const <CounterCountBadgeData>[
+            CounterCountBadgeData(label: '3寸', value: 0),
+            CounterCountBadgeData(label: '5寸', value: 0),
+            CounterCountBadgeData(label: '3寸宿', value: 0),
+            CounterCountBadgeData(label: '5寸宿', value: 0),
+          ]
+        : entries;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -431,11 +435,11 @@ class _CountGrid extends StatelessWidget {
         return Wrap(
           spacing: 6,
           runSpacing: 6,
-          children: entries.map((entry) {
+          children: visibleEntries.map((entry) {
             return SizedBox(
               width: itemWidth,
               child: _CountBadge(
-                field: entry.key,
+                label: entry.label,
                 value: entry.value,
                 backgroundColor: backgroundColor,
                 textColor: textColor,
@@ -449,13 +453,13 @@ class _CountGrid extends StatelessWidget {
 }
 
 class _CountBadge extends StatelessWidget {
-  final CounterCountField field;
+  final String label;
   final int value;
   final Color backgroundColor;
   final Color textColor;
 
   const _CountBadge({
-    required this.field,
+    required this.label,
     required this.value,
     required this.backgroundColor,
     required this.textColor,
@@ -479,7 +483,7 @@ class _CountBadge extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            field.shortLabel,
+            label,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(

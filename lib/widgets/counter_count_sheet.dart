@@ -76,8 +76,7 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
       return;
     }
     setState(() {
-      _enableUnsignedOptions =
-          pricing.hasUnsignedPrices || _counter.hasUnsignedCounts;
+      _enableUnsignedOptions = pricing.enableUnsignedOptions;
     });
   }
 

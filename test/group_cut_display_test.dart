@@ -37,6 +37,7 @@ void main() {
               height: 260,
               child: CounterCard(
                 counter: counter,
+                totalCount: counter.count,
                 percentage: 0.5,
                 onTap: () {},
                 onDelete: () {},

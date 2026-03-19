@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/counter_model.dart';
+import '../models/custom_cheki_type_model.dart';
 import '../models/group_pricing_model.dart';
 import '../services/database_service.dart';
 import '../widgets/no_autofill_text_field.dart';
@@ -103,8 +104,8 @@ class _GroupPricingPageState extends State<GroupPricingPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('删除价格配置'),
-        content: Text('确定删除 ${pricing.groupName} 的默认价格吗？'),
+        title: const Text('删除团体配置'),
+        content: Text('确定删除 ${pricing.groupName} 的团体配置吗？'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -132,12 +133,12 @@ class _GroupPricingPageState extends State<GroupPricingPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('团体默认价格'),
+        title: const Text('团体配置'),
         actions: [
           IconButton(
             onPressed: () => _editPricing(),
             icon: const Icon(Icons.add),
-            tooltip: '新增价格配置',
+            tooltip: '新增团体配置',
           ),
         ],
       ),
@@ -162,7 +163,7 @@ class _GroupPricingPageState extends State<GroupPricingPage> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    '后续新增的记录会自动带上当前默认价格和价格标签。老记录不会被新价格覆盖。',
+                    '后续新增的记录会自动带上当前团体配置里的默认价格和价格标签。使用内置默认价的旧记录会自动跟随当前配置，已经明确保存过价格的旧记录仍保留原价。',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                   const SizedBox(height: 16),
@@ -174,7 +175,7 @@ class _GroupPricingPageState extends State<GroupPricingPage> {
                             Theme.of(context).colorScheme.surfaceContainerLow,
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      child: const Text('还没有可配置的团体，先新增成员或手动添加一个团体价格。'),
+                      child: const Text('还没有可配置的团体，先新增成员或手动添加一个团体配置。'),
                     )
                   else
                     ...entries.map((entry) {
@@ -245,7 +246,7 @@ class _GroupPricingPageState extends State<GroupPricingPage> {
                                 children: [
                                   ...CounterCountField.visibleValues(
                                     enableUnsigned:
-                                        effectivePricing.hasUnsignedPrices,
+                                        effectivePricing.enableUnsignedOptions,
                                   ).map((field) {
                                     final value =
                                         effectivePricing.priceForField(field);
@@ -258,6 +259,13 @@ class _GroupPricingPageState extends State<GroupPricingPage> {
                                     label: '多人切参考价',
                                     value: effectivePricing.doubleCutPrice,
                                   ),
+                                  ...effectivePricing.availableCustomChekiTypes
+                                      .map((type) {
+                                    return _PriceChip(
+                                      label: type.label,
+                                      value: type.unitPrice,
+                                    );
+                                  }),
                                 ],
                               ),
                             ],
@@ -336,6 +344,7 @@ class _PricingEditorDialogState extends State<_PricingEditorDialog> {
   late final TextEditingController _groupController;
   late final TextEditingController _labelController;
   late final Map<String, TextEditingController> _priceControllers;
+  late final List<_CustomChekiTypeEditor> _customTypeEditors;
   late bool _enableUnsignedOptions;
 
   @override
@@ -349,7 +358,7 @@ class _PricingEditorDialogState extends State<_PricingEditorDialog> {
     _labelController = TextEditingController(
       text: widget.initialPricing?.label ?? '默认价格',
     );
-    _enableUnsignedOptions = pricing.hasUnsignedPrices;
+    _enableUnsignedOptions = pricing.enableUnsignedOptions;
     _priceControllers = {
       CounterCountField.threeInch.key: TextEditingController(
         text: _formatPrice(pricing.threeInchPrice),
@@ -376,6 +385,9 @@ class _PricingEditorDialogState extends State<_PricingEditorDialog> {
         text: _formatPrice(pricing.fiveInchShukudaiPrice),
       ),
     };
+    _customTypeEditors = pricing.availableCustomChekiTypes.map((type) {
+      return _CustomChekiTypeEditor.fromType(type);
+    }).toList(growable: true);
   }
 
   @override
@@ -384,6 +396,9 @@ class _PricingEditorDialogState extends State<_PricingEditorDialog> {
     _labelController.dispose();
     for (final controller in _priceControllers.values) {
       controller.dispose();
+    }
+    for (final editor in _customTypeEditors) {
+      editor.dispose();
     }
     super.dispose();
   }
@@ -404,12 +419,47 @@ class _PricingEditorDialogState extends State<_PricingEditorDialog> {
         0;
   }
 
+  void _addCustomTypeEditor([CustomChekiTypeModel? type]) {
+    setState(() {
+      _customTypeEditors.add(
+        type == null
+            ? _CustomChekiTypeEditor.empty()
+            : _CustomChekiTypeEditor.fromType(type),
+      );
+    });
+  }
+
+  void _removeCustomTypeEditor(int index) {
+    setState(() {
+      final removed = _customTypeEditors.removeAt(index);
+      removed.dispose();
+    });
+  }
+
+  List<CustomChekiTypeModel> _buildCustomChekiTypes() {
+    final results = <CustomChekiTypeModel>[];
+    for (final editor in _customTypeEditors) {
+      final label = editor.labelController.text.trim();
+      if (label.isEmpty) {
+        continue;
+      }
+      results.add(
+        CustomChekiTypeModel(
+          id: editor.id,
+          label: label,
+          unitPrice: double.tryParse(editor.priceController.text.trim()) ?? 0,
+        ),
+      );
+    }
+    return results;
+  }
+
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.initialPricing != null;
 
     return AlertDialog(
-      title: Text(isEditing ? '编辑团体价格' : '新增团体价格'),
+      title: Text(isEditing ? '编辑团体配置' : '新增团体配置'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -472,6 +522,80 @@ class _PricingEditorDialogState extends State<_PricingEditorDialog> {
                 ),
               ),
             ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '自定义 cheki 类型',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () => _addCustomTypeEditor(),
+                  icon: const Icon(Icons.add),
+                  label: const Text('新增'),
+                ),
+              ],
+            ),
+            Text(
+              '例如主题切、服装切。这里只会在对应团体的成员记录里出现。',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            if (_customTypeEditors.isEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerLow,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Text('还没有自定义类型，点右上角新增即可。'),
+              )
+            else
+              ..._customTypeEditors.asMap().entries.map((entry) {
+                final index = entry.key;
+                final editor = entry.value;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: NoAutofillTextField(
+                          controller: editor.labelController,
+                          decoration: const InputDecoration(
+                            labelText: '类型名称',
+                            hintText: '例如 主题切',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: NoAutofillTextField(
+                          controller: editor.priceController,
+                          decoration: const InputDecoration(
+                            labelText: '单价',
+                            prefixText: '¥',
+                          ),
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => _removeCustomTypeEditor(index),
+                        icon: const Icon(Icons.delete_outline),
+                        tooltip: '删除',
+                      ),
+                    ],
+                  ),
+                );
+              }),
           ],
         ),
       ),
@@ -511,6 +635,7 @@ class _PricingEditorDialogState extends State<_PricingEditorDialog> {
                 fiveInchShukudaiPrice: _parsePrice(
                   CounterCountField.fiveInchShukudai,
                 ),
+                customChekiTypes: _buildCustomChekiTypes(),
                 updatedAt: DateTime.now(),
               ),
             );
@@ -519,5 +644,42 @@ class _PricingEditorDialogState extends State<_PricingEditorDialog> {
         ),
       ],
     );
+  }
+}
+
+class _CustomChekiTypeEditor {
+  final String id;
+  final TextEditingController labelController;
+  final TextEditingController priceController;
+
+  _CustomChekiTypeEditor({
+    required this.id,
+    required this.labelController,
+    required this.priceController,
+  });
+
+  factory _CustomChekiTypeEditor.empty() {
+    return _CustomChekiTypeEditor(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      labelController: TextEditingController(),
+      priceController: TextEditingController(text: '0'),
+    );
+  }
+
+  factory _CustomChekiTypeEditor.fromType(CustomChekiTypeModel type) {
+    return _CustomChekiTypeEditor(
+      id: type.id,
+      labelController: TextEditingController(text: type.label),
+      priceController: TextEditingController(
+        text: type.unitPrice == type.unitPrice.roundToDouble()
+            ? type.unitPrice.toStringAsFixed(0)
+            : type.unitPrice.toStringAsFixed(2),
+      ),
+    );
+  }
+
+  void dispose() {
+    labelController.dispose();
+    priceController.dispose();
   }
 }

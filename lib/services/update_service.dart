@@ -37,7 +37,10 @@ class AppUpdateInfo {
     return primaryUrl;
   }
 
-  factory AppUpdateInfo.fromJson(Map<String, dynamic> json) {
+  factory AppUpdateInfo.fromJson(
+    Map<String, dynamic> json, {
+    String? platform,
+  }) {
     final versionName = '${json['versionName'] ?? ''}'.trim();
     final versionCode = (json['versionCode'] as num?)?.toInt() ??
         int.tryParse('${json['versionCode'] ?? ''}') ??
@@ -48,6 +51,7 @@ class AppUpdateInfo {
         .map((item) => '$item'.trim())
         .where((item) => item.isNotEmpty)
         .toList(growable: false);
+    final platformJson = _readPlatformJson(json, platform);
 
     return AppUpdateInfo(
       versionName: versionName,
@@ -59,17 +63,44 @@ class AppUpdateInfo {
           ? 'OTA Counter v$versionName'
           : title,
       notes: notes,
-      primaryUrl: '${json['primaryUrl'] ?? ''}'.trim(),
-      downloadPageUrl: '${json['downloadPageUrl'] ?? ''}'.trim(),
-      backupUrl: '${json['backupUrl'] ?? ''}'.trim(),
-      force: json['force'] == true,
+      primaryUrl:
+          '${platformJson['primaryUrl'] ?? json['primaryUrl'] ?? ''}'.trim(),
+      downloadPageUrl:
+          '${platformJson['downloadPageUrl'] ?? json['downloadPageUrl'] ?? ''}'
+              .trim(),
+      backupUrl:
+          '${platformJson['backupUrl'] ?? json['backupUrl'] ?? ''}'.trim(),
+      force: platformJson['force'] == true || json['force'] == true,
     );
+  }
+
+  static Map<String, dynamic> _readPlatformJson(
+    Map<String, dynamic> json,
+    String? platform,
+  ) {
+    final key = platform?.trim().toLowerCase();
+    if (key == null || key.isEmpty) {
+      return const <String, dynamic>{};
+    }
+
+    final platforms = json['platforms'];
+    if (platforms is! Map<String, dynamic>) {
+      return const <String, dynamic>{};
+    }
+
+    final platformJson = platforms[key];
+    if (platformJson is! Map<String, dynamic>) {
+      return const <String, dynamic>{};
+    }
+
+    return platformJson;
   }
 }
 
 class UpdateService {
   static Future<AppUpdateInfo?> fetchLatestRelease({
     String manifestUrl = kUpdateManifestUrl,
+    String? platform,
   }) async {
     final uri = Uri.tryParse(manifestUrl);
     if (uri == null) {
@@ -93,7 +124,10 @@ class UpdateService {
         throw const FormatException('更新清单格式不正确');
       }
 
-      final info = AppUpdateInfo.fromJson(decoded);
+      final info = AppUpdateInfo.fromJson(
+        decoded,
+        platform: platform ?? _currentPlatformKey(),
+      );
       if (info.versionCode <= 0 || info.preferredOpenUrl.trim().isEmpty) {
         throw const FormatException('更新清单缺少必要字段');
       }
@@ -101,5 +135,15 @@ class UpdateService {
     } finally {
       client.close(force: true);
     }
+  }
+
+  static String _currentPlatformKey() {
+    if (Platform.isIOS) {
+      return 'ios';
+    }
+    if (Platform.isAndroid) {
+      return 'android';
+    }
+    return Platform.operatingSystem;
   }
 }

@@ -69,6 +69,7 @@ class ActivityRecordMediaModel {
   final DateTime createdAt;
   final ActivityRecordMediaType mediaType;
   final ActivityRecordMediaProcessingMode processingMode;
+  final bool isReversed;
 
   const ActivityRecordMediaModel({
     this.id,
@@ -77,6 +78,7 @@ class ActivityRecordMediaModel {
     required this.createdAt,
     this.mediaType = ActivityRecordMediaType.memory,
     this.processingMode = ActivityRecordMediaProcessingMode.none,
+    this.isReversed = false,
   });
 
   bool get isScan => mediaType == ActivityRecordMediaType.scan;
@@ -89,6 +91,7 @@ class ActivityRecordMediaModel {
       'created_at': createdAt.toIso8601String(),
       'media_type': mediaType.dbValue,
       'processing_mode': processingMode.dbValue,
+      'is_reversed': isReversed ? 1 : 0,
     };
   }
 
@@ -105,6 +108,27 @@ class ActivityRecordMediaModel {
       processingMode: ActivityRecordMediaProcessingMode.fromDb(
         (map['processing_mode'] ?? 'none') as String,
       ),
+      isReversed: ((map['is_reversed'] as num?)?.toInt() ?? 0) == 1,
+    );
+  }
+
+  ActivityRecordMediaModel copyWith({
+    int? id,
+    int? recordId,
+    String? path,
+    DateTime? createdAt,
+    ActivityRecordMediaType? mediaType,
+    ActivityRecordMediaProcessingMode? processingMode,
+    bool? isReversed,
+  }) {
+    return ActivityRecordMediaModel(
+      id: id ?? this.id,
+      recordId: recordId ?? this.recordId,
+      path: path ?? this.path,
+      createdAt: createdAt ?? this.createdAt,
+      mediaType: mediaType ?? this.mediaType,
+      processingMode: processingMode ?? this.processingMode,
+      isReversed: isReversed ?? this.isReversed,
     );
   }
 }

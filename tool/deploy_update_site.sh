@@ -5,9 +5,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-SSH_USER="${OTA_UPDATE_SSH_USER:-xixilys}"
-SSH_HOST="${OTA_UPDATE_SSH_HOST:-s2.hostuno.com}"
-REMOTE_DIR="${OTA_UPDATE_REMOTE_DIR:-/home/xixilys/domains/peace.huangxuanqi.top/public_nodejs/public/ota-counter}"
+SSH_USER="${OTA_UPDATE_SSH_USER:-root}"
+SSH_HOST="${OTA_UPDATE_SSH_HOST:-hk-ares}"
+REMOTE_DIR="${OTA_UPDATE_REMOTE_DIR:-/var/www/status/ota-counter}"
+PUBLIC_BASE_URL="${OTA_UPDATE_PUBLIC_BASE_URL:-https://ota-counter.huangxuanqi.top/ota-counter}"
 
 DRY_RUN=0
 SKIP_APK=0
@@ -38,10 +39,12 @@ fi
 
 version_name="${version_line%%+*}"
 apk_file_name="OTA-Counter-v$version_name.apk"
+ipa_file_name="OTA-Counter-v$version_name.ipa"
 
 index_path="$REPO_ROOT/release/update_site/index.html"
 manifest_path="$REPO_ROOT/release/update_site/latest.json"
 apk_path="$REPO_ROOT/build/app/outputs/flutter-apk/$apk_file_name"
+ipa_path="$REPO_ROOT/build/ios/ipa/$ipa_file_name"
 
 for required_file in "$index_path" "$manifest_path"; do
   if [[ ! -f "$required_file" ]]; then
@@ -78,6 +81,9 @@ upload_files=("$index_path" "$manifest_path")
 if [[ "$SKIP_APK" -eq 0 ]]; then
   upload_files+=("$apk_path")
 fi
+if [[ -f "$ipa_path" ]]; then
+  upload_files+=("$ipa_path")
+fi
 
 scp "${upload_files[@]}" "$ssh_target:$remote_stage_dir/"
 
@@ -90,6 +96,9 @@ remote_commands=(
 if [[ "$SKIP_APK" -eq 0 ]]; then
   remote_commands+=("mv '$remote_stage_dir/$apk_file_name' '$REMOTE_DIR/$apk_file_name'")
 fi
+if [[ -f "$ipa_path" ]]; then
+  remote_commands+=("mv '$remote_stage_dir/$ipa_file_name' '$REMOTE_DIR/$ipa_file_name'")
+fi
 
 remote_commands+=(
   "rmdir '$remote_stage_dir'"
@@ -100,8 +109,11 @@ ssh "$ssh_target" "$(printf '%s; ' "${remote_commands[@]}")"
 
 echo
 echo "Deploy finished:"
-echo "  https://peace.huangxuanqi.top/ota-counter/"
-echo "  https://peace.huangxuanqi.top/ota-counter/latest.json"
+echo "  $PUBLIC_BASE_URL/"
+echo "  $PUBLIC_BASE_URL/latest.json"
 if [[ "$SKIP_APK" -eq 0 ]]; then
-  echo "  https://peace.huangxuanqi.top/ota-counter/$apk_file_name"
+  echo "  $PUBLIC_BASE_URL/$apk_file_name"
+fi
+if [[ -f "$ipa_path" ]]; then
+  echo "  $PUBLIC_BASE_URL/$ipa_file_name"
 fi

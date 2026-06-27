@@ -1,15 +1,11 @@
 {
   "sourceUrl": "https://chinaidols.fandom.com/zh/wiki/%E4%B8%AD%E5%9B%BD%E5%81%B6%E5%83%8F_Wiki",
   "sourceLabel": "中国偶像 Wiki",
-  "generatedAt": "2026-03-16T17:52:18.544015+00:00",
+  "generatedAt": "2026-06-18T09:22:01.480619+00:00",
   "groups": [
     {
       "name": "0n!ine",
       "members": [
-        {
-          "name": "叶子茶",
-          "status": "正式成员"
-        },
         {
           "name": "Neruko",
           "status": "正式成员 / 蓝色担当"
@@ -19,16 +15,12 @@
           "status": "正式成员 / 水色担当"
         },
         {
-          "name": "喏呜",
-          "status": "正式成员 / 紫色担当"
-        },
-        {
           "name": "素素",
           "status": "正式成员 / 黑色担当"
         },
         {
-          "name": "太阿",
-          "status": "研修生 / 绿色担当"
+          "name": "小美Mimi",
+          "status": "正式成员 / 绿色担当"
         },
         {
           "name": "蓝闷",
@@ -37,6 +29,18 @@
         {
           "name": "霧沢雨",
           "status": "前成员 / 粉色担当"
+        },
+        {
+          "name": "太阿",
+          "status": "前成员 / 绿色担当"
+        },
+        {
+          "name": "喏呜",
+          "status": "前成员"
+        },
+        {
+          "name": "叶子茶",
+          "status": "前成员"
         }
       ]
     },
@@ -58,6 +62,14 @@
         {
           "name": "时薏Doki",
           "status": "正式成员 / 玫红色担当"
+        },
+        {
+          "name": "粟米AwaMe",
+          "status": "正式成员 / 橙色担当"
+        },
+        {
+          "name": "穆子Vampire",
+          "status": "前成员 / 红色担当"
         }
       ]
     },
@@ -272,6 +284,31 @@
       ]
     },
     {
+      "name": "AetherLurk以太猎手",
+      "members": [
+        {
+          "name": "Nemo",
+          "status": "正式成员"
+        },
+        {
+          "name": "AOI",
+          "status": "正式成员"
+        },
+        {
+          "name": "KAEDE",
+          "status": "正式成员"
+        },
+        {
+          "name": "haku",
+          "status": "正式成员"
+        },
+        {
+          "name": "AKIYO",
+          "status": "支援成员"
+        }
+      ]
+    },
+    {
       "name": "Agape",
       "members": [
         {
@@ -329,10 +366,6 @@
           "status": "正式成员 / 黄色担当"
         },
         {
-          "name": "陛下Bishu",
-          "status": "研修生 / 黑色担当"
-        },
-        {
           "name": "暮夏",
           "status": "前成员 / 水色担当"
         },
@@ -363,6 +396,10 @@
         {
           "name": "Elias",
           "status": "前成员 / 白色担当"
+        },
+        {
+          "name": "陛下Bishu",
+          "status": "前成员 / 黑色担当"
         }
       ]
     },
@@ -399,12 +436,8 @@
           "status": "现成员 / 白色担当"
         },
         {
-          "name": "Kumo7",
-          "status": "现成员 / 红色担当"
-        },
-        {
-          "name": "霖",
-          "status": "现成员 / 蓝色担当"
+          "name": "酒見sakami",
+          "status": "现成员 / 粉色担当"
         },
         {
           "name": "Moeka",
@@ -421,6 +454,14 @@
         {
           "name": "Azo佐链",
           "status": "前成员 / 粉色担当"
+        },
+        {
+          "name": "霖",
+          "status": "前成员 / 蓝色担当"
+        },
+        {
+          "name": "Kumo7",
+          "status": "前成员 / 红色担当"
         }
       ]
     },
@@ -477,24 +518,28 @@
           "status": "正式成员 / 桃色担当"
         },
         {
+          "name": "预备生",
+          "status": "正式成员"
+        },
+        {
+          "name": "夜神KIRA",
+          "status": "正式成员 / 绿色担当"
+        },
+        {
+          "name": "萌路Mero",
+          "status": "正式成员 / 黄色担当"
+        },
+        {
+          "name": "花恋Karen",
+          "status": "正式成员 / 红色担当"
+        },
+        {
           "name": "来世Raise",
           "status": "兼任成员 / 白色担当"
         },
         {
           "name": "葉戮YORU",
           "status": "兼任成员 / 银色担当"
-        },
-        {
-          "name": "预备生",
-          "status": "兼任成员"
-        },
-        {
-          "name": "夜神KIRA",
-          "status": "兼任成员 / 绿色担当"
-        },
-        {
-          "name": "萌路Mero",
-          "status": "兼任成员 / 黄色担当"
         },
         {
           "name": "薯小逗",
@@ -592,16 +637,20 @@
           "status": "正式成员 / 粉色担当"
         },
         {
-          "name": "茉泠marine",
-          "status": "正式成员 / 蓝色担当"
-        },
-        {
           "name": "墨墨Momochi",
           "status": "正式成员 / 红色担当"
         },
         {
           "name": "小幽yuneki",
           "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "药药kiko",
+          "status": "正式成员 / 薄荷色担当"
+        },
+        {
+          "name": "茉泠marine",
+          "status": "前成员 / 蓝色担当"
         }
       ]
     },
@@ -609,36 +658,48 @@
       "name": "ANNIHILATE",
       "members": [
         {
-          "name": "OOKAMI",
-          "status": "正式成员 / 红色担当"
-        },
-        {
-          "name": "ROSIE",
-          "status": "正式成员 / 紫色担当"
-        },
-        {
           "name": "MICHIKO",
           "status": "正式成员 / 白色担当"
         },
         {
+          "name": "SORA",
+          "status": "正式成员 / 绿色担当"
+        },
+        {
+          "name": "霜霜Haneko",
+          "status": "正式成员 / 黑色担当"
+        },
+        {
+          "name": "HARUKA",
+          "status": "正式成员 / 黄色担当"
+        },
+        {
+          "name": "OOKAMI",
+          "status": "正式成员 / 红色担当"
+        },
+        {
           "name": "REI",
-          "status": "正式成员 / 蓝色担当"
+          "status": "前成员 / 蓝色担当"
+        },
+        {
+          "name": "ROSIE",
+          "status": "前成员 / 紫色担当"
         },
         {
           "name": "单曲",
-          "status": "正式成员"
+          "status": "前成员"
         },
         {
           "name": "2026.01.17]Descent",
-          "status": "正式成员"
+          "status": "前成员"
         },
         {
           "name": "2026.01.17]Reflection",
-          "status": "正式成员"
+          "status": "前成员"
         },
         {
           "name": "2026.01.17]NEW CYCLE",
-          "status": "正式成员"
+          "status": "前成员"
         }
       ]
     },
@@ -729,6 +790,10 @@
         },
         {
           "name": "金沐妍",
+          "status": "现成员"
+        },
+        {
+          "name": "陈侨瑾",
           "status": "现成员"
         },
         {
@@ -888,28 +953,36 @@
       "name": "Astoria",
       "members": [
         {
+          "name": "鼠条Kyuko",
+          "status": "现役成员"
+        },
+        {
+          "name": "早早Asaya",
+          "status": "现役成员"
+        },
+        {
           "name": "小圆Madoka",
-          "status": "最终成员 / 粉色担当"
+          "status": "前成员 / 粉色担当"
         },
         {
           "name": "三月Mitsuki",
-          "status": "最终成员 / 黄色担当"
+          "status": "前成员 / 黄色担当"
         },
         {
           "name": "砂羽Sawawa",
-          "status": "最终成员 / 红色担当"
+          "status": "前成员 / 红色担当"
         },
         {
           "name": "和奏Wakana",
-          "status": "最终成员 / 白色担当"
+          "status": "前成员 / 白色担当"
         },
         {
           "name": "凛奈Rinna",
-          "status": "最终成员 / 绿色担当"
+          "status": "前成员 / 绿色担当"
         },
         {
           "name": "小桐Kina",
-          "status": "最终成员 / 蓝色担当"
+          "status": "前成员 / 蓝色担当"
         }
       ]
     },
@@ -931,6 +1004,39 @@
       ]
     },
     {
+      "name": "AURA-RISE",
+      "members": [
+        {
+          "name": "小弥Ne0n",
+          "status": "现役成员 / 粉色担当"
+        },
+        {
+          "name": "惡瞳Fumiya",
+          "status": "现役成员 / 黑色担当"
+        },
+        {
+          "name": "玖柒Hikari",
+          "status": "现役成员 / 红色担当"
+        },
+        {
+          "name": "厌Kirai",
+          "status": "现役成员 / 青色担当"
+        },
+        {
+          "name": "三堇Akane",
+          "status": "现役成员 / 蓝色担当"
+        },
+        {
+          "name": "鵺羽Mayo",
+          "status": "现役成员 / 紫色担当"
+        },
+        {
+          "name": "和泉Izumi",
+          "status": "现役成员 / 白色担当"
+        }
+      ]
+    },
+    {
       "name": "AwakeMaidProject",
       "members": []
     },
@@ -944,6 +1050,64 @@
         {
           "name": "沐雲Kumo",
           "status": "正式成员 / 水色担当"
+        }
+      ]
+    },
+    {
+      "name": "百色星河",
+      "members": [
+        {
+          "name": "晴奈Harena",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "桐桐Kiri",
+          "status": "正式成员 / 黄色担当"
+        },
+        {
+          "name": "璃華Riri",
+          "status": "正式成员 / 白色担当"
+        },
+        {
+          "name": "伊吹Ayume",
+          "status": "正式成员 / 绿色担当"
+        },
+        {
+          "name": "世理Chiri",
+          "status": "正式成员 / 蓝色担当"
+        },
+        {
+          "name": "小遇Kizuna",
+          "status": "正式成员 / 紫色担当"
+        }
+      ]
+    },
+    {
+      "name": "虫信号 BugEyEs",
+      "members": [
+        {
+          "name": "咖芽Kaya",
+          "status": "正式成员"
+        },
+        {
+          "name": "砂Satsuki",
+          "status": "正式成员"
+        },
+        {
+          "name": "锂Lilico",
+          "status": "正式成员"
+        },
+        {
+          "name": "鵺NuE",
+          "status": "正式成员"
+        },
+        {
+          "name": "鼠堡Nemi",
+          "status": "正式成员"
+        },
+        {
+          "name": "亚nia",
+          "status": "正式成员"
         }
       ]
     },
@@ -1042,12 +1206,8 @@
           "status": "正式成员 / 粉色担当"
         },
         {
-          "name": "薇vina",
-          "status": "研修生 / 红色担当"
-        },
-        {
           "name": "爱理Airi",
-          "status": "研修生"
+          "status": "正式成员"
         },
         {
           "name": "小圆maru",
@@ -1068,6 +1228,10 @@
         {
           "name": "奈奈子Nanako",
           "status": "前成员 / 水色担当"
+        },
+        {
+          "name": "薇vina",
+          "status": "前成员 / 红色担当"
         }
       ]
     },
@@ -1105,6 +1269,31 @@
         {
           "name": "Niki",
           "status": "毕业成员 / 粉色担当"
+        }
+      ]
+    },
+    {
+      "name": "本草灵Linga",
+      "members": [
+        {
+          "name": "莳萝",
+          "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "糖芥",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "空青",
+          "status": "正式成员 / 绿色担当"
+        },
+        {
+          "name": "淮笙",
+          "status": "正式成员 / 白色担当"
+        },
+        {
+          "name": "月见",
+          "status": "正式成员 / 黄色担当"
         }
       ]
     },
@@ -1286,6 +1475,35 @@
       ]
     },
     {
+      "name": "BoopyBite",
+      "members": [
+        {
+          "name": "白银Hakugin",
+          "status": "正式成员"
+        },
+        {
+          "name": "冰冰koori",
+          "status": "正式成员"
+        },
+        {
+          "name": "Rimi",
+          "status": "正式成员"
+        },
+        {
+          "name": "早纪Kosaki",
+          "status": "正式成员"
+        },
+        {
+          "name": "小牙Kayano",
+          "status": "正式成员"
+        },
+        {
+          "name": "奈奈Nana",
+          "status": "正式成员"
+        }
+      ]
+    },
+    {
       "name": "BPM",
       "members": [
         {
@@ -1326,28 +1544,28 @@
       "name": "不可解原子",
       "members": [
         {
+          "name": "Momona",
+          "status": "现成员 / 紫色担当"
+        },
+        {
           "name": "奇迹Kiseiki",
-          "status": "最终成员 / 红色担当"
+          "status": "2024年解散时最终成员 / 红色担当"
         },
         {
           "name": "糸雨恋ShiURen",
-          "status": "最终成员 / 水色担当"
+          "status": "2024年解散时最终成员 / 水色担当"
         },
         {
           "name": "Nakiru",
-          "status": "最终成员 / 白色担当"
+          "status": "2024年解散时最终成员 / 白色担当"
         },
         {
           "name": "Kiana",
-          "status": "最终成员 / 黑色担当"
+          "status": "2024年解散时最终成员 / 黑色担当"
         },
         {
           "name": "Umi海龟",
           "status": "前成员 / 蓝色担当"
-        },
-        {
-          "name": "Momona",
-          "status": "前成员 / 紫色担当"
         }
       ]
     },
@@ -1408,8 +1626,37 @@
           "status": "练习生"
         },
         {
+          "name": "毛五福Chiri",
+          "status": "飞行成员"
+        },
+        {
           "name": "豆腐Noa",
           "status": "前成员 / 黄色担当"
+        }
+      ]
+    },
+    {
+      "name": "-不死鸟 Phoenix",
+      "members": [
+        {
+          "name": "白月tsuki_Phoenix",
+          "status": "正式成员"
+        },
+        {
+          "name": "思思Nisaki_Phoenix",
+          "status": "正式成员"
+        },
+        {
+          "name": "暖暖Haruka_Phoenix",
+          "status": "正式成员"
+        },
+        {
+          "name": "星焰Kira_Phoenix",
+          "status": "正式成员"
+        },
+        {
+          "name": "鱿鱼kasumi_Phoenix",
+          "status": "正式成员"
         }
       ]
     },
@@ -1429,8 +1676,12 @@
           "status": "正式成员"
         },
         {
-          "name": "Hotaru",
+          "name": "Ruki",
           "status": "正式成员"
+        },
+        {
+          "name": "Hotaru",
+          "status": "前成员"
         }
       ]
     },
@@ -1458,10 +1709,6 @@
           "status": "正式成员 / 水色担当"
         },
         {
-          "name": "星星",
-          "status": "正式成员 / 紫色担当"
-        },
-        {
           "name": "半半",
           "status": "正式成员 / 粉色担当"
         },
@@ -1470,8 +1717,16 @@
           "status": "正式成员 / 青色担当"
         },
         {
+          "name": "幽霊Usa",
+          "status": "正式成员 / 黄色担当"
+        },
+        {
           "name": "小或Yuko",
           "status": "前成员 / 黄色担当"
+        },
+        {
+          "name": "星星",
+          "status": "前成员 / 紫色担当"
         }
       ]
     },
@@ -1499,12 +1754,12 @@
           "status": "现成员 / 桃色担当"
         },
         {
-          "name": "友野Nono❤️",
-          "status": "支援成员 / 红色担当"
+          "name": "小野Nono❤️",
+          "status": "现成员 / 红色担当"
         },
         {
-          "name": "萌绘Moeka🤍",
-          "status": "支援成员 / 白色担当"
+          "name": "小容Rina💛",
+          "status": "现成员 / 黄色担当"
         },
         {
           "name": "小绿",
@@ -1527,12 +1782,12 @@
           "status": "前成员 / 紫色担当"
         },
         {
-          "name": "小容Rina💛",
-          "status": "前成员 / 黄色担当"
-        },
-        {
           "name": "律律",
           "status": "前成员"
+        },
+        {
+          "name": "萌绘Moeka🤍",
+          "status": "前成员 / 白色担当"
         }
       ]
     },
@@ -1562,6 +1817,19 @@
         {
           "name": "紗弓Sayumi",
           "status": "前成员 / 绿色担当"
+        }
+      ]
+    },
+    {
+      "name": "Celestaura圣光音轨",
+      "members": [
+        {
+          "name": "Lune",
+          "status": "未分类 / 紫色担当"
+        },
+        {
+          "name": "Hime",
+          "status": "未分类 / 粉色担当"
         }
       ]
     },
@@ -1632,12 +1900,16 @@
           "status": "正式成员 / 紫色担当"
         },
         {
-          "name": "Chunchun星野纯",
-          "status": "正式成员 / 水色担当"
+          "name": "Emma筱芊",
+          "status": "正式成员 / 绿色担当"
         },
         {
           "name": "Natsuko小夏",
-          "status": "正式成员 / 蓝色担当"
+          "status": "前成员 / 蓝色担当"
+        },
+        {
+          "name": "Chunchun星野纯",
+          "status": "前成员 / 水色担当"
         }
       ]
     },
@@ -1649,11 +1921,11 @@
           "status": "已经登场的骑士（现成员）"
         },
         {
-          "name": "Lily",
+          "name": "飒夜",
           "status": "已经登场的骑士（现成员）"
         },
         {
-          "name": "江棋",
+          "name": "Mako",
           "status": "已经登场的骑士（现成员）"
         },
         {
@@ -1663,6 +1935,60 @@
         {
           "name": "邦邦",
           "status": "前成员"
+        },
+        {
+          "name": "江棋",
+          "status": "前成员"
+        },
+        {
+          "name": "Lily",
+          "status": "前成员"
+        }
+      ]
+    },
+    {
+      "name": "Chosen Star",
+      "members": [
+        {
+          "name": "Iris肆九",
+          "status": "正式成员 / 红色担当"
+        },
+        {
+          "name": "小白shiro",
+          "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "素雨soyo",
+          "status": "正式成员 / 绿色担当"
+        },
+        {
+          "name": "Popo",
+          "status": "前成员 / 紫色担当"
+        },
+        {
+          "name": "轻悠yura",
+          "status": "前成员 / 绿色担当"
+        }
+      ]
+    },
+    {
+      "name": "ChronosTower",
+      "members": [
+        {
+          "name": "阿尔希斯",
+          "status": "正式成员 / 蓝色担当"
+        },
+        {
+          "name": "魘夢月",
+          "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "夏澄栞礼",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "藤原真理",
+          "status": "正式成员 / 红色担当"
         }
       ]
     },
@@ -1688,6 +2014,35 @@
         {
           "name": "satsuki",
           "status": "前成员 / 银色担当"
+        }
+      ]
+    },
+    {
+      "name": "Chummy花恋",
+      "members": [
+        {
+          "name": "筱玥Eru",
+          "status": "正式成员"
+        },
+        {
+          "name": "久七Qnana",
+          "status": "正式成员"
+        },
+        {
+          "name": "悠米Yuumi",
+          "status": "正式成员"
+        },
+        {
+          "name": "小要Kaname",
+          "status": "正式成员"
+        },
+        {
+          "name": "眠眠Nemuya",
+          "status": "正式成员"
+        },
+        {
+          "name": "清茉Momo",
+          "status": "正式成员"
         }
       ]
     },
@@ -2199,12 +2554,12 @@
           "status": "正式成员 / 红色担当"
         },
         {
-          "name": "闪电 — kamimi",
-          "status": "前成员 / 银色担当"
+          "name": "短尾袋鼠 — airi",
+          "status": "正式成员 / 黄色担当"
         },
         {
-          "name": "短尾袋鼠 — airi",
-          "status": "前成员 / 黄色担当"
+          "name": "闪电 — kamimi",
+          "status": "前成员 / 银色担当"
         },
         {
           "name": "奶瓶 - sakumi",
@@ -2370,6 +2725,35 @@
       ]
     },
     {
+      "name": "DeviLapin",
+      "members": [
+        {
+          "name": "豆豆Azuki",
+          "status": "正式成员"
+        },
+        {
+          "name": "猫羽Kitana",
+          "status": "正式成员"
+        },
+        {
+          "name": "心酱Kokoro",
+          "status": "正式成员"
+        },
+        {
+          "name": "睡衣YiYi",
+          "status": "正式成员"
+        },
+        {
+          "name": "小安amane",
+          "status": "研修生"
+        },
+        {
+          "name": "折纸Kami",
+          "status": "前成员 / 蓝色担当"
+        }
+      ]
+    },
+    {
       "name": "DEVIL出逃计划",
       "members": []
     },
@@ -2381,20 +2765,20 @@
           "status": "正式成员 / 水色担当"
         },
         {
-          "name": "椰子Kokona",
-          "status": "正式成员 / 黄色担当"
+          "name": "小棉Mimo",
+          "status": "正式成员"
         },
         {
-          "name": "卿卿kyoko",
+          "name": "崽崽Miko",
+          "status": "正式成员 / 白色担当"
+        },
+        {
+          "name": "卿卿kiyo",
           "status": "正式成员 / 青色担当"
         },
         {
-          "name": "诗墨utasumi",
+          "name": "心爱ichigo",
           "status": "正式成员 / 红色担当"
-        },
-        {
-          "name": "崽崽zai",
-          "status": "正式成员 / 白色担当"
         },
         {
           "name": "哈哈Haha",
@@ -2403,6 +2787,18 @@
         {
           "name": "修修neko",
           "status": "前成员 / 粉色担当"
+        },
+        {
+          "name": "诗墨utasumi",
+          "status": "前成员 / 红色担当"
+        },
+        {
+          "name": "汐葵Shioki",
+          "status": "前成员"
+        },
+        {
+          "name": "椰子Kokona",
+          "status": "前成员 / 黄色担当"
         }
       ]
     },
@@ -2775,16 +3171,16 @@
           "status": "正式成员 / 水色担当"
         },
         {
-          "name": "小敏Mint",
-          "status": "正式成员 / 绿色担当"
-        },
-        {
           "name": "淅璃Kiko",
           "status": "研修生 / 蓝色担当"
         },
         {
           "name": "結衣Yui",
           "status": "前成员 / 白色担当"
+        },
+        {
+          "name": "小敏Mint",
+          "status": "前成员 / 绿色担当"
         }
       ]
     },
@@ -2798,10 +3194,6 @@
         {
           "name": "洛洛Keiki",
           "status": "正式成员 / 白色担当"
-        },
-        {
-          "name": "小呓Koi",
-          "status": "正式成员 / 粉色担当"
         },
         {
           "name": "琛琛Misaki",
@@ -2822,6 +3214,10 @@
         {
           "name": "喵喵Nya",
           "status": "前成员 / 蓝色担当"
+        },
+        {
+          "name": "小呓Koi",
+          "status": "前成员 / 粉色担当"
         }
       ]
     },
@@ -2843,6 +3239,23 @@
         {
           "name": "Ruri",
           "status": "正式成员"
+        }
+      ]
+    },
+    {
+      "name": "DoRiMi Cube",
+      "members": [
+        {
+          "name": "藜青Aoi",
+          "status": "正式成员 / 蓝色担当"
+        },
+        {
+          "name": "明澈Akiyo",
+          "status": "正式成员"
+        },
+        {
+          "name": "咔露karu",
+          "status": "正式成员 / 红色担当"
         }
       ]
     },
@@ -2920,6 +3333,19 @@
     {
       "name": "DSM-V",
       "members": []
+    },
+    {
+      "name": "独個Rebellion",
+      "members": [
+        {
+          "name": "素素Hasu",
+          "status": "未分类 / 蓝色担当"
+        },
+        {
+          "name": "未醒Misei",
+          "status": "未分类 / 紫色担当"
+        }
+      ]
     },
     {
       "name": "短逃离Escape",
@@ -3138,6 +3564,56 @@
       ]
     },
     {
+      "name": "ELEWINK",
+      "members": [
+        {
+          "name": "小源Minamo",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "崽崽Kuromo",
+          "status": "正式成员 / 黑色担当"
+        },
+        {
+          "name": "葳桃Chidori",
+          "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "睡睡Satsuki",
+          "status": "正式成员 / 黄色担当"
+        },
+        {
+          "name": "小璇Senon",
+          "status": "飞行成员 / 红色担当"
+        },
+        {
+          "name": "纯爱Doriri",
+          "status": "前成员 / 水色担当"
+        }
+      ]
+    },
+    {
+      "name": "EMBEFUSE",
+      "members": [
+        {
+          "name": "莉世Rysel",
+          "status": "正式成员"
+        },
+        {
+          "name": "琪幺幺711",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "YUICHI",
+          "status": "正式成员 / 蓝色担当"
+        },
+        {
+          "name": "亜紀Aki",
+          "status": "正式成员 / 薄荷色担当"
+        }
+      ]
+    },
+    {
       "name": "EmoKit 心情急救包",
       "members": [
         {
@@ -3158,10 +3634,6 @@
       "name": "EobiontX",
       "members": [
         {
-          "name": "邪魔黒璃Akumaeri",
-          "status": "正式成员"
-        },
-        {
           "name": "空見律Ritsu",
           "status": "正式成员 / 蓝色担当"
         },
@@ -3176,6 +3648,10 @@
         {
           "name": "白呪黒華kuroka",
           "status": "前成员 / 黑色担当"
+        },
+        {
+          "name": "邪魔黒璃Akumaeri",
+          "status": "前成员"
         }
       ]
     },
@@ -3241,11 +3717,11 @@
         },
         {
           "name": "菜菜Nanano",
-          "status": "研修生 / 橙色担当"
+          "status": "正式成员 / 橙色担当"
         },
         {
           "name": "优奈Yuuna",
-          "status": "研修生 / 紫色担当"
+          "status": "正式成员 / 紫色担当"
         },
         {
           "name": "雪穗Yukiho",
@@ -3274,6 +3750,48 @@
         {
           "name": "羽洛Haneyan",
           "status": "前成员 / 紫色担当"
+        }
+      ]
+    },
+    {
+      "name": "Evila",
+      "members": [
+        {
+          "name": "粥舟JOJO",
+          "status": "正式成员 / 红色担当"
+        },
+        {
+          "name": "十一Shiina",
+          "status": "正式成员 / 白色担当"
+        },
+        {
+          "name": "娜月子NayOkO",
+          "status": "正式成员 / 蓝色担当"
+        },
+        {
+          "name": "想想Kohaku",
+          "status": "正式成员 / 绿色担当"
+        }
+      ]
+    },
+    {
+      "name": "EXIOM 界外法则",
+      "members": [
+        {
+          "name": "佳期Kaki",
+          "status": "正式成员 / 水色担当"
+        },
+        {
+          "name": "白夜shiroya",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "江眠kusumi",
+          "status": "正式成员 / 青色担当"
+        },
+        {
+          "name": "木木Moku",
+          "status": "正式成员"
         }
       ]
     },
@@ -3423,23 +3941,23 @@
       "members": [
         {
           "name": "四季",
-          "status": "正式成员 / 橙色担当"
+          "status": "最终成员 / 橙色担当"
         },
         {
           "name": "小鱼",
-          "status": "正式成员 / 粉色担当"
+          "status": "最终成员 / 粉色担当"
         },
         {
           "name": "小织",
-          "status": "正式成员 / 紫色担当"
+          "status": "最终成员 / 紫色担当"
         },
         {
           "name": "梨梨",
-          "status": "正式成员 / 绿色担当"
+          "status": "最终成员 / 绿色担当"
         },
         {
           "name": "菜籽",
-          "status": "正式成员 / 红色担当"
+          "status": "最终成员 / 红色担当"
         },
         {
           "name": "南瓜",
@@ -3452,6 +3970,23 @@
         {
           "name": "溪希",
           "status": "前成员 / 蓝色担当"
+        }
+      ]
+    },
+    {
+      "name": "FAnAA-",
+      "members": [
+        {
+          "name": "Kamiya咪酱",
+          "status": "正式成员 / 白色担当"
+        },
+        {
+          "name": "Asahi / 早早",
+          "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "Kona / 小奈",
+          "status": "正式成员 / 黄色担当"
         }
       ]
     },
@@ -3672,6 +4207,39 @@
       "members": []
     },
     {
+      "name": "浮世一游",
+      "members": [
+        {
+          "name": "小面",
+          "status": "现役成员"
+        },
+        {
+          "name": "锦鲤",
+          "status": "现役成员"
+        },
+        {
+          "name": "小选",
+          "status": "现役成员"
+        },
+        {
+          "name": "小茶",
+          "status": "现役成员"
+        },
+        {
+          "name": "柚夏",
+          "status": "现役成员"
+        },
+        {
+          "name": "镜",
+          "status": "现役成员"
+        },
+        {
+          "name": "霁",
+          "status": "飞行成员"
+        }
+      ]
+    },
+    {
       "name": "G2-MOVE",
       "members": [
         {
@@ -3784,6 +4352,31 @@
       ]
     },
     {
+      "name": "Gimmick Game",
+      "members": [
+        {
+          "name": "星泪",
+          "status": "毕业成员"
+        },
+        {
+          "name": "亦寒",
+          "status": "毕业成员"
+        },
+        {
+          "name": "蓉玖",
+          "status": "毕业成员"
+        },
+        {
+          "name": "粥粥",
+          "status": "毕业成员"
+        },
+        {
+          "name": "磷",
+          "status": "毕业成员"
+        }
+      ]
+    },
+    {
       "name": "GlassMedicament玻璃药剂",
       "members": []
     },
@@ -3809,6 +4402,27 @@
         {
           "name": "小诗",
           "status": "正式成员"
+        }
+      ]
+    },
+    {
+      "name": "宫灯百合SanderSonia",
+      "members": [
+        {
+          "name": "Yaza",
+          "status": "正式成员 / 白色担当"
+        },
+        {
+          "name": "Nora",
+          "status": "正式成员 / 黄色担当"
+        },
+        {
+          "name": "Remu",
+          "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "Yuka",
+          "status": "正式成员 / 水色担当"
         }
       ]
     },
@@ -3862,40 +4476,40 @@
       "name": "海之星女子学园",
       "members": [
         {
-          "name": "黄色担当_省略号君_普通话担当🎙️",
-          "status": "现成员 / 黄色担当"
-        },
-        {
           "name": "白色担当_Yaza_漏勺担当，舞力最强担当✨",
-          "status": "现成员 / 白色担当"
+          "status": "最终成员 / 白色担当"
         },
         {
           "name": "水色担当_风亦_团内吉他大师🎸，急急国王担当👑",
-          "status": "现成员 / 水色担当"
-        },
-        {
-          "name": "粉色担当_烙韧_学园船萧头子⚠️",
-          "status": "现成员 / 粉色担当"
+          "status": "最终成员 / 水色担当"
         },
         {
           "name": "绿色担当_倾夏_漫画出走担当🌸",
-          "status": "现成员 / 绿色担当"
+          "status": "最终成员 / 绿色担当"
         },
         {
           "name": "紫色担当_久言_编曲大师担当🎼",
-          "status": "现成员 / 紫色担当"
+          "status": "最终成员 / 紫色担当"
+        },
+        {
+          "name": "黄色担当_省略号君_普通话担当🎙️",
+          "status": "前成员 / 黄色担当"
+        },
+        {
+          "name": "粉色担当_烙韧_学园船萧头子⚠️",
+          "status": "前成员 / 粉色担当"
         },
         {
           "name": "浅粉担当_柃喵_海之星老幺",
-          "status": "现成员 / 浅粉色担当"
+          "status": "前成员 / 浅粉色担当"
         },
         {
           "name": "红色担当_盒盒_音色担当🎤",
-          "status": "现成员 / 红色担当"
+          "status": "前成员 / 红色担当"
         },
         {
           "name": "黑色担当_安逸_一个普通的女孩子👧",
-          "status": "现成员 / 黑色担当"
+          "status": "前成员 / 黑色担当"
         }
       ]
     },
@@ -3992,6 +4606,35 @@
       ]
     },
     {
+      "name": "黑砾blackstone",
+      "members": [
+        {
+          "name": "小夜Saya",
+          "status": "正式成员"
+        },
+        {
+          "name": "诺米Nomi",
+          "status": "正式成员 / 银色担当"
+        },
+        {
+          "name": "天灵灵Kuriko",
+          "status": "正式成员 / 蓝色担当"
+        },
+        {
+          "name": "神代零REIN",
+          "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "Ori小织",
+          "status": "前成员 / 红色担当"
+        },
+        {
+          "name": "Nosaki野咲",
+          "status": "前成员 / 白色担当"
+        }
+      ]
+    },
+    {
       "name": "Heroism",
       "members": [
         {
@@ -4045,20 +4688,24 @@
           "status": "正式成员 / 红色担当"
         },
         {
-          "name": "棉棉memuri",
-          "status": "正式成员"
+          "name": "棉棉Memuri",
+          "status": "正式成员 / 白色担当"
         },
         {
-          "name": "梨奈reina",
+          "name": "梨奈Reina",
           "status": "正式成员 / 橙色担当"
         },
         {
-          "name": "腻腻nitori",
+          "name": "腻腻Nitori",
           "status": "正式成员 / 粉色担当"
         },
         {
+          "name": "千寻chihiro",
+          "status": "前成员 / 粉色担当"
+        },
+        {
           "name": "yomi小y",
-          "status": "前成员"
+          "status": "前成员 / 水色担当"
         }
       ]
     },
@@ -4070,16 +4717,24 @@
           "status": "正式成员 / 白色担当"
         },
         {
-          "name": "星辉 Kira",
-          "status": "正式成员 / 黑色担当"
-        },
-        {
           "name": "小章鱼 Tako",
           "status": "正式成员 / 黄色担当"
         },
         {
+          "name": "优理 Yuri",
+          "status": "正式成员 / 黑色担当"
+        },
+        {
+          "name": "和咲香 Waika",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
           "name": "砂糖 Sato",
           "status": "前成员 / 红色担当"
+        },
+        {
+          "name": "星辉 Kira",
+          "status": "前成员 / 黑色担当"
         }
       ]
     },
@@ -4542,6 +5197,31 @@
       ]
     },
     {
+      "name": "回响相簿",
+      "members": [
+        {
+          "name": "肉包Niku",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "月之tsuki",
+          "status": "正式成员 / 红色担当"
+        },
+        {
+          "name": "果冻Zeri",
+          "status": "正式成员 / 青色担当"
+        },
+        {
+          "name": "箖言Ian",
+          "status": "正式成员 / 蓝色担当"
+        },
+        {
+          "name": "绵绵Saki",
+          "status": "正式成员 / 黄色担当"
+        }
+      ]
+    },
+    {
       "name": "活性電ikidenki",
       "members": [
         {
@@ -4570,14 +5250,6 @@
           "status": "现成员 / 银色担当"
         },
         {
-          "name": "小淅kiichan",
-          "status": "毕业成员 / 绿色担当"
-        },
-        {
-          "name": "罐头Kiya",
-          "status": "毕业成员 / 粉色担当"
-        },
-        {
           "name": "闻馨CANDY",
           "status": "前成员 / 橙色担当"
         },
@@ -4588,6 +5260,14 @@
         {
           "name": "夜汐TAKA",
           "status": "前成员"
+        },
+        {
+          "name": "小淅kiichan",
+          "status": "前成员 / 绿色担当"
+        },
+        {
+          "name": "罐头Kiya",
+          "status": "前成员 / 粉色担当"
         }
       ]
     },
@@ -4596,11 +5276,11 @@
       "members": [
         {
           "name": "圈圈Maremma",
-          "status": "正式成员 / 红色担当"
+          "status": "最终成员 / 红色担当"
         },
         {
           "name": "凛华Rinka",
-          "status": "正式成员 / 粉色担当"
+          "status": "最终成员 / 粉色担当"
         }
       ]
     },
@@ -4881,6 +5561,35 @@
       ]
     },
     {
+      "name": "IoU纯真碎片",
+      "members": [
+        {
+          "name": "小纯",
+          "status": "正式成员 / 红色担当"
+        },
+        {
+          "name": "小葉子youko",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "鸭鸭",
+          "status": "正式成员 / 白色担当"
+        },
+        {
+          "name": "世酒",
+          "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "待安",
+          "status": "正式成员 / 深蓝色担当"
+        },
+        {
+          "name": "肆悸",
+          "status": "正式成员 / 水色担当"
+        }
+      ]
+    },
+    {
       "name": "JADX",
       "members": [
         {
@@ -4908,8 +5617,12 @@
           "status": "正式成员 / 黄色担当"
         },
         {
+          "name": "月鳴Kagami",
+          "status": "正式成员"
+        },
+        {
           "name": "赤鬼Momo",
-          "status": "正式成员 / 红色担当"
+          "status": "前成员 / 红色担当"
         }
       ]
     },
@@ -4959,12 +5672,12 @@
           "status": "正式成员 / 紫色担当"
         },
         {
-          "name": "暮雨Kareame",
+          "name": "暮雨Kureame",
           "status": "正式成员 / 黑色担当"
         },
         {
           "name": "派派Kazuko",
-          "status": "正式成员 / 桃色担当"
+          "status": "正式成员"
         },
         {
           "name": "理砂Risa",
@@ -5067,8 +5780,45 @@
           "status": "正式成员 / 绿色担当"
         },
         {
+          "name": "小梦Yume",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
           "name": "本页Peji",
           "status": "正式成员 / 红色担当"
+        }
+      ]
+    },
+    {
+      "name": "降临夜",
+      "members": [
+        {
+          "name": "叶子茶",
+          "status": "正式成员"
+        },
+        {
+          "name": "悠悠Hina",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "夜神KIRA",
+          "status": "正式成员 / 绿色担当"
+        },
+        {
+          "name": "喏呜",
+          "status": "正式成员"
+        },
+        {
+          "name": "神代花恋",
+          "status": "正式成员"
+        },
+        {
+          "name": "小雨Yui",
+          "status": "正式成员 / 水色担当"
+        },
+        {
+          "name": "鏡之影Miyu",
+          "status": "正式成员 / 紫色担当"
         }
       ]
     },
@@ -5141,6 +5891,48 @@
         {
           "name": "麻狸Mari",
           "status": "前成员 / 绿色担当"
+        }
+      ]
+    },
+    {
+      "name": "荆棘谷ThornValley",
+      "members": [
+        {
+          "name": "骸囹Hitori",
+          "status": "正式成员"
+        },
+        {
+          "name": "芝芝Monina",
+          "status": "正式成员"
+        },
+        {
+          "name": "愛唄Aita",
+          "status": "正式成员"
+        },
+        {
+          "name": "亚菈Ara",
+          "status": "正式成员"
+        },
+        {
+          "name": "柚愛Yuai",
+          "status": "正式成员"
+        }
+      ]
+    },
+    {
+      "name": "镜像反射Mirror self",
+      "members": [
+        {
+          "name": "句号",
+          "status": "正式成员 / 黑色担当"
+        },
+        {
+          "name": "小春",
+          "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "柯达",
+          "status": "前成员 / 白色担当"
         }
       ]
     },
@@ -5586,27 +6378,60 @@
       ]
     },
     {
+      "name": "Kisment",
+      "members": [
+        {
+          "name": "寄月Airi",
+          "status": "现成员 / 水色担当"
+        },
+        {
+          "name": "猫宮Moka",
+          "status": "现成员 / 蓝色担当"
+        },
+        {
+          "name": "晦月Saya",
+          "status": "现成员 / 红色担当"
+        },
+        {
+          "name": "元元yuan",
+          "status": "现成员 / 紫色担当"
+        },
+        {
+          "name": "未一Yui",
+          "status": "现成员 / 粉色担当"
+        },
+        {
+          "name": "雪奈Yukina",
+          "status": "现成员 / 白色担当"
+        }
+      ]
+    },
+    {
       "name": "Kki ixx",
       "members": [
         {
           "name": "木凉子kiryoko",
-          "status": "正式成员"
+          "status": "最终成员"
         },
         {
           "name": "鱼干oki",
-          "status": "正式成员"
+          "status": "最终成员"
         },
         {
           "name": "栗子烧yaki",
-          "status": "正式成员"
+          "status": "最终成员"
         },
         {
-          "name": "小厘_Neyuki",
-          "status": "正式成员"
+          "name": "小厘Neyuki",
+          "status": "最终成员"
         },
         {
           "name": "草花soka",
-          "status": "正式成员"
+          "status": "最终成员"
+        },
+        {
+          "name": "鹤伏toki",
+          "status": "前成员"
         }
       ]
     },
@@ -5637,6 +6462,10 @@
         {
           "name": "鼠鼠meiko",
           "status": "最终成员 / 紫色担当"
+        },
+        {
+          "name": "小怪兽@怪化舞室_不科学的小怪兽w",
+          "status": "限定成员 / 蓝色担当"
         }
       ]
     },
@@ -5645,7 +6474,7 @@
       "members": [
         {
           "name": "星儿Hoshimi",
-          "status": "现役成员 / 粉色担当"
+          "status": "现役成员 / 玫红色担当"
         },
         {
           "name": "圆圆Madoka",
@@ -5676,6 +6505,10 @@
           "status": "现役成员 / 绿色担当"
         },
         {
+          "name": "嘻嘻yuri",
+          "status": "现役成员 / 水色担当"
+        },
+        {
           "name": "喵喵Nyahane",
           "status": "前成员 / 紫色担当"
         },
@@ -5686,12 +6519,37 @@
       ]
     },
     {
-      "name": "空色轨迹",
+      "name": "空夢SORAYUME",
       "members": [
         {
-          "name": "照耀空色轨迹的Miya",
-          "status": "正式成员 / 绿色担当"
+          "name": "小春chiharu",
+          "status": "正式成员 / 蓝色担当"
         },
+        {
+          "name": "NANA",
+          "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "日海十三",
+          "status": "正式成员 / 红色担当"
+        },
+        {
+          "name": "犬崎",
+          "status": "正式成员 / 黑色担当"
+        },
+        {
+          "name": "咕噜marumma",
+          "status": "正式成员"
+        },
+        {
+          "name": "SAZIKI",
+          "status": "正式成员 / 白色担当"
+        }
+      ]
+    },
+    {
+      "name": "空色轨迹",
+      "members": [
         {
           "name": "祈愿空色轨迹的Eriko",
           "status": "正式成员 / 粉色担当"
@@ -5717,6 +6575,10 @@
           "status": "正式成员 / 水色担当"
         },
         {
+          "name": "疗愈空色轨迹的Ameko",
+          "status": "正式成员 / 薄荷色担当"
+        },
+        {
           "name": "约定空色轨迹的Mumu",
           "status": "前成员 / 蓝色担当"
         },
@@ -5739,6 +6601,10 @@
         {
           "name": "聆听空色轨迹的Yaza",
           "status": "前成员 / 水色担当"
+        },
+        {
+          "name": "照耀空色轨迹的Miya",
+          "status": "前成员 / 绿色担当"
         },
         {
           "name": "混入空色轨迹的Shika",
@@ -5796,6 +6662,10 @@
         },
         {
           "name": "烦烦Nora",
+          "status": "最终成员"
+        },
+        {
+          "name": "卡卡Yuka",
           "status": "最终成员"
         },
         {
@@ -5911,8 +6781,16 @@
           "status": "正式成员 / 紫色担当"
         },
         {
+          "name": "岛岛Shinmachan",
+          "status": "正式成员 / 蓝色担当"
+        },
+        {
+          "name": "阿柠Ninnin",
+          "status": "飞行成员 / 黄色担当"
+        },
+        {
           "name": "苏灵Suling",
-          "status": "正式成员 / 黄色担当"
+          "status": "前成员 / 黄色担当"
         }
       ]
     },
@@ -6179,35 +7057,35 @@
       "members": [
         {
           "name": "晴子Haruko",
-          "status": "正式成员 / 水色担当"
+          "status": "现役成员 / 水色担当"
         },
         {
           "name": "小月Tsuki",
-          "status": "正式成员 / 黄色担当"
+          "status": "现役成员 / 黄色担当"
         },
         {
           "name": "闪闪Kiyori",
-          "status": "正式成员 / 紫色担当"
+          "status": "现役成员 / 紫色担当"
         },
         {
           "name": "石榴Zakuro",
-          "status": "正式成员 / 粉色担当"
+          "status": "现役成员 / 粉色担当"
         },
         {
           "name": "梦喃yumechi",
-          "status": "正式成员 / 绿色担当"
+          "status": "现役成员 / 绿色担当"
         },
         {
           "name": "莫莫Momomii",
-          "status": "正式成员 / 蓝色担当"
-        },
-        {
-          "name": "小狐Chimori",
-          "status": "正式成员 / 白色担当"
+          "status": "现役成员 / 蓝色担当"
         },
         {
           "name": "恋栀Zhizhi",
           "status": "前成员 / 红色担当"
+        },
+        {
+          "name": "小狐Chimori",
+          "status": "前成员 / 白色担当"
         }
       ]
     },
@@ -6355,6 +7233,23 @@
         {
           "name": "波瑠奈Haruna",
           "status": "前成员 / 紫色担当"
+        }
+      ]
+    },
+    {
+      "name": "恋语心契",
+      "members": [
+        {
+          "name": "吐司",
+          "status": "正式成员 / 橙色担当"
+        },
+        {
+          "name": "莲音",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "蛇蛇",
+          "status": "前成员 / 绿色担当"
         }
       ]
     },
@@ -6544,12 +7439,8 @@
           "status": "现成员 / 紫色担当"
         },
         {
-          "name": "Roku",
-          "status": "现成员 / 红色担当"
-        },
-        {
-          "name": "Karin",
-          "status": "现成员 / 绿色担当"
+          "name": "Akiyo",
+          "status": "现成员 / 黄色担当"
         },
         {
           "name": "Sana",
@@ -6576,8 +7467,37 @@
           "status": "前成员 / 桃色担当"
         },
         {
+          "name": "Karin",
+          "status": "前成员 / 绿色担当"
+        },
+        {
+          "name": "Roku",
+          "status": "前成员 / 红色担当"
+        },
+        {
           "name": "体制时间线",
           "status": "前成员"
+        }
+      ]
+    },
+    {
+      "name": "灵泛778",
+      "members": [
+        {
+          "name": "汐汐kiki",
+          "status": "现成员 / 粉色担当"
+        },
+        {
+          "name": "柚柚puka",
+          "status": "现成员 / 黄色担当"
+        },
+        {
+          "name": "海海umi",
+          "status": "现成员 / 绿色担当"
+        },
+        {
+          "name": "閃kirari",
+          "status": "现成员 / 白色担当"
         }
       ]
     },
@@ -6607,23 +7527,35 @@
       "members": [
         {
           "name": "缈缈Moi",
-          "status": "正式成员 / 紫色担当"
+          "status": "现成员 / 紫色担当"
         },
         {
-          "name": "眠落Minmin",
-          "status": "正式成员 / 白色担当"
+          "name": "狗狗Koharu",
+          "status": "现成员 / 绿色担当"
         },
         {
           "name": "白川Shirakawa",
-          "status": "正式成员 / 蓝色担当"
+          "status": "现成员 / 蓝色担当"
+        },
+        {
+          "name": "殊遥Haruka",
+          "status": "现成员 / 橙色担当"
+        },
+        {
+          "name": "眠落Minmin",
+          "status": "现成员 / 白色担当"
+        },
+        {
+          "name": "栗子Kuriko",
+          "status": "现成员 / 粉色担当"
         },
         {
           "name": "芝芝Kanade",
-          "status": "正式成员 / 黄色担当"
+          "status": "暂休成员 / 黄色担当"
         },
         {
           "name": "小奶糕Milky",
-          "status": "正式成员 / 桃色担当"
+          "status": "前成员 / 桃色担当"
         }
       ]
     },
@@ -6718,16 +7650,20 @@
           "status": "正式成员 / 紫色担当"
         },
         {
-          "name": "铃泺Suzu",
-          "status": "正式成员 / 水色担当"
-        },
-        {
           "name": "薄寒susuki",
           "status": "正式成员 / 蓝色担当"
         },
         {
+          "name": "米米Naomi",
+          "status": "正式成员 / 白色担当"
+        },
+        {
           "name": "希希Saki",
           "status": "前成员 / 红色担当"
+        },
+        {
+          "name": "铃泺Suzu",
+          "status": "前成员 / 水色担当"
         }
       ]
     },
@@ -6876,6 +7812,10 @@
         {
           "name": "唯一Yuii",
           "status": "正式成员 / 蓝色担当"
+        },
+        {
+          "name": "Kaeru",
+          "status": "研修生 / 粉色担当"
         },
         {
           "name": "Namari",
@@ -7351,6 +8291,27 @@
       ]
     },
     {
+      "name": "Memo of Daze",
+      "members": [
+        {
+          "name": "勾勾",
+          "status": "现成员 / 蓝色担当"
+        },
+        {
+          "name": "开开",
+          "status": "现成员 / 紫色担当"
+        },
+        {
+          "name": "夕子",
+          "status": "现成员 / 黄色担当"
+        },
+        {
+          "name": "岁岁",
+          "status": "现成员 / 粉色担当"
+        }
+      ]
+    },
+    {
       "name": "夢船",
       "members": [
         {
@@ -7405,6 +8366,14 @@
         {
           "name": "七七Naii",
           "status": "正式成员 / 蓝色担当"
+        },
+        {
+          "name": "芙芙nini",
+          "status": "正式成员"
+        },
+        {
+          "name": "茄茄neinei",
+          "status": "正式成员"
         },
         {
           "name": "小糯Kaoru",
@@ -7500,6 +8469,27 @@
       ]
     },
     {
+      "name": "夢汐Nyatsu",
+      "members": [
+        {
+          "name": "Awa",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "Kysu",
+          "status": "正式成员 / 白色担当"
+        },
+        {
+          "name": "Saki",
+          "status": "正式成员 / 蓝色担当"
+        },
+        {
+          "name": "Bana",
+          "status": "前成员 / 黄色担当"
+        }
+      ]
+    },
+    {
       "name": "夢現YUMENOKO",
       "members": [
         {
@@ -7525,6 +8515,39 @@
         {
           "name": "HoSHIMI",
           "status": "前成员 / 黑色担当"
+        }
+      ]
+    },
+    {
+      "name": "夢響YUMEHIBIKI",
+      "members": [
+        {
+          "name": "晓月",
+          "status": "正式成员 / 红色担当"
+        },
+        {
+          "name": "柠檬",
+          "status": "正式成员 / 桃色担当"
+        },
+        {
+          "name": "林天",
+          "status": "正式成员 / 黄色担当"
+        },
+        {
+          "name": "小狗",
+          "status": "正式成员 / 水色担当"
+        },
+        {
+          "name": "名無",
+          "status": "正式成员 / 绿色担当"
+        },
+        {
+          "name": "谬",
+          "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "Yoliko",
+          "status": "支援成员 / 白色担当"
         }
       ]
     },
@@ -7578,20 +8601,16 @@
       "name": "MetaMates次元少女",
       "members": [
         {
-          "name": "橙子Seiko",
-          "status": "正式成员 / 蓝色担当"
-        },
-        {
-          "name": "小雪Asuka",
-          "status": "正式成员 / 白色担当"
-        },
-        {
           "name": "霧沢雨Ame",
           "status": "正式成员 / 粉色担当"
         },
         {
-          "name": "Aoi",
+          "name": "小葵Aoi",
           "status": "正式成员 / 绿色担当"
+        },
+        {
+          "name": "丢丢Peca",
+          "status": "正式成员 / 白色担当"
         },
         {
           "name": "训练生",
@@ -7640,6 +8659,14 @@
         {
           "name": "碳水Rii",
           "status": "前成员 / 水色担当"
+        },
+        {
+          "name": "橙子Seiko",
+          "status": "前成员 / 蓝色担当"
+        },
+        {
+          "name": "小雪Asuka",
+          "status": "前成员 / 白色担当"
         }
       ]
     },
@@ -7694,6 +8721,27 @@
         {
           "name": "凡凡子",
           "status": "最终成员 / 橙色担当"
+        }
+      ]
+    },
+    {
+      "name": "道に咲く",
+      "members": [
+        {
+          "name": "夏树Natsuki",
+          "status": "正式成员"
+        },
+        {
+          "name": "波洛Boro",
+          "status": "正式成员"
+        },
+        {
+          "name": "柚月Yuzuki",
+          "status": "正式成员"
+        },
+        {
+          "name": "祈祈Inori",
+          "status": "正式成员"
         }
       ]
     },
@@ -7792,11 +8840,19 @@
         },
         {
           "name": "鱼籽",
-          "status": "正式成员 / 绿色担当"
+          "status": "正式成员 / 黄色担当"
         },
         {
           "name": "KANA",
+          "status": "正式成员 / 水色担当"
+        },
+        {
+          "name": "Hanami",
           "status": "正式成员 / 橙色担当"
+        },
+        {
+          "name": "小桃",
+          "status": "正式成员 / 桃色担当"
         },
         {
           "name": "Molly",
@@ -7890,8 +8946,28 @@
           "status": "正式成员 / 白色担当"
         },
         {
-          "name": "鹿鹿",
+          "name": "恶龙sama",
+          "status": "正式成员 / 红色担当"
+        },
+        {
+          "name": "薯饼tamako",
+          "status": "正式成员 / 黄色担当"
+        },
+        {
+          "name": "小筱sakono",
+          "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "锦鲤koii",
           "status": "研修生"
+        },
+        {
+          "name": "柔柔yua",
+          "status": "研修生 / 樱花粉色担当"
+        },
+        {
+          "name": "礼礼koari",
+          "status": "研修生 / 绿色担当"
         },
         {
           "name": "海树Umiki",
@@ -7973,20 +9049,20 @@
           "status": "正式成员 / 紫色担当"
         },
         {
-          "name": "星星",
-          "status": "正式成员 / 黄色担当"
-        },
-        {
-          "name": "桃奈",
-          "status": "正式成员 / 粉色担当"
-        },
-        {
           "name": "织织",
           "status": "正式成员 / 蓝色担当"
         },
         {
           "name": "皮皮猪",
           "status": "正式成员 / 橙色担当"
+        },
+        {
+          "name": "星星",
+          "status": "正式成员 / 黄色担当"
+        },
+        {
+          "name": "桃奈",
+          "status": "正式成员 / 粉色担当"
         },
         {
           "name": "小雪花",
@@ -8019,35 +9095,64 @@
       ]
     },
     {
+      "name": "末裔幻想Matsuei Gensou",
+      "members": [
+        {
+          "name": "Ruri",
+          "status": "正式成员 / 水色担当"
+        },
+        {
+          "name": "弥弥生Yayoi",
+          "status": "正式成员 / 红色担当"
+        },
+        {
+          "name": "酥糖Momoka",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "余音Mahiru",
+          "status": "常驻飞行成员 / 紫色担当"
+        },
+        {
+          "name": "白kinako",
+          "status": "常驻飞行成员 / 白色担当"
+        },
+        {
+          "name": "小羊Tokki",
+          "status": "研修生 / 黄色担当"
+        }
+      ]
+    },
+    {
       "name": "MoeMelo",
       "members": [
         {
           "name": "小听",
-          "status": "现役成员 / 水色担当"
+          "status": "最终成员 / 水色担当"
         },
         {
           "name": "小椰",
-          "status": "现役成员 / 白色担当"
+          "status": "最终成员 / 白色担当"
         },
         {
           "name": "由里奈",
-          "status": "现役成员 / 粉色担当"
+          "status": "最终成员 / 粉色担当"
         },
         {
           "name": "汐里",
-          "status": "现役成员 / 黄色担当"
+          "status": "最终成员 / 黄色担当"
         },
         {
           "name": "绵悠",
-          "status": "现役成员 / 绿色担当"
+          "status": "最终成员 / 绿色担当"
         },
         {
           "name": "小鼠",
-          "status": "现役成员 / 红色担当"
+          "status": "最终成员 / 红色担当"
         },
         {
           "name": "兔饼",
-          "status": "现役成员 / 紫色担当"
+          "status": "最终成员 / 紫色担当"
         },
         {
           "name": "小堡",
@@ -8093,23 +9198,23 @@
       "members": [
         {
           "name": "音音Nene",
-          "status": "现役成员 / 水色担当"
+          "status": "最终成员 / 水色担当"
         },
         {
           "name": "炸炸Baku",
-          "status": "现役成员 / 黄色担当"
+          "status": "最终成员 / 黄色担当"
         },
         {
           "name": "菀菀Saki",
-          "status": "现役成员 / 绿色担当"
+          "status": "最终成员 / 绿色担当"
         },
         {
           "name": "浅浅Asa",
-          "status": "现役成员 / 紫色担当"
+          "status": "最终成员 / 紫色担当"
         },
         {
           "name": "眠绵雨oki",
-          "status": "现役成员 / 桃色担当"
+          "status": "最终成员 / 桃色担当"
         }
       ]
     },
@@ -8449,10 +9554,6 @@
           "status": "正式成员 / 水色担当"
         },
         {
-          "name": "绯矢礼亚Lia",
-          "status": "正式成员 / 红色担当"
-        },
-        {
           "name": "绪濑Nao",
           "status": "正式成员 / 白色担当"
         },
@@ -8465,8 +9566,20 @@
           "status": "正式成员 / 粉色担当"
         },
         {
+          "name": "缐chiito",
+          "status": "正式成员 / 灰色担当"
+        },
+        {
           "name": "雨沢neko",
           "status": "飞行成员 / 绿色担当"
+        },
+        {
+          "name": "紺野鷺KonoSagi",
+          "status": "研修生 / 蓝色担当"
+        },
+        {
+          "name": "绯矢礼亚Lia",
+          "status": "前成员 / 红色担当"
         }
       ]
     },
@@ -8567,6 +9680,64 @@
       ]
     },
     {
+      "name": "NiakoNiako",
+      "members": [
+        {
+          "name": "咩咩Miemie",
+          "status": "正式成员 / 蓝色担当"
+        },
+        {
+          "name": "雯雯Kirin",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "迟迟Osoi",
+          "status": "常驻飞行成员 / 白色担当"
+        }
+      ]
+    },
+    {
+      "name": "Nokonn元素",
+      "members": [
+        {
+          "name": "氿音Nao",
+          "status": "正式元素"
+        },
+        {
+          "name": "森森mori",
+          "status": "正式元素"
+        },
+        {
+          "name": "研修元素",
+          "status": "正式元素"
+        },
+        {
+          "name": "吵吵kawa",
+          "status": "正式元素"
+        },
+        {
+          "name": "绘荟rakki",
+          "status": "正式元素"
+        },
+        {
+          "name": "今天imA",
+          "status": "正式元素"
+        },
+        {
+          "name": "不稳定元素",
+          "status": "正式元素"
+        },
+        {
+          "name": "柒瑶kiyo",
+          "status": "正式元素"
+        },
+        {
+          "name": "葉理hari",
+          "status": "正式元素"
+        }
+      ]
+    },
+    {
       "name": "NOKORE結",
       "members": [
         {
@@ -8588,23 +9759,43 @@
       "members": [
         {
           "name": "元宵YOSAKI",
-          "status": "未分类 / 白色担当"
+          "status": "现成员 / 白色担当"
         },
         {
-          "name": "糖豆SATOU",
-          "status": "未分类 / 粉色担当"
+          "name": "不可食用金属盐",
+          "status": "现成员 / 蓝色担当"
         },
         {
-          "name": "K2O/KEIKO",
-          "status": "未分类 / 红色担当"
+          "name": "春日暴风雨",
+          "status": "现成员 / 粉色担当"
+        },
+        {
+          "name": "裂帛",
+          "status": "现成员 / 绿色担当"
+        },
+        {
+          "name": "招财猫",
+          "status": "现成员 / 金色担当"
         },
         {
           "name": "木梓AZUSA",
-          "status": "未分类 / 黄色担当"
+          "status": "暂不活跃成员 / 黄色担当"
         },
         {
           "name": "弥也MIYE",
-          "status": "未分类 / 银色担当"
+          "status": "暂不活跃成员 / 银色担当"
+        },
+        {
+          "name": "舞栞Theori_Mi",
+          "status": "暂不活跃成员"
+        },
+        {
+          "name": "糖豆SATOU",
+          "status": "已毕业成员 / 浅粉色担当"
+        },
+        {
+          "name": "K2O/KEIKO",
+          "status": "已毕业成员 / 红色担当"
         }
       ]
     },
@@ -8869,16 +10060,16 @@
           "status": "未分类"
         },
         {
+          "name": "梦寒Yume",
+          "status": "未分类"
+        },
+        {
           "name": "Hayashi",
           "status": "飞行成员"
         },
         {
-          "name": "梦寒Yume",
-          "status": "飞行成员"
-        },
-        {
           "name": "砂原鬱Utsu",
-          "status": "Oubaitori 研修生"
+          "status": "前成员"
         }
       ]
     },
@@ -9097,7 +10288,7 @@
       "name": "Parapara",
       "members": [
         {
-          "name": "云叶Yoko",
+          "name": "小棉Mofu",
           "status": "正式成员 / 白色担当"
         },
         {
@@ -9117,8 +10308,12 @@
           "status": "正式成员 / 水色担当"
         },
         {
-          "name": "亚琉Aru",
-          "status": "正式成员 / 黄色担当"
+          "name": "佩佩Kinaki",
+          "status": "正式成员 / 绿色担当"
+        },
+        {
+          "name": "妮娅Nya",
+          "status": "正式成员 / 紫色担当"
         },
         {
           "name": "咕咕Moe",
@@ -9137,12 +10332,20 @@
           "status": "前成员 / 黑色担当"
         },
         {
+          "name": "云叶Yoko",
+          "status": "前成员 / 白色担当"
+        },
+        {
           "name": "麻雀Suzume",
           "status": "前成员 / 绿色担当"
         },
         {
           "name": "栗子Kuriri",
           "status": "前成员 / 紫色担当"
+        },
+        {
+          "name": "亚琉Aru",
+          "status": "前成员 / 黄色担当"
         }
       ]
     },
@@ -9325,16 +10528,20 @@
           "status": "最终成员"
         },
         {
-          "name": "卡卡Yuka",
-          "status": "最终成员"
-        },
-        {
           "name": "空梓Yuki",
           "status": "最终成员"
         },
         {
           "name": "璃子Ririka",
           "status": "最终成员"
+        },
+        {
+          "name": "芝芝Chiku",
+          "status": "最终成员"
+        },
+        {
+          "name": "卡卡Yuka",
+          "status": "前成员"
         },
         {
           "name": "喵七七Mio",
@@ -9363,7 +10570,7 @@
         },
         {
           "name": "柚糖",
-          "status": "研修生 / 水色担当"
+          "status": "正式成员 / 水色担当"
         },
         {
           "name": "小叽",
@@ -9590,6 +10797,31 @@
         },
         {
           "name": "Ameko💉",
+          "status": "前成员 / 粉色担当"
+        },
+        {
+          "name": "Haku🥽",
+          "status": "前成员 / 水色担当"
+        }
+      ]
+    },
+    {
+      "name": "Punipuni",
+      "members": [
+        {
+          "name": "年糕MoChi碳",
+          "status": "正式成员 / 橙色担当"
+        },
+        {
+          "name": "怜音Izumi",
+          "status": "正式成员 / 水色担当"
+        },
+        {
+          "name": "Kuro",
+          "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "兔奈",
           "status": "正式成员 / 粉色担当"
         }
       ]
@@ -9644,7 +10876,7 @@
         },
         {
           "name": "小葉子youko",
-          "status": "正式成员 / 红色担当"
+          "status": "正式成员 / 桃色担当"
         },
         {
           "name": "鹅仔eko",
@@ -9670,6 +10902,32 @@
       ]
     },
     {
+      "name": "PyonPyon委员会",
+      "members": [
+        {
+          "name": "秋雪Cyuki",
+          "status": "正式成员"
+        },
+        {
+          "name": "花凛karin",
+          "status": "正式成员"
+        }
+      ]
+    },
+    {
+      "name": "QbeatMagic",
+      "members": [
+        {
+          "name": "七七Nana",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "小抚Fururu",
+          "status": "正式成员 / 水色担当"
+        }
+      ]
+    },
+    {
       "name": "绮幻人形KisMetis",
       "members": [
         {
@@ -9691,6 +10949,10 @@
         {
           "name": "米米Yami",
           "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "Lami",
+          "status": "支援成员 / 红色担当"
         },
         {
           "name": "小圆大王Moka",
@@ -9719,39 +10981,23 @@
       "members": [
         {
           "name": "悠悠Hina",
-          "status": "正式成员 / 水色担当"
-        },
-        {
-          "name": "可栗KaiRi",
-          "status": "正式成员 / 黄色担当"
-        },
-        {
-          "name": "柚子YUZU",
-          "status": "正式成员 / 薄荷色担当"
-        },
-        {
-          "name": "夏帆Natsuko",
-          "status": "正式成员 / 红色担当"
+          "status": "最终成员 / 水色担当"
         },
         {
           "name": "小怜Riri",
-          "status": "正式成员 / 橙色担当"
+          "status": "最终成员 / 橙色担当"
         },
         {
           "name": "晴奈Harena",
-          "status": "正式成员 / 粉色担当"
-        },
-        {
-          "name": "来世Raise",
-          "status": "正式成员"
+          "status": "最终成员 / 粉色担当"
         },
         {
           "name": "丢丢peca",
-          "status": "正式成员"
+          "status": "最终成员"
         },
         {
           "name": "小美Mimi",
-          "status": "正式成员 / 绿色担当"
+          "status": "最终成员 / 绿色担当"
         },
         {
           "name": "小烦Moe",
@@ -9792,6 +11038,22 @@
         {
           "name": "娜娜Nana",
           "status": "前成员 / 桃色担当"
+        },
+        {
+          "name": "可栗KaiRi",
+          "status": "前成员 / 黄色担当"
+        },
+        {
+          "name": "柚子YUZU",
+          "status": "前成员 / 薄荷色担当"
+        },
+        {
+          "name": "夏帆Natsuko",
+          "status": "前成员 / 红色担当"
+        },
+        {
+          "name": "来世Raise",
+          "status": "前成员"
         }
       ]
     },
@@ -9930,16 +11192,8 @@
           "status": "现役成员"
         },
         {
-          "name": "狗狗Koharu",
-          "status": "现役成员 / 绿色担当"
-        },
-        {
           "name": "小词Sanako",
           "status": "现役成员 / 红色担当"
-        },
-        {
-          "name": "岚岚Miruka",
-          "status": "现役成员 / 紫色担当"
         },
         {
           "name": "小瞳",
@@ -9948,6 +11202,18 @@
         {
           "name": "小漓",
           "status": "前成员 / 粉色担当"
+        },
+        {
+          "name": "狗狗Koharu",
+          "status": "前成员 / 绿色担当"
+        },
+        {
+          "name": "岚岚Miruka",
+          "status": "前成员 / 紫色担当"
+        },
+        {
+          "name": "奈叶Naya",
+          "status": "前成员 / 绿色担当"
         }
       ]
     },
@@ -10004,16 +11270,24 @@
           "status": "现成员 / 绿色担当"
         },
         {
-          "name": "听听Aria🍎",
-          "status": "研修生 / 红色担当"
+          "name": "小安amane🪽",
+          "status": "研修生 / 白色担当"
         },
         {
           "name": "小鱼Sakana🐟",
-          "status": "毕业成员 / 粉色担当"
+          "status": "前成员 / 粉色担当"
         },
         {
           "name": "穗穗Miho🌾",
-          "status": "毕业成员 / 水色担当"
+          "status": "前成员 / 水色担当"
+        },
+        {
+          "name": "听听Aria🍎",
+          "status": "前成员 / 红色担当"
+        },
+        {
+          "name": "初晴Hiyori🐶",
+          "status": "前成员 / 蓝色担当"
         }
       ]
     },
@@ -10108,12 +11382,49 @@
           "status": "正式成员 / 白色担当"
         },
         {
-          "name": "若熙roka",
-          "status": "正式成员 / 水色担当"
+          "name": "澪夜izumi",
+          "status": "正式成员 / 蓝色担当"
+        },
+        {
+          "name": "豆腐",
+          "status": "支援成员/Oracle / 粉色担当"
+        },
+        {
+          "name": "玻璃",
+          "status": "支援成员/Oracle / 紫色担当"
         },
         {
           "name": "柚愛Yuzuai",
+          "status": "前成员 / 粉色担当"
+        },
+        {
+          "name": "若熙roka",
+          "status": "前成员 / 水色担当"
+        }
+      ]
+    },
+    {
+      "name": "Re∞Jumping!!",
+      "members": [
+        {
+          "name": "澪奈miona",
           "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "吃吃Viki",
+          "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "二七Ninana",
+          "status": "正式成员 / 绿色担当"
+        },
+        {
+          "name": "小瑜干Koyuka",
+          "status": "正式成员 / 黄色担当"
+        },
+        {
+          "name": "冰冰Icey",
+          "status": "正式成员"
         }
       ]
     },
@@ -10122,23 +11433,23 @@
       "members": [
         {
           "name": "周雪/Yuki",
-          "status": "正式成员 / 粉色担当"
+          "status": "最终成员 / 粉色担当"
         },
         {
           "name": "蒋贞/Nico",
-          "status": "正式成员 / 蓝色担当"
+          "status": "最终成员 / 蓝色担当"
         },
         {
           "name": "俞璐/Sweety",
-          "status": "正式成员 / 黄色担当"
+          "status": "最终成员 / 黄色担当"
         },
         {
           "name": "王瀞萱/萱萱/Charlo",
-          "status": "正式成员 / 白色担当"
+          "status": "最终成员 / 白色担当"
         },
         {
           "name": "倪小雅/小雅同学",
-          "status": "正式成员 / 紫色担当"
+          "status": "最终成员 / 紫色担当"
         }
       ]
     },
@@ -10188,7 +11499,7 @@
       ]
     },
     {
-      "name": "Echo回声 Online-",
+      "name": "Re:Echo回声",
       "members": [
         {
           "name": "上雨Uprain",
@@ -10230,6 +11541,10 @@
         {
           "name": "梦梦Yume",
           "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "喵君Miuki",
+          "status": "飞行成员"
         }
       ]
     },
@@ -10413,6 +11728,27 @@
       ]
     },
     {
+      "name": "RealizE",
+      "members": [
+        {
+          "name": "小圆Madoka",
+          "status": "正式成员"
+        },
+        {
+          "name": "阿鱼Sakana",
+          "status": "正式成员 / 白色担当"
+        },
+        {
+          "name": "芋圆Yuika",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "小噜Ruruko",
+          "status": "正式成员 / 水色担当"
+        }
+      ]
+    },
+    {
       "name": "ReaLume",
       "members": [
         {
@@ -10446,6 +11782,31 @@
         {
           "name": "富田Kaya",
           "status": "前成员 / 薄荷色担当"
+        }
+      ]
+    },
+    {
+      "name": "ReBeat",
+      "members": [
+        {
+          "name": "鱼芽Sayori",
+          "status": "正式成员 / 薄荷色担当"
+        },
+        {
+          "name": "生煎猫Ema",
+          "status": "正式成员 / 黄色担当"
+        },
+        {
+          "name": "咩咩Hime",
+          "status": "正式成员 / 白色担当"
+        },
+        {
+          "name": "鲨鱼Same",
+          "status": "正式成员 / 蓝色担当"
+        },
+        {
+          "name": "夢咲莓Ichigo",
+          "status": "正式成员 / 粉色担当"
         }
       ]
     },
@@ -10508,23 +11869,23 @@
       "members": [
         {
           "name": "阿飯Kumo",
-          "status": "正式成员 / 紫色担当"
+          "status": "最终成员 / 紫色担当"
         },
         {
           "name": "米亚Mya",
-          "status": "正式成员"
+          "status": "最终成员"
         },
         {
           "name": "乐翎Bogo",
-          "status": "正式成员 / 橙色担当"
+          "status": "最终成员 / 橙色担当"
         },
         {
           "name": "尤卡Yuka",
-          "status": "正式成员 / 白色担当"
+          "status": "最终成员 / 白色担当"
         },
         {
           "name": "小泣Nakki",
-          "status": "正式成员 / 水色担当"
+          "status": "最终成员 / 水色担当"
         },
         {
           "name": "樱味Aji",
@@ -10533,6 +11894,51 @@
         {
           "name": "林子Jolin",
           "status": "前成员 / 浅粉色担当"
+        }
+      ]
+    },
+    {
+      "name": "ReHeart",
+      "members": [
+        {
+          "name": "花理Hanari",
+          "status": "现成员 / 蓝色担当"
+        },
+        {
+          "name": "黑屿Kuroi",
+          "status": "现成员 / 紫色担当"
+        },
+        {
+          "name": "小雪Yukari",
+          "status": "现成员 / 桃色担当"
+        },
+        {
+          "name": "优澪Yumio",
+          "status": "现成员 / 红色担当"
+        },
+        {
+          "name": "卓卓Kaori",
+          "status": "现成员 / 粉色担当"
+        },
+        {
+          "name": "翎梦Remo",
+          "status": "现成员 / 黄色担当"
+        },
+        {
+          "name": "桃桃Momoka",
+          "status": "现成员 / 水色担当"
+        },
+        {
+          "name": "小羊Mera",
+          "status": "现成员 / 金色担当"
+        },
+        {
+          "name": "陽花Ruru",
+          "status": "现成员 / 橙色担当"
+        },
+        {
+          "name": "小眠Yuzuki",
+          "status": "研修生"
         }
       ]
     },
@@ -10548,12 +11954,41 @@
           "status": "正式成员 / 蓝色担当"
         },
         {
-          "name": "耀月🌟",
-          "status": "正式成员 / 黄色担当"
+          "name": "言沐🌏",
+          "status": "正式成员 / 青色担当"
         },
         {
           "name": "泉🦚",
           "status": "前成员 / 绿色担当"
+        },
+        {
+          "name": "耀月🌟",
+          "status": "前成员 / 黄色担当"
+        }
+      ]
+    },
+    {
+      "name": "ReNova",
+      "members": [
+        {
+          "name": "千千ChiKA",
+          "status": "正式成员"
+        },
+        {
+          "name": "鸦鸦kirari",
+          "status": "正式成员"
+        },
+        {
+          "name": "初海umi",
+          "status": "正式成员"
+        },
+        {
+          "name": "白梨Rika",
+          "status": "正式成员 / 水色担当"
+        },
+        {
+          "name": "铃见suzumi",
+          "status": "正式成员 / 灰色担当"
         }
       ]
     },
@@ -10616,6 +12051,31 @@
       ]
     },
     {
+      "name": "Resonate共鸣",
+      "members": [
+        {
+          "name": "祈祈lnori",
+          "status": "最终成员"
+        },
+        {
+          "name": "夏树Natsuki",
+          "status": "最终成员"
+        },
+        {
+          "name": "波洛Boro",
+          "status": "最终成员"
+        },
+        {
+          "name": "欢喜Kanki",
+          "status": "前成员"
+        },
+        {
+          "name": "立崽Riko",
+          "status": "前成员"
+        }
+      ]
+    },
+    {
       "name": "日落逃跑sunset",
       "members": [
         {
@@ -10650,6 +12110,10 @@
         {
           "name": "桃铃Momosuzu",
           "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "理真Yuri",
+          "status": "正式成员"
         },
         {
           "name": "星奈Hoshina",
@@ -10939,8 +12403,87 @@
       ]
     },
     {
+      "name": "SCM-生草莓",
+      "members": [
+        {
+          "name": "白子Shiroko",
+          "status": "正式成员"
+        },
+        {
+          "name": "觅知Mizuki",
+          "status": "正式成员"
+        },
+        {
+          "name": "屁屁Piko",
+          "status": "正式成员"
+        },
+        {
+          "name": "洛洛Raku",
+          "status": "正式成员"
+        },
+        {
+          "name": "椰椰Yeko",
+          "status": "兼任成员"
+        }
+      ]
+    },
+    {
       "name": "Scylla深渊妖歌",
       "members": []
+    },
+    {
+      "name": "色撞Colorflict",
+      "members": [
+        {
+          "name": "Kururu",
+          "status": "正式成员 / 红色担当"
+        },
+        {
+          "name": "Moi",
+          "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "Kinoko",
+          "status": "正式成员 / 绿色担当"
+        },
+        {
+          "name": "Kokona",
+          "status": "前成员 / 蓝色担当"
+        },
+        {
+          "name": "NINI",
+          "status": "前成员 / 黑色担当"
+        }
+      ]
+    },
+    {
+      "name": "SeaFoam",
+      "members": [
+        {
+          "name": "戳戳Choko",
+          "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "可娅Kiya",
+          "status": "正式成员 / 水色担当"
+        },
+        {
+          "name": "弥优Miyuu",
+          "status": "正式成员 / 蓝色担当"
+        },
+        {
+          "name": "七七Kiki",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "梨子Ririko",
+          "status": "正式成员 / 黄色担当"
+        },
+        {
+          "name": "南晴ichiha",
+          "status": "正式成员 / 红色担当"
+        }
+      ]
     },
     {
       "name": "SecretOL秘密上线",
@@ -11062,6 +12605,10 @@
           "status": "正式成员 / 橙色担当"
         },
         {
+          "name": "缘缘",
+          "status": "正式成员 / 绿色担当"
+        },
+        {
           "name": "爪爪",
           "status": "前成员"
         },
@@ -11072,6 +12619,27 @@
         {
           "name": "希希",
           "status": "前成员 / 水色担当"
+        }
+      ]
+    },
+    {
+      "name": "纱翼魔法结社",
+      "members": [
+        {
+          "name": "红鲤儿kouri",
+          "status": "前成员 / 红色担当"
+        },
+        {
+          "name": "小雲kumo",
+          "status": "前成员 / 青色担当"
+        },
+        {
+          "name": "椰梨aeri",
+          "status": "最终成员 / 蓝色担当"
+        },
+        {
+          "name": "茉莉marii",
+          "status": "最终成员 / 紫色担当"
         }
       ]
     },
@@ -11296,27 +12864,6 @@
         {
           "name": "雪穗yuki",
           "status": "未分类"
-        }
-      ]
-    },
-    {
-      "name": "纱翼魔法结社",
-      "members": [
-        {
-          "name": "红鲤儿kouri",
-          "status": "正式成员 / 红色担当"
-        },
-        {
-          "name": "小雲kumo",
-          "status": "正式成员 / 青色担当"
-        },
-        {
-          "name": "椰梨aeri",
-          "status": "正式成员 / 蓝色担当"
-        },
-        {
-          "name": "茉莉marii",
-          "status": "正式成员 / 紫色担当"
         }
       ]
     },
@@ -11581,6 +13128,35 @@
       ]
     },
     {
+      "name": "LifeRevolution",
+      "members": [
+        {
+          "name": "泡泡poniko",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "音羽Koko",
+          "status": "正式成员 / 绿色担当"
+        },
+        {
+          "name": "狸狸riri",
+          "status": "正式成员 / 红色担当"
+        },
+        {
+          "name": "绫夏ayaka",
+          "status": "正式成员 / 浅蓝色担当"
+        },
+        {
+          "name": "罗勒Reva",
+          "status": "正式成员 / 黄色担当"
+        },
+        {
+          "name": "神音幽劣",
+          "status": "飞行成员"
+        }
+      ]
+    },
+    {
       "name": "十分钟意 Tentolove",
       "members": [
         {
@@ -11718,6 +13294,27 @@
         {
           "name": "桜唄かに",
           "status": "前成员"
+        }
+      ]
+    },
+    {
+      "name": "Shinkle 宙心",
+      "members": [
+        {
+          "name": "時奥toki",
+          "status": "最终成员"
+        },
+        {
+          "name": "诺米nomi",
+          "status": "最终成员"
+        },
+        {
+          "name": "淼淼Hisame",
+          "status": "最终成员"
+        },
+        {
+          "name": "小夜Saya",
+          "status": "最终成员"
         }
       ]
     },
@@ -11882,10 +13479,6 @@
           "status": "正式成员 / 蓝色担当"
         },
         {
-          "name": "汐葵Shioki",
-          "status": "正式成员 / 绿色担当"
-        },
-        {
           "name": "咪露Miru",
           "status": "正式成员 / 红色担当"
         },
@@ -11920,6 +13513,10 @@
         {
           "name": "短短",
           "status": "飞行成员"
+        },
+        {
+          "name": "汐葵Shioki",
+          "status": "飞行成员 / 绿色担当"
         },
         {
           "name": "潆酱ei",
@@ -12136,6 +13733,31 @@
       ]
     },
     {
+      "name": "SIdsTeoNsKe末願",
+      "members": [
+        {
+          "name": "木木Moku",
+          "status": "正式成员 / 白色担当"
+        },
+        {
+          "name": "阿伊莎ayisa",
+          "status": "正式成员 / 浅蓝色担当"
+        },
+        {
+          "name": "和子かずこKazuko",
+          "status": "正式成员 / 黑色担当"
+        },
+        {
+          "name": "维加Vica",
+          "status": "前成员 / 紫色担当"
+        },
+        {
+          "name": "莉莉丝Lilith",
+          "status": "前成员 / 红色担当"
+        }
+      ]
+    },
+    {
       "name": "SilypowerGirls",
       "members": [
         {
@@ -12212,15 +13834,7 @@
       "name": "SINRETORNO",
       "members": [
         {
-          "name": "蓝 長島楓KAEDE",
-          "status": "正式成员"
-        },
-        {
           "name": "红 Rokumo6mo竹子",
-          "status": "正式成员"
-        },
-        {
-          "name": "绿 寝Nemo_zzZ",
           "status": "正式成员"
         },
         {
@@ -12230,6 +13844,14 @@
         {
           "name": "银 诗墨utasumi",
           "status": "正式成员"
+        },
+        {
+          "name": "蓝 長島楓KAEDE",
+          "status": "支援成员"
+        },
+        {
+          "name": "绿 寝Nemo_zzZ",
+          "status": "支援成员"
         }
       ]
     },
@@ -12266,12 +13888,20 @@
       "name": "SmileSeeker",
       "members": [
         {
-          "name": "店长】日和Hiyori",
+          "name": "店长】冬栄Fuyue",
+          "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "店员】拖拖Noemi",
           "status": "正式成员 / 粉色担当"
         },
         {
-          "name": "副店长】冬栄Fuyue",
-          "status": "正式成员 / 紫色担当"
+          "name": "店员】挞挞Tatta",
+          "status": "正式成员 / 黄色担当"
+        },
+        {
+          "name": "店长】日和Hiyori",
+          "status": "前成员 / 粉色担当"
         },
         {
           "name": "店员】楚翮Mafuri",
@@ -12283,16 +13913,12 @@
       "name": "SOLAMENTE",
       "members": [
         {
-          "name": "夜見Yorumi",
-          "status": "正式成员"
-        },
-        {
           "name": "水鳥糸Ito",
           "status": "正式成员 / 桃色担当"
         },
         {
           "name": "朽木チアキChiaki",
-          "status": "正式成员 / 紫色担当"
+          "status": "正式成员"
         },
         {
           "name": "月丿雫Shizuku",
@@ -12305,6 +13931,18 @@
         {
           "name": "氏闇来世Shiyami",
           "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "神無如魉Nyami",
+          "status": "正式成员 / 金色担当"
+        },
+        {
+          "name": "特别助演",
+          "status": "正式成员"
+        },
+        {
+          "name": "Aoyi 🩵🌻",
+          "status": "正式成员"
         },
         {
           "name": "星羅凛Rin",
@@ -12325,6 +13963,10 @@
         {
           "name": "黒川NOIZU",
           "status": "前成员 / 粉色担当"
+        },
+        {
+          "name": "夜見Yorumi",
+          "status": "前成员"
         }
       ]
     },
@@ -12358,15 +14000,15 @@
       "members": [
         {
           "name": "柠檬汁",
-          "status": "正式成员 / 黄色担当"
+          "status": "最终成员 / 黄色担当"
         },
         {
           "name": "小芯",
-          "status": "正式成员 / 粉色担当"
+          "status": "最终成员 / 粉色担当"
         },
         {
           "name": "白玖",
-          "status": "正式成员"
+          "status": "最终成员"
         }
       ]
     },
@@ -12382,7 +14024,7 @@
           "status": "未分类 / 粉色担当"
         },
         {
-          "name": "三月mitsuki",
+          "name": "三月Mitsuki",
           "status": "未分类 / 黄色担当"
         },
         {
@@ -12394,8 +14036,12 @@
           "status": "未分类 / 红色担当"
         },
         {
-          "name": "和奏wakana",
+          "name": "和奏Wakana",
           "status": "未分类 / 白色担当"
+        },
+        {
+          "name": "日和Hiyori",
+          "status": "未分类 / 绿色担当"
         }
       ]
     },
@@ -12424,7 +14070,7 @@
           "status": "正式成员 / 蓝色担当"
         },
         {
-          "name": "芥RIRIKA",
+          "name": "天照芥RIRIKA=芥RIRIKA",
           "status": "正式成员 / 紫色担当"
         },
         {
@@ -12436,7 +14082,7 @@
           "status": "正式成员 / 黑色担当"
         },
         {
-          "name": "綾葉Ayaha",
+          "name": "綾葉Ayaha=出雲Ayaha",
           "status": "正式成员 / 粉色担当"
         },
         {
@@ -12473,14 +14119,6 @@
           "status": "正式成员"
         },
         {
-          "name": "吃吃Fuku",
-          "status": "正式成员 / 黄色担当"
-        },
-        {
-          "name": "鼠条Kyuko",
-          "status": "正式成员 / 粉色担当"
-        },
-        {
           "name": "麦麦Melody",
           "status": "正式成员 / 红色担当"
         },
@@ -12489,30 +14127,30 @@
           "status": "正式成员 / 白色担当"
         },
         {
+          "name": "巧可Choco",
+          "status": "正式成员 / 蓝色担当"
+        },
+        {
           "name": "小加Koka",
           "status": "前成员 / 白色担当"
         },
         {
           "name": "小水Sono",
           "status": "前成员 / 紫色担当"
+        },
+        {
+          "name": "鼠条Kyuko",
+          "status": "前成员 / 粉色担当"
+        },
+        {
+          "name": "吃吃Fuku",
+          "status": "前成员 / 黄色担当"
         }
       ]
     },
     {
       "name": "StarDiary",
       "members": [
-        {
-          "name": "小樱2Sakura",
-          "status": "现成员 / 粉色担当"
-        },
-        {
-          "name": "小梓Azusa",
-          "status": "现成员 / 紫色担当"
-        },
-        {
-          "name": "夕葵Aoi",
-          "status": "现成员 / 红色担当"
-        },
         {
           "name": "挞子Tako",
           "status": "现成员 / 白色担当"
@@ -12528,6 +14166,14 @@
         {
           "name": "小依Ichi",
           "status": "现成员 / 水色担当"
+        },
+        {
+          "name": "Noa",
+          "status": "现成员 / 红色担当"
+        },
+        {
+          "name": "Sekari",
+          "status": "研修生 / 紫色担当"
         },
         {
           "name": "小郁Utsu",
@@ -12556,6 +14202,51 @@
         {
           "name": "Meru",
           "status": "前成员"
+        },
+        {
+          "name": "小梓Azusa",
+          "status": "前成员"
+        },
+        {
+          "name": "小樱2Sakura",
+          "status": "前成员 / 粉色担当"
+        },
+        {
+          "name": "夕葵Aoi",
+          "status": "前成员 / 红色担当"
+        }
+      ]
+    },
+    {
+      "name": "StarEcho",
+      "members": [
+        {
+          "name": "粘粘",
+          "status": "正式成员 / 白色担当"
+        },
+        {
+          "name": "小问Koaku",
+          "status": "正式成员 / 绿色担当"
+        },
+        {
+          "name": "诺nono",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "小狐狸Kitsune",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "Kiko",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "爱酱Renaix",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "晕妮mememko",
+          "status": "正式成员 / 红色担当"
         }
       ]
     },
@@ -12644,10 +14335,6 @@
           "status": "现成员 / 黄色担当"
         },
         {
-          "name": "梨糖Rinoko",
-          "status": "研修生"
-        },
-        {
           "name": "小怡kawa",
           "status": "前成员 / 水色担当"
         },
@@ -12666,6 +14353,10 @@
         {
           "name": "小祈Sora",
           "status": "前成员"
+        },
+        {
+          "name": "梨糖Rinoko",
+          "status": "前成员"
         }
       ]
     },
@@ -12677,16 +14368,16 @@
           "status": "正式成员 / 黄色担当"
         },
         {
-          "name": "喵子Niya",
-          "status": "正式成员 / 粉色担当"
-        },
-        {
           "name": "祁喵Sorako",
           "status": "正式成员 / 水色担当"
         },
         {
           "name": "糖豆Amaru",
           "status": "正式成员 / 白色担当"
+        },
+        {
+          "name": "喵子Niya",
+          "status": "前成员 / 粉色担当"
         }
       ]
     },
@@ -12755,10 +14446,6 @@
           "status": "现成员 / 粉色担当"
         },
         {
-          "name": "小慕Nemu",
-          "status": "现成员 / 绿色担当"
-        },
-        {
           "name": "小翼",
           "status": "前成员"
         },
@@ -12793,16 +14480,16 @@
         {
           "name": "萌里Mori",
           "status": "前成员 / 粉色担当"
+        },
+        {
+          "name": "小慕Nemu",
+          "status": "前成员 / 绿色担当"
         }
       ]
     },
     {
-      "name": "StarNight",
+      "name": "StarMelody",
       "members": [
-        {
-          "name": "梨梨Ririko",
-          "status": "现役成员"
-        },
         {
           "name": "句句Akazuki",
           "status": "现役成员 / 粉色担当"
@@ -12816,12 +14503,37 @@
           "status": "现役成员 / 白色担当"
         },
         {
+          "name": "梨梨Ririko",
+          "status": "飞行成员"
+        },
+        {
           "name": "祁祁Yokiya",
           "status": "毕业成员 / 水色担当"
         },
         {
           "name": "荧荧Kurai",
           "status": "毕业成员 / 紫色担当"
+        }
+      ]
+    },
+    {
+      "name": "StarNight 2.0",
+      "members": [
+        {
+          "name": "四白Mashiro",
+          "status": "现役成员 / 红色担当"
+        },
+        {
+          "name": "小怡Kawa",
+          "status": "现役成员 / 银色担当"
+        },
+        {
+          "name": "伏見Shizume",
+          "status": "现役成员 / 白色担当"
+        },
+        {
+          "name": "雨宫Saya",
+          "status": "现役成员 / 蓝色担当"
         }
       ]
     },
@@ -12849,16 +14561,16 @@
           "status": "正式成员 / 黄色担当"
         },
         {
-          "name": "悠梨Yuuri",
-          "status": "研修生 / 绿色担当"
-        },
-        {
           "name": "希亚Noa",
-          "status": "研修生"
+          "status": "正式成员"
         },
         {
           "name": "糯依Mini",
           "status": "前成员 / 白色担当"
+        },
+        {
+          "name": "悠梨Yuuri",
+          "status": "前成员 / 绿色担当"
         }
       ]
     },
@@ -12880,6 +14592,10 @@
         {
           "name": "小谅Akari",
           "status": "正式成员 / 黄色担当"
+        },
+        {
+          "name": "美纱Misaki",
+          "status": "正式成员 / 紫色担当"
         },
         {
           "name": "糕糕Keki",
@@ -12961,6 +14677,14 @@
           "status": "现成员 / 红色担当"
         },
         {
+          "name": "Ako鸭鸭",
+          "status": "现成员 / 粉色担当"
+        },
+        {
+          "name": "獭獭tachi",
+          "status": "现成员 / 白色担当"
+        },
+        {
           "name": "小春Haruka",
           "status": "研修生 / 粉色担当"
         },
@@ -12973,16 +14697,8 @@
           "status": "前成员 / 紫色担当"
         },
         {
-          "name": "Ako鸭鸭",
-          "status": "前成员 / 粉色担当"
-        },
-        {
           "name": "早早Asaya",
           "status": "前成员 / 白色担当"
-        },
-        {
-          "name": "獭獭tachi",
-          "status": "前成员"
         },
         {
           "name": "满满Maruko",
@@ -13132,47 +14848,6 @@
       ]
     },
     {
-      "name": "ReHeart",
-      "members": [
-        {
-          "name": "花理Hanari",
-          "status": "现成员 / 蓝色担当"
-        },
-        {
-          "name": "黑屿Kuroi",
-          "status": "现成员 / 紫色担当"
-        },
-        {
-          "name": "小雪Yukari",
-          "status": "现成员 / 粉色担当"
-        },
-        {
-          "name": "优澪Yumio",
-          "status": "现成员 / 红色担当"
-        },
-        {
-          "name": "卓卓Kaori",
-          "status": "现成员"
-        },
-        {
-          "name": "翎梦Remo",
-          "status": "现成员 / 绿色担当"
-        },
-        {
-          "name": "桃桃Momoka",
-          "status": "现成员"
-        },
-        {
-          "name": "小羊Mera",
-          "status": "现成员 / 金色担当"
-        },
-        {
-          "name": "陽花Ruru",
-          "status": "现成员 / 橙色担当"
-        }
-      ]
-    },
-    {
       "name": "StarX",
       "members": [
         {
@@ -13184,8 +14859,16 @@
           "status": "现役成员 / 水色担当"
         },
         {
-          "name": "咩露Meru",
+          "name": "小柚Meru",
           "status": "现役成员 / 黄色担当"
+        },
+        {
+          "name": "米粒Mizuki",
+          "status": "现役成员 / 白色担当"
+        },
+        {
+          "name": "優晴Yu1na",
+          "status": "现役成员 / 紫色担当"
         },
         {
           "name": "子夜Siya",
@@ -13285,23 +14968,52 @@
       ]
     },
     {
+      "name": "SUSURRO",
+      "members": [
+        {
+          "name": "ZERO",
+          "status": "正式成员 / 绿色担当"
+        },
+        {
+          "name": "宇佐見Mio",
+          "status": "正式成员 / 银色担当"
+        },
+        {
+          "name": "Nain",
+          "status": "正式成员 / 白色担当"
+        },
+        {
+          "name": "ASAGI150",
+          "status": "正式成员 / 绿色担当"
+        },
+        {
+          "name": "檻Ori",
+          "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "愛染姬良梨Hirari",
+          "status": "练习生 / 黄色担当"
+        },
+        {
+          "name": "碓氷コミズ",
+          "status": "飞行成员 / 水色担当"
+        },
+        {
+          "name": "赤喰司見Sumi",
+          "status": "飞行成员 / 红色担当"
+        }
+      ]
+    },
+    {
       "name": "Sweet2Poison",
       "members": [
         {
-          "name": "童瑶",
-          "status": "正式生"
+          "name": "童瑶Miemie",
+          "status": "最终成员"
         },
         {
-          "name": "殊遥",
-          "status": "正式生"
-        },
-        {
-          "name": "雯雯",
-          "status": "正式生"
-        },
-        {
-          "name": "小沫",
-          "status": "常驻飞行成员"
+          "name": "雯雯Kirin",
+          "status": "最终成员"
         },
         {
           "name": "周末",
@@ -13350,6 +15062,14 @@
         {
           "name": "糖豆",
           "status": "前成员"
+        },
+        {
+          "name": "殊遥",
+          "status": "前成员"
+        },
+        {
+          "name": "小沫",
+          "status": "前成员"
         }
       ]
     },
@@ -13369,10 +15089,6 @@
           "status": "正式成员 / 金色担当"
         },
         {
-          "name": "夏悠Nayuyu",
-          "status": "正式成员 / 紫色担当"
-        },
-        {
           "name": "花凛Karin",
           "status": "正式成员 / 粉色担当"
         },
@@ -13390,6 +15106,14 @@
         },
         {
           "name": "安又Airi",
+          "status": "前成员"
+        },
+        {
+          "name": "夏悠Nayuyu",
+          "status": "前成员 / 紫色担当"
+        },
+        {
+          "name": "侑纱Arisa",
           "status": "前成员"
         }
       ]
@@ -13420,72 +15144,56 @@
       ]
     },
     {
+      "name": "TakeBlue",
+      "members": [
+        {
+          "name": "游光Appuru",
+          "status": "正式成员 / 红色担当"
+        },
+        {
+          "name": "庭柊Hiiragi",
+          "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "琉椛ayano",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "浊浊Tatako",
+          "status": "正式成员 / 蓝色担当"
+        },
+        {
+          "name": "夢沫momo",
+          "status": "正式成员 / 白色担当"
+        }
+      ]
+    },
+    {
       "name": "堂吉诃德",
       "members": []
     },
     {
       "name": "糖心SugarHeart",
-      "members": [
-        {
-          "name": "训练生",
-          "status": "未分类"
-        },
-        {
-          "name": "糖糖Ame",
-          "status": "未分类 / 粉色担当"
-        },
-        {
-          "name": "楠羽NoHa",
-          "status": "未分类 / 红色担当"
-        },
-        {
-          "name": "蕾蕾Meguru",
-          "status": "未分类 / 绿色担当"
-        },
-        {
-          "name": "Yolika",
-          "status": "未分类 / 黄色担当"
-        },
-        {
-          "name": "脚脚",
-          "status": "未分类 / 紫色担当"
-        },
-        {
-          "name": "铁牛",
-          "status": "未分类"
-        },
-        {
-          "name": "半世",
-          "status": "未分类"
-        },
-        {
-          "name": "繁繁",
-          "status": "未分类"
-        },
-        {
-          "name": "Tata",
-          "status": "未分类"
-        }
-      ]
+      "members": []
     },
     {
       "name": "TapiokaLab",
       "members": [
         {
-          "name": "彩虹",
-          "status": "正式成员 / 紫色担当"
-        },
-        {
           "name": "小司",
-          "status": "正式成员"
+          "status": "最终成员"
         },
         {
           "name": "小淅",
-          "status": "正式成员 / 蓝色担当"
+          "status": "最终成员 / 蓝色担当"
         },
         {
           "name": "Hiyoko",
-          "status": "正式成员 / 黄色担当"
+          "status": "最终成员 / 黄色担当"
+        },
+        {
+          "name": "彩虹",
+          "status": "前成员 / 紫色担当"
         }
       ]
     },
@@ -13718,6 +15426,19 @@
       ]
     },
     {
+      "name": "天獄夢tenngokuyume",
+      "members": [
+        {
+          "name": "绮罗Kira",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "離百合Riyuri",
+          "status": "正式成员 / 紫色担当"
+        }
+      ]
+    },
+    {
       "name": "Tinystars",
       "members": [
         {
@@ -13731,6 +15452,27 @@
         {
           "name": "铜九",
           "status": "前成员 / 紫色担当"
+        }
+      ]
+    },
+    {
+      "name": "Token",
+      "members": [
+        {
+          "name": "猫敏Miyo",
+          "status": "正式成员 / 红色担当"
+        },
+        {
+          "name": "淼淼Hisame",
+          "status": "正式成员 / 水色担当"
+        },
+        {
+          "name": "Noa",
+          "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "Kuna",
+          "status": "正式成员 / 黄色担当"
         }
       ]
     },
@@ -13956,15 +15698,11 @@
           "status": "TrueMask（UFO）现成员"
         },
         {
-          "name": "Yuki",
-          "status": "TrueMask（小陈）现成员"
-        },
-        {
           "name": "Nochichi",
           "status": "TrueMask（小陈）现成员"
         },
         {
-          "name": "Royi/61",
+          "name": "Hecate",
           "status": "TrueMask（小陈）现成员"
         },
         {
@@ -13993,6 +15731,10 @@
         },
         {
           "name": "Kisu",
+          "status": "前成员"
+        },
+        {
+          "name": "Yuki",
           "status": "前成员"
         }
       ]
@@ -14134,16 +15876,24 @@
           "status": "正式成员"
         },
         {
-          "name": "七七Nana",
-          "status": "正式成员 / 白色担当"
-        },
-        {
           "name": "Riria",
           "status": "正式成员 / 紫色担当"
         },
         {
+          "name": "Mio",
+          "status": "正式成员 / 红色担当"
+        },
+        {
+          "name": "Yuna",
+          "status": "正式成员 / 蓝色担当"
+        },
+        {
           "name": "1ToRin",
           "status": "前成员 / 粉色担当"
+        },
+        {
+          "name": "七七Nana",
+          "status": "前成员 / 白色担当"
         }
       ]
     },
@@ -14152,23 +15902,27 @@
       "members": [
         {
           "name": "贝贝Beibo",
-          "status": "现役成员"
+          "status": "正式成员 / 黄色担当"
         },
         {
           "name": "白昭Haku",
-          "status": "现役成员"
-        },
-        {
-          "name": "尾音Winy",
-          "status": "现役成员"
+          "status": "正式成员 / 绿色担当"
         },
         {
           "name": "泽芜jingshizika",
-          "status": "现役成员"
+          "status": "正式成员 / 白色担当"
         },
         {
           "name": "柒月Tsuki",
-          "status": "练习生"
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "栖子Xijika",
+          "status": "前成员 / 蓝色担当"
+        },
+        {
+          "name": "尾音Winy",
+          "status": "前成员 / 紫色担当"
         }
       ]
     },
@@ -14217,15 +15971,19 @@
           "status": "正式成员 / 绿色担当"
         },
         {
-          "name": "燕子Nano",
-          "status": "正式成员 / 黄色担当"
-        },
-        {
-          "name": "鱼药Koto",
-          "status": "研修生 / 玫红色担当"
-        },
-        {
           "name": "绮花Ayaka",
+          "status": "正式成员 / 蓝色担当"
+        },
+        {
+          "name": "苍Yazuki",
+          "status": "正式成员 / 白色担当"
+        },
+        {
+          "name": "椰汁Kokona",
+          "status": "正式成员 / 黑色担当"
+        },
+        {
+          "name": "千夜Yukino",
           "status": "研修生 / 粉色担当"
         },
         {
@@ -14243,6 +16001,30 @@
         {
           "name": "Yuune",
           "status": "前成员 / 蓝色担当"
+        },
+        {
+          "name": "鱼药Koto",
+          "status": "前成员 / 玫红色担当"
+        },
+        {
+          "name": "燕子Nano",
+          "status": "前成员 / 黄色担当"
+        },
+        {
+          "name": "琉爱Izuru",
+          "status": "前成员 / 紫色担当"
+        },
+        {
+          "name": "单曲",
+          "status": "前成员"
+        },
+        {
+          "name": "2025.03.01] IN THE LIE",
+          "status": "前成员"
+        },
+        {
+          "name": "2025.04.20] PHOENIX BURNING",
+          "status": "前成员"
         }
       ]
     },
@@ -14350,12 +16132,12 @@
       "name": "Vespera",
       "members": [
         {
-          "name": "水母Kurage",
-          "status": "正式成员 / 蓝色担当"
-        },
-        {
           "name": "小圆Madoka",
           "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "水母Kurage",
+          "status": "正式成员 / 蓝色担当"
         },
         {
           "name": "白鲸Shiro",
@@ -14363,11 +16145,15 @@
         },
         {
           "name": "早早Asaya",
-          "status": "正式成员"
+          "status": "正式成员 / 水色担当"
         },
         {
-          "name": "凛华Rinka",
-          "status": "正式成员"
+          "name": "林擒Ringo",
+          "status": "正式成员 / 红色担当"
+        },
+        {
+          "name": "小环Tamaki",
+          "status": "正式成员 / 紫色担当"
         },
         {
           "name": "枫Kaede",
@@ -14376,6 +16162,23 @@
         {
           "name": "米娅Mia",
           "status": "前成员 / 紫色担当"
+        },
+        {
+          "name": "凛华Rinka",
+          "status": "前成员"
+        }
+      ]
+    },
+    {
+      "name": "Vice Verse 善恶反转",
+      "members": [
+        {
+          "name": "月月Tsuki",
+          "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "云云kumo",
+          "status": "正式成员 / 粉色担当"
         }
       ]
     },
@@ -14399,7 +16202,7 @@
           "status": "正式成员 / 水色担当"
         },
         {
-          "name": "沐白Moku",
+          "name": "初寒Samui",
           "status": "研修生 / 黄色担当"
         },
         {
@@ -14413,6 +16216,27 @@
         {
           "name": "圆只",
           "status": "前成员 / 橙色担当"
+        },
+        {
+          "name": "沐白Moku",
+          "status": "前成员 / 黄色担当"
+        }
+      ]
+    },
+    {
+      "name": "Voice of X",
+      "members": [
+        {
+          "name": "波铃",
+          "status": "正式成员 / 蓝色担当"
+        },
+        {
+          "name": "馨馨子",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "信息箱",
+          "status": "正式成员 / 绿色担当"
         }
       ]
     },
@@ -14491,43 +16315,55 @@
       "members": [
         {
           "name": "椰椰",
-          "status": "正式成员 / 白色担当"
+          "status": "最终成员 / 白色担当"
         },
         {
           "name": "真希希",
-          "status": "正式成员 / 水色担当"
+          "status": "最终成员 / 水色担当"
         },
         {
           "name": "烛兮",
-          "status": "正式成员 / 粉色担当"
-        },
-        {
-          "name": "七狗",
-          "status": "正式成员 / 橙色担当"
-        },
-        {
-          "name": "也司",
-          "status": "正式成员 / 紫色担当"
+          "status": "最终成员 / 粉色担当"
         },
         {
           "name": "小赤",
-          "status": "正式成员 / 蓝色担当"
+          "status": "最终成员 / 蓝色担当"
         },
         {
-          "name": "小慕",
-          "status": "正式成员 / 绿色担当"
+          "name": "辣辣",
+          "status": "最终成员 / 黄色担当"
         },
         {
-          "name": "小璐",
-          "status": "正式成员 / 黄色担当"
+          "name": "蛋蛋tamako",
+          "status": "最终成员 / 紫色担当"
         },
         {
-          "name": "小柴",
-          "status": "正式成员 / 红色担当"
+          "name": "砂糖satou",
+          "status": "最终成员"
+        },
+        {
+          "name": "七狗",
+          "status": "最终成员 / 橙色担当"
         },
         {
           "name": "小钳",
           "status": "前成员 / 红色担当"
+        },
+        {
+          "name": "也司",
+          "status": "前成员 / 紫色担当"
+        },
+        {
+          "name": "小慕",
+          "status": "前成员 / 绿色担当"
+        },
+        {
+          "name": "小柴",
+          "status": "前成员 / 红色担当"
+        },
+        {
+          "name": "小璐",
+          "status": "前成员 / 黄色担当"
         }
       ]
     },
@@ -14576,10 +16412,6 @@
           "status": "最终成员 / 水色担当"
         },
         {
-          "name": "nemo",
-          "status": "最终成员 / 黄色担当"
-        },
-        {
           "name": "rei",
           "status": "最终成员 / 紫色担当"
         },
@@ -14588,8 +16420,12 @@
           "status": "最终成员 / 粉色担当"
         },
         {
+          "name": "nemo",
+          "status": "前成员 / 黄色担当"
+        },
+        {
           "name": "yolumi",
-          "status": "最终成员 / 绿色担当"
+          "status": "前成员 / 绿色担当"
         }
       ]
     },
@@ -14672,15 +16508,15 @@
       "members": [
         {
           "name": "荞麦",
-          "status": "正式成员"
+          "status": "最终成员"
         },
         {
           "name": "樋口鹽",
-          "status": "正式成员"
+          "status": "最终成员"
         },
         {
           "name": "日海十三",
-          "status": "正式成员"
+          "status": "最终成员"
         }
       ]
     },
@@ -14808,8 +16644,12 @@
           "status": "正式成员 / 粉色担当"
         },
         {
+          "name": "小凍Iteru",
+          "status": "正式成员 / 白色担当"
+        },
+        {
           "name": "南晴ichiha",
-          "status": "研修生 / 橙色担当"
+          "status": "前成员 / 橙色担当"
         }
       ]
     },
@@ -15063,10 +16903,6 @@
           "status": "正式成员"
         },
         {
-          "name": "Eki爱莓",
-          "status": "正式成员"
-        },
-        {
           "name": "Aito",
           "status": "正式成员 / 薄荷色担当"
         },
@@ -15084,6 +16920,10 @@
         },
         {
           "name": "みか/Mika",
+          "status": "前成员"
+        },
+        {
+          "name": "Eki爱莓",
           "status": "前成员"
         }
       ]
@@ -15236,31 +17076,31 @@
       "members": [
         {
           "name": "雨歇Ame",
-          "status": "最终成员"
+          "status": "最终成员 / 红色担当"
         },
         {
           "name": "垣Gaki",
-          "status": "最终成员"
+          "status": "最终成员 / 粉色担当"
         },
         {
           "name": "祺祺Qinabo",
-          "status": "最终成员"
+          "status": "最终成员 / 蓝色担当"
         },
         {
           "name": "丘宝Ruri",
-          "status": "前成员"
+          "status": "前成员 / 天蓝色担当"
         },
         {
           "name": "番茄Hana",
-          "status": "前成员"
+          "status": "前成员 / 黄色担当"
         },
         {
           "name": "风扇Kaze",
-          "status": "前成员"
+          "status": "前成员 / 红色担当"
         },
         {
           "name": "卟卟Puru",
-          "status": "前成员"
+          "status": "前成员 / 紫色担当"
         }
       ]
     },
@@ -15393,6 +17233,14 @@
         {
           "name": "尤莉Yuri",
           "status": "现成员 / 粉色担当"
+        },
+        {
+          "name": "兜兜Totoro",
+          "status": "现成员 / 橙色担当"
+        },
+        {
+          "name": "知世Tomoyo",
+          "status": "现成员 / 紫色担当"
         }
       ]
     },
@@ -15546,16 +17394,41 @@
       ]
     },
     {
-      "name": "星海蜜语",
+      "name": "星轨病毒0618",
       "members": [
         {
-          "name": "桃汁",
+          "name": "星轨病毒001 咲依suki",
+          "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "星轨病毒002 小晴Naiko",
           "status": "正式成员 / 绿色担当"
         },
         {
-          "name": "肉肉",
-          "status": "正式成员 / 紫色担当"
+          "name": "星轨病毒003 元芳genhou",
+          "status": "正式成员 / 水色担当"
         },
+        {
+          "name": "星轨病毒004 冬荣Fuyue",
+          "status": "正式成员 / 白色担当"
+        },
+        {
+          "name": "星轨病毒005 羽枫hafuu",
+          "status": "正式成员 / 黄色担当"
+        },
+        {
+          "name": "霜雪Aeri",
+          "status": "前成员 / 红色担当"
+        },
+        {
+          "name": "糖小露er",
+          "status": "前成员 / 粉色担当"
+        }
+      ]
+    },
+    {
+      "name": "星海蜜语",
+      "members": [
         {
           "name": "芋圆",
           "status": "正式成员 / 水色担当"
@@ -15563,6 +17436,14 @@
         {
           "name": "乐乐",
           "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "桃汁",
+          "status": "正式成员 / 绿色担当"
+        },
+        {
+          "name": "肉肉",
+          "status": "正式成员 / 紫色担当"
         }
       ]
     },
@@ -15700,6 +17581,43 @@
         {
           "name": "猫好好iichan",
           "status": "重庆体制现役成员(2025.3.8-) / 粉色担当"
+        },
+        {
+          "name": "花hana",
+          "status": "重庆体制现役成员(2025.3.8-)"
+        }
+      ]
+    },
+    {
+      "name": "YAKOBOKU",
+      "members": [
+        {
+          "name": "霧切 きり",
+          "status": "現成員"
+        },
+        {
+          "name": "月宮 セナ",
+          "status": "現成員"
+        },
+        {
+          "name": "有栖 キリ",
+          "status": "現成員"
+        },
+        {
+          "name": "川島 桜",
+          "status": "現成員"
+        },
+        {
+          "name": "真昼 シモ",
+          "status": "現成員"
+        },
+        {
+          "name": "黒川 うしな",
+          "status": "現成員"
+        },
+        {
+          "name": "水川 とき",
+          "status": "前成員"
         }
       ]
     },
@@ -15992,7 +17910,7 @@
         },
         {
           "name": "芹菜Serori",
-          "status": "研修生 / 薄荷色担当"
+          "status": "正式成员 / 薄荷色担当"
         },
         {
           "name": "春日Haruhi",
@@ -16038,6 +17956,31 @@
         {
           "name": "粟米kome",
           "status": "正式成员 / 黄色担当"
+        }
+      ]
+    },
+    {
+      "name": "银烁花火",
+      "members": [
+        {
+          "name": "森森Moriri",
+          "status": "正式成员 / 红色担当"
+        },
+        {
+          "name": "萌绘Moe",
+          "status": "正式成员"
+        },
+        {
+          "name": "真夜Maya",
+          "status": "正式成员 / 薄荷色担当"
+        },
+        {
+          "name": "小改Kayi",
+          "status": "正式成员"
+        },
+        {
+          "name": "凛樱Karin",
+          "status": "正式成员 / 粉色担当"
         }
       ]
     },
@@ -16088,6 +18031,18 @@
         {
           "name": "菜菜子Nanako",
           "status": "现役成员 / 红色担当"
+        },
+        {
+          "name": "葡萄Furi",
+          "status": "现役成员"
+        },
+        {
+          "name": "梅雨Miu",
+          "status": "现役成员"
+        },
+        {
+          "name": "煎蛋Tamako",
+          "status": "现役成员 / 水色担当"
         },
         {
           "name": "惜瑶Yoyo",
@@ -16198,8 +18153,16 @@
           "status": "正式成员 / 绿色担当"
         },
         {
-          "name": "白银Hakugin",
-          "status": "正式成员 / 银色担当"
+          "name": "蛋酱Tamako",
+          "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "希子Kiyoko",
+          "status": "正式成员 / 红色担当"
+        },
+        {
+          "name": "璃兔Rulito",
+          "status": "正式成员 / 白色担当"
         },
         {
           "name": "八尾夭夭",
@@ -16212,6 +18175,10 @@
         {
           "name": "熊喵Noki",
           "status": "前成员 / 粉色担当"
+        },
+        {
+          "name": "白银Hakugin",
+          "status": "前成员 / 银色担当"
         }
       ]
     },
@@ -16262,6 +18229,35 @@
         {
           "name": "捏捏Yumeki",
           "status": "正式成员 / 水色担当"
+        }
+      ]
+    },
+    {
+      "name": "跃动青空AzuraJump",
+      "members": [
+        {
+          "name": "制盐SiO",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "猫猫neko",
+          "status": "正式成员 / 黄色担当"
+        },
+        {
+          "name": "睡睡Satsuki",
+          "status": "正式成员 / 水色担当"
+        },
+        {
+          "name": "小熊Kuma",
+          "status": "前成员 / 红色担当"
+        },
+        {
+          "name": "小犬Akinu",
+          "status": "前成员 / 绿色担当"
+        },
+        {
+          "name": "玉祁Tamaki",
+          "status": "前成员 / 白色担当"
         }
       ]
     },
@@ -16552,6 +18548,27 @@
       ]
     },
     {
+      "name": "ZeroWonder",
+      "members": [
+        {
+          "name": "小宁Nene",
+          "status": "正式成员 / 红色担当"
+        },
+        {
+          "name": "睡礼Neru",
+          "status": "正式成员 / 水色担当"
+        },
+        {
+          "name": "小星Hoshi",
+          "status": "正式成员"
+        },
+        {
+          "name": "软软Fuwa",
+          "status": "正式成员 / 绿色担当"
+        }
+      ]
+    },
+    {
       "name": "戰鬥天使AxALITA",
       "members": [
         {
@@ -16655,16 +18672,29 @@
       "name": "这里有只幽灵Humanless",
       "members": [
         {
+          "name": "水奈Kiyo",
+          "status": "现成员"
+        },
+        {
+          "name": "句号Maru",
+          "status": "现成员"
+        }
+      ]
+    },
+    {
+      "name": "这里有只幽灵Humanless/初始体制",
+      "members": [
+        {
           "name": "小楓Kaede",
-          "status": "现体制最终成员"
+          "status": "最终成员"
         },
         {
           "name": "小怠zzZ",
-          "status": "现体制最终成员"
+          "status": "最终成员"
         },
         {
           "name": "沐沐Rabi",
-          "status": "现体制最终成员"
+          "status": "最终成员"
         },
         {
           "name": "Hitomi潼潼",
@@ -16676,6 +18706,10 @@
         },
         {
           "name": "优理亚Yuria",
+          "status": "前成员"
+        },
+        {
+          "name": "Rin泠子",
           "status": "前成员"
         },
         {
@@ -16737,6 +18771,26 @@
       "name": "真夜中ELF",
       "members": [
         {
+          "name": "美海Miuna",
+          "status": "现役成员"
+        },
+        {
+          "name": "子夜Siya",
+          "status": "现役成员"
+        },
+        {
+          "name": "砂糖Shato",
+          "status": "现役成员"
+        },
+        {
+          "name": "莉光Liora",
+          "status": "现役成员 / 蓝色担当"
+        },
+        {
+          "name": "四九Shiku",
+          "status": "现役成员"
+        },
+        {
           "name": "早间月",
           "status": "毕业成员"
         },
@@ -16784,6 +18838,31 @@
         {
           "name": "固体",
           "status": "前成员"
+        }
+      ]
+    },
+    {
+      "name": "正负零",
+      "members": [
+        {
+          "name": "卟卟Puru",
+          "status": "现役成员 / 蓝色担当"
+        },
+        {
+          "name": "小悠Yuuri",
+          "status": "现役成员 / 紫色担当"
+        },
+        {
+          "name": "姬子Himeko",
+          "status": "现役成员 / 粉色担当"
+        },
+        {
+          "name": "饼饼Momoya",
+          "status": "现役成员 / 白色担当"
+        },
+        {
+          "name": "霧子Kiriko",
+          "status": "毕业成员 / 黄色担当"
         }
       ]
     },
@@ -16975,12 +19054,45 @@
           "status": "现成员"
         },
         {
-          "name": "izuki Aiku",
+          "name": "Ato小久 Aiku",
           "status": "现成员"
         },
         {
-          "name": "MayumiAto小久",
+          "name": "MayumiNatsuki",
           "status": "现成员"
+        },
+        {
+          "name": "izuki",
+          "status": "前成员"
+        }
+      ]
+    },
+    {
+      "name": "无限旅境INFINITE",
+      "members": [
+        {
+          "name": "幽琪Yura",
+          "status": "正式成员"
+        },
+        {
+          "name": "葉理hari",
+          "status": "正式成员"
+        },
+        {
+          "name": "利奥利Riaoli",
+          "status": "正式成员"
+        },
+        {
+          "name": "汤圆Maru",
+          "status": "正式成员"
+        },
+        {
+          "name": "唯一Unika",
+          "status": "正式成员"
+        },
+        {
+          "name": "席清Kiuoshi",
+          "status": "正式成员"
         }
       ]
     },
@@ -17000,12 +19112,41 @@
           "status": "现成员 / 紫色担当"
         },
         {
+          "name": "雨前茶Kosame",
+          "status": "现成员 / 水色担当"
+        },
+        {
           "name": "迷航wataru",
-          "status": "毕业成员"
+          "status": "现成员"
         },
         {
           "name": "娜娜酱kiyona",
-          "status": "毕业成员"
+          "status": "现成员"
+        }
+      ]
+    },
+    {
+      "name": "ReCream",
+      "members": [
+        {
+          "name": "兔兔Miottie",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "起源Chika",
+          "status": "正式成员 / 蓝色担当"
+        },
+        {
+          "name": "小柠Hinako",
+          "status": "正式成员 / 黄色担当"
+        },
+        {
+          "name": "卡绒Karon",
+          "status": "正式成员 / 红色担当"
+        },
+        {
+          "name": "晕酱Mizuyu",
+          "status": "正式成员 / 水色担当"
         }
       ]
     }

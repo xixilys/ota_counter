@@ -19,7 +19,7 @@ class DatabaseService {
   static const String activityRecordTableName = 'activity_records';
   static const String activityRecordMediaTableName = 'activity_record_media';
   static const String counterSyncTableName = 'counter_sync_log';
-  static const int _version = 15;
+  static const int _version = 16;
 
   static Database? _database;
 
@@ -112,6 +112,9 @@ class DatabaseService {
     }
     if (oldVersion < 15) {
       await _migrateToV15(db);
+    }
+    if (oldVersion < 16) {
+      await _migrateToV16(db);
     }
     await _ensureLatestSchema(db);
   }
@@ -217,7 +220,8 @@ class DatabaseService {
         path TEXT NOT NULL,
         created_at TEXT NOT NULL,
         media_type TEXT NOT NULL DEFAULT 'memory',
-        processing_mode TEXT NOT NULL DEFAULT 'none'
+        processing_mode TEXT NOT NULL DEFAULT 'none',
+        is_reversed INTEGER NOT NULL DEFAULT 0
       )
     ''');
     await db.execute('''
@@ -440,7 +444,8 @@ class DatabaseService {
         path TEXT NOT NULL,
         created_at TEXT NOT NULL,
         media_type TEXT NOT NULL DEFAULT 'memory',
-        processing_mode TEXT NOT NULL DEFAULT 'none'
+        processing_mode TEXT NOT NULL DEFAULT 'none',
+        is_reversed INTEGER NOT NULL DEFAULT 0
       )
     ''');
     await db.execute('''
@@ -473,6 +478,16 @@ class DatabaseService {
       activityRecordTableName,
       {
         'custom_cheki_counts_json': "TEXT NOT NULL DEFAULT '[]'",
+      },
+    );
+  }
+
+  static Future<void> _migrateToV16(Database db) async {
+    await _ensureColumns(
+      db,
+      activityRecordMediaTableName,
+      {
+        'is_reversed': 'INTEGER NOT NULL DEFAULT 0',
       },
     );
   }
@@ -565,7 +580,8 @@ class DatabaseService {
         path TEXT NOT NULL,
         created_at TEXT NOT NULL,
         media_type TEXT NOT NULL DEFAULT 'memory',
-        processing_mode TEXT NOT NULL DEFAULT 'none'
+        processing_mode TEXT NOT NULL DEFAULT 'none',
+        is_reversed INTEGER NOT NULL DEFAULT 0
       )
     ''');
     await _ensureColumns(
@@ -574,6 +590,7 @@ class DatabaseService {
       {
         'media_type': "TEXT NOT NULL DEFAULT 'memory'",
         'processing_mode': "TEXT NOT NULL DEFAULT 'none'",
+        'is_reversed': 'INTEGER NOT NULL DEFAULT 0',
       },
     );
     await db.execute('''
@@ -957,6 +974,20 @@ class DatabaseService {
       createdAt: media.createdAt,
       mediaType: media.mediaType,
       processingMode: media.processingMode,
+      isReversed: media.isReversed,
+    );
+  }
+
+  static Future<void> updateActivityRecordMediaReversed(
+    int id, {
+    required bool isReversed,
+  }) async {
+    final db = await database;
+    await db.update(
+      activityRecordMediaTableName,
+      {'is_reversed': isReversed ? 1 : 0},
+      where: 'id = ?',
+      whereArgs: [id],
     );
   }
 

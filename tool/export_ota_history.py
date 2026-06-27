@@ -15,7 +15,7 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 
-DEFAULT_BASE_URL = "https://ota.huangxuanqi.top"
+DEFAULT_BASE_URL = "https://ota-counter.huangxuanqi.top"
 DEFAULT_PREFIX = "ota_history_bundle"
 USER_AGENT = "ota-counter-export/1.0"
 

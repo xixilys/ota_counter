@@ -51,3 +51,4 @@ app.*.map.json
 *.db-wal
 *.keystore
 *.jks
+.omx/

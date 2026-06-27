@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -6,6 +7,7 @@ import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import '../app_metadata.dart';
 import '../models/idol_database_models.dart';
 
 class IdolDatabaseService {
@@ -201,8 +203,12 @@ class IdolDatabaseService {
   }
 
   static Future<void> syncBuiltInData() async {
-    final db = await database;
     final bundle = await _loadSeedBundle();
+    await _syncBundle(bundle);
+  }
+
+  static Future<void> _syncBundle(IdolSeedBundle bundle) async {
+    final db = await database;
 
     await db.transaction((txn) async {
       final existingGroups = await txn.query('idol_groups');
@@ -323,6 +329,41 @@ class IdolDatabaseService {
       await _cleanupUnusedPeople(txn);
       await _writeMeta(txn, bundle);
     });
+  }
+
+  static Future<void> syncFromRemote({String? url}) async {
+    final seedUrl = url ?? kIdolSeedUrl;
+    final uri = Uri.tryParse(seedUrl);
+    if (uri == null) {
+      throw const FormatException('偶像数据地址无效');
+    }
+
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 15);
+    try {
+      final request = await client.getUrl(uri);
+      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      final response =
+          await request.close().timeout(const Duration(seconds: 15));
+
+      if (response.statusCode != HttpStatus.ok) {
+        throw HttpException(
+          '下载偶像数据失败 (${response.statusCode})',
+          uri: uri,
+        );
+      }
+
+      final body = await utf8.decodeStream(response);
+      final decoded = jsonDecode(body);
+      if (decoded is! Map<String, Object?>) {
+        throw const FormatException('偶像数据格式不正确');
+      }
+
+      final bundle = IdolSeedBundle.fromJson(decoded);
+      await _syncBundle(bundle);
+    } finally {
+      client.close(force: true);
+    }
   }
 
   static Future<void> restoreBuiltInData() async {

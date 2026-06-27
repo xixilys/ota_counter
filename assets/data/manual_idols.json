@@ -1,0 +1,30 @@
+{
+  "description": "手动补充的偶像团体数据。每次运行 generate_china_idols_seed.py 时会自动合并到种子文件中，不会被 Wiki 爬虫覆盖。",
+  "groups": [
+    {
+      "name": "ReCream",
+      "members": [
+        {
+          "name": "兔兔Miottie",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
+          "name": "起源Chika",
+          "status": "正式成员 / 蓝色担当"
+        },
+        {
+          "name": "小柠Hinako",
+          "status": "正式成员 / 黄色担当"
+        },
+        {
+          "name": "卡绒Karon",
+          "status": "正式成员 / 红色担当"
+        },
+        {
+          "name": "晕酱Mizuyu",
+          "status": "正式成员 / 水色担当"
+        }
+      ]
+    }
+  ]
+}

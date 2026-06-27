@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 from collections import OrderedDict
@@ -23,6 +24,12 @@ OUTPUT = (
     / "assets"
     / "data"
     / "china_idols_seed.json"
+)
+MANUAL = (
+    Path(__file__).resolve().parents[1]
+    / "assets"
+    / "data"
+    / "manual_idols.json"
 )
 
 SECTION_STOP_WORDS = ("作品", "经历", "重大事件", "时间线", "单曲", "公演", "活动")
@@ -471,7 +478,83 @@ def should_keep_group(title: str, members: list[dict[str, str]]) -> bool:
     return True
 
 
-def main() -> None:
+def load_manual_additions(path: Path) -> list[dict]:
+    """Load manual idol additions from a JSON file."""
+    if not path.is_file():
+        print(f"Manual additions file not found: {path}, skipping.")
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data.get("groups", [])
+    except (json.JSONDecodeError, OSError) as exc:
+        print(f"Failed to load manual additions from {path}: {exc}")
+        return []
+
+
+def merge_manual_additions(
+    wiki_groups: list[dict],
+    manual_groups: list[dict],
+) -> list[dict]:
+    """Merge manual additions into wiki data. Manual data takes priority.
+
+    - If a group exists in both, manual members are added (deduplicated by name).
+    - If a group only exists in manual data, it is appended.
+    """
+    if not manual_groups:
+        return list(wiki_groups)
+
+    result = list(wiki_groups)
+    wiki_index = {g["name"]: g for g in result}
+
+    for manual_group in manual_groups:
+        group_name = manual_group.get("name", "").strip()
+        if not group_name:
+            continue
+
+        manual_members = manual_group.get("members", [])
+
+        if group_name in wiki_index:
+            existing = wiki_index[group_name]
+            existing_names = {m["name"] for m in existing.get("members", [])}
+            for member in manual_members:
+                if member.get("name", "").strip() not in existing_names:
+                    existing.setdefault("members", []).append(member)
+        else:
+            result.append(
+                {"name": group_name, "members": list(manual_members)}
+            )
+
+    return result
+
+
+def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Generate the China idols seed JSON from 中国偶像 Wiki.",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=OUTPUT,
+        help=f"Path to write the generated seed JSON. Defaults to {OUTPUT}.",
+    )
+    parser.add_argument(
+        "--manual",
+        type=Path,
+        default=None,
+        help=(
+            "Path to manual idol additions JSON. "
+            "Groups from this file are merged into the wiki output "
+            "(manual data takes priority). "
+            f"Defaults to {MANUAL} if the file exists."
+        ),
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: Optional[list[str]] = None) -> None:
+    args = parse_args(argv)
+    output = args.output
+
     session = requests.Session()
     group_titles = fetch_all_group_titles(session)
     pages = fetch_pages(session, group_titles)
@@ -488,6 +571,15 @@ def main() -> None:
             }
         )
 
+    manual_path = args.manual
+    if manual_path is None and MANUAL.is_file():
+        manual_path = MANUAL
+    if manual_path is not None:
+        manual_groups = load_manual_additions(manual_path)
+        if manual_groups:
+            groups = merge_manual_additions(groups, manual_groups)
+            print(f"Merged {len(manual_groups)} manual group(s) from {manual_path}")
+
     payload = {
         "sourceUrl": SOURCE_URL,
         "sourceLabel": SOURCE_LABEL,
@@ -495,13 +587,13 @@ def main() -> None:
         "groups": groups,
     }
 
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT.write_text(
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
 
-    print(f"Wrote {len(groups)} groups to {OUTPUT}")
+    print(f"Wrote {len(groups)} groups to {output}")
 
 
 if __name__ == "__main__":

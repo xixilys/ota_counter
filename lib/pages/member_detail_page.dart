@@ -6,6 +6,7 @@ import '../models/group_pricing_model.dart';
 import '../services/database_service.dart';
 import '../widgets/add_activity_record_dialog.dart';
 import '../widgets/counter_count_sheet.dart';
+import 'idol_cut_overview_page.dart';
 import 'record_memory_page.dart';
 
 class MemberDetailPage extends StatefulWidget {
@@ -723,6 +724,30 @@ class _MemberDetailPageState extends State<MemberDetailPage> {
     await _loadData();
   }
 
+  Future<void> _openIdolCutOverview() async {
+    final recordsWithId =
+        _records.where((record) => record.id != null).toList();
+    if (recordsWithId.isEmpty) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('还没有可展示的切图记录')),
+      );
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => IdolCutOverviewPage(
+          idolName: widget.displayCounter.name,
+          records: recordsWithId,
+        ),
+      ),
+    );
+    await _loadData();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -749,6 +774,11 @@ class _MemberDetailPageState extends State<MemberDetailPage> {
           ),
           title: Text(widget.displayCounter.name),
           actions: [
+            IconButton(
+              onPressed: _loading ? null : _openIdolCutOverview,
+              icon: const Icon(Icons.grid_view_rounded),
+              tooltip: '切总览',
+            ),
             IconButton(
               onPressed: _loading ? null : _openQuickCount,
               icon: const Icon(Icons.addchart_outlined),

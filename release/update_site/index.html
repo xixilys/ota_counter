@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>OTA Counter v1.3.1</title>
+    <title>OTA Counter v1.4.0</title>
     <style>
       :root {
         color-scheme: light dark;
@@ -149,6 +149,17 @@
         color: var(--text);
       }
 
+      .notice {
+        margin-top: 18px;
+        padding: 14px 16px;
+        border: 1px solid rgba(14, 165, 233, 0.24);
+        border-radius: 14px;
+        background: rgba(14, 165, 233, 0.1);
+        color: var(--text);
+        font-size: 14px;
+        line-height: 1.7;
+      }
+
       .footer {
         margin-top: 26px;
         font-size: 13px;
@@ -159,28 +170,33 @@
   <body>
     <main class="card">
       <div class="eyebrow">OTA Counter 更新页</div>
-      <h1>OTA Counter v1.3.1</h1>
+      <h1>OTA Counter v1.4.0</h1>
       <p>这里提供当前稳定版本下载，也可以作为 App 内检查更新时跳转的下载页。</p>
 
       <div class="meta">
-        <span>版本号：v1.3.1</span>
-        <span>构建号：10</span>
-        <span>发布时间：2026-03-19</span>
+        <span>版本号：v1.4.0</span>
+        <span>构建号：12</span>
+        <span>发布时间：2026-06-18</span>
       </div>
 
       <section class="section">
         <h2>本次更新</h2>
         <ul>
-          <li>切奇总览与团体配置入口文案统一</li>
-          <li>新增应用内检查更新，启动时会静默检查新版本</li>
-          <li>关于应用自动显示当前版本与开发者 ID</li>
-          <li>扫描入口收敛为外部扫描、手动框选和简单防反光</li>
+          <li>刷新内置中国偶像数据库 Wiki 快照</li>
+          <li>新增成员切图总览，可快速查看已反和未反切图</li>
+          <li>切图记录支持标记已反状态并按状态筛选</li>
+          <li>更新下载通道切换到 ota-counter.huangxuanqi.top</li>
         </ul>
       </section>
 
       <div class="actions">
-        <a class="button primary" href="./OTA-Counter-v1.3.1.apk">下载 APK</a>
+        <a class="button primary" href="./OTA-Counter-v1.4.0.apk">下载 APK</a>
         <a class="button secondary" href="./latest.json">查看 latest.json</a>
+      </div>
+
+      <div class="notice" id="ios">
+        iOS 版本正在准备签名和分发配置；当前页面会作为 iOS App 内更新入口，
+        等 IPA 或 TestFlight 链接可用后会直接更新到这里。
       </div>
 
       <div class="footer">

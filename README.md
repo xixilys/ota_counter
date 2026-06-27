@@ -2,8 +2,8 @@
 
 面向 OTA / 切奇记录的 Flutter 计数器应用。
 
-当前版本：`v1.3.1`  
-Android build：`1.3.1+10`
+当前版本：`v1.4.0`
+Android build：`1.4.0+12`
 
 ## 主要功能
 
@@ -54,13 +54,13 @@ flutter build apk --release
 构建完成后，`build/app/outputs/flutter-apk/` 目录下会同时看到：
 
 - Flutter 默认产物：`app-release.apk`
-- `build/app/outputs/flutter-apk/OTA-Counter-v1.3.1.apk`
+- `build/app/outputs/flutter-apk/OTA-Counter-v1.4.0.apk`
 
 GitHub Release 建议继续保持：
 
-- release 标题：`OTA Counter v1.3.1`
-- tag：`v1.3.1`
-- APK 资产：`OTA-Counter-v1.3.1.apk`
+- release 标题：`OTA Counter v1.4.0`
+- tag：`v1.4.0`
+- APK 资产：`OTA-Counter-v1.4.0.apk`
 
 也可以直接用脚本读取：
 
@@ -83,7 +83,7 @@ dart run tool/release_metadata.dart --field=apkFileName
 2. 保持同一个 Android `applicationId`
 3. 每次发版递增 `versionCode`
 
-当前 Android `applicationId` 为 `top.huangxuanqi.otacounter`。当前版本号为 `1.3.1+10`。
+当前 Android `applicationId` 为 `top.huangxuanqi.otacounter`。当前版本号为 `1.4.0+12`。
 
 更新站点发布可直接使用：
 
@@ -91,12 +91,12 @@ dart run tool/release_metadata.dart --field=apkFileName
 tool/deploy_update_site.sh
 ```
 
-这条命令会通过 SSH / SCP 把以下文件推到服务器的
-`/home/xixilys/domains/peace.huangxuanqi.top/public_nodejs/public/ota-counter`：
+这条命令会通过 SSH / SCP 把以下文件推到 `hk-ares` 的
+`/var/www/status/ota-counter`，对外更新地址是 `https://ota-counter.huangxuanqi.top/ota-counter/`：
 
 - `release/update_site/index.html`
 - `release/update_site/latest.json`
-- `build/app/outputs/flutter-apk/OTA-Counter-v1.3.1.apk`
+- `build/app/outputs/flutter-apk/OTA-Counter-v1.4.0.apk`
 
 支持的辅助参数：
 
@@ -120,6 +120,28 @@ tool/deploy_update_site.sh
 
 ```bash
 python3 tool/generate_china_idols_seed.py
+```
+
+把偶像数据库自动更新任务部署到 `hk-ares`：
+
+```bash
+tool/deploy_idol_seed_updater.sh
+```
+
+部署后，服务器会通过 systemd timer 每天运行 2 次爬虫。`hk-ares` 使用 UTC 时区，
+当前计划时间是 `00:20` 和 `12:20`，折合北京时间 `08:20` 和 `20:20`，并带
+`RandomizedDelaySec=30m` 的随机延迟。生成结果会发布到：
+
+```text
+https://ota-counter.huangxuanqi.top/ota-counter/data/china_idols_seed.json
+```
+
+辅助命令：
+
+```bash
+tool/deploy_idol_seed_updater.sh --dry-run
+tool/deploy_idol_seed_updater.sh --no-run-now
+python3 tool/validate_china_idols_seed.py assets/data/china_idols_seed.json
 ```
 
 从 OTA 后台导出历史数据 bundle：

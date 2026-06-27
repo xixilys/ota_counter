@@ -21,6 +21,7 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
   int? _selectedGroupId;
   bool _showMembers = true;
   bool _loading = true;
+  bool _syncing = false;
   String _searchQuery = '';
 
   @override
@@ -96,6 +97,47 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
 
     await IdolDatabaseService.restoreBuiltInData();
     await _loadData();
+  }
+
+  Future<void> _syncFromRemote() async {
+    setState(() {
+      _syncing = true;
+    });
+
+    try {
+      await IdolDatabaseService.syncFromRemote();
+      await _loadData();
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('同步完成：${_groups.length} 个团体，'
+              '${_allMembers.length} 位成员'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('同步失败：$e'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _syncing = false;
+        });
+      }
+    }
   }
 
   Future<void> _showGroupDialog({IdolGroup? initialGroup}) async {
@@ -357,6 +399,17 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
       appBar: AppBar(
         title: const Text('偶像数据库'),
         actions: [
+          IconButton(
+            tooltip: '从服务器同步最新偶像数据',
+            onPressed: _syncing ? null : _syncFromRemote,
+            icon: _syncing
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.cloud_download),
+          ),
           IconButton(
             tooltip: '恢复内置 Wiki 快照',
             onPressed: _restoreBuiltInData,

@@ -4,6 +4,7 @@ import '../models/activity_record_model.dart';
 import '../models/counter_model.dart';
 import '../models/custom_cheki_type_model.dart';
 import '../models/group_pricing_model.dart';
+import '../models/idol_activity_event_model.dart';
 import '../models/idol_database_models.dart';
 import '../services/idol_database_service.dart';
 import 'no_autofill_text_field.dart';
@@ -86,7 +87,9 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
   ActivityRecordType _type = ActivityRecordType.counter;
   CounterModel? _selectedCounter;
   List<IdolMember> _idolMembers = [];
+  List<IdolActivityEvent> _activityEvents = [];
   bool _idolLoading = false;
+  bool _activityEventsLoading = false;
   List<CustomChekiTypeModel> _counterCustomTypes = const [];
   List<ActivityParticipant> _selectedParticipants = [];
   CounterCountField _selectedMultiField = CounterCountField.threeInch;
@@ -144,6 +147,40 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     setState(() {
       _idolMembers = members;
       _idolLoading = false;
+    });
+  }
+
+  Future<void> _loadActivityEvents({bool syncRemote = false}) async {
+    setState(() {
+      _activityEventsLoading = true;
+    });
+
+    if (syncRemote) {
+      try {
+        await IdolDatabaseService.syncActivityEventsFromRemoteIfStale();
+      } catch (_) {
+        // Keep the dialog usable with cached/manual input if the network is down.
+      }
+    }
+
+    final now = DateTime.now();
+    final events = await IdolDatabaseService.getActivityEvents(
+      from: DateTime(now.year, now.month, now.day).subtract(
+        const Duration(days: 30),
+      ),
+      to: DateTime(now.year, now.month, now.day).add(
+        const Duration(days: 240),
+      ),
+      limit: 500,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _activityEvents = events;
+      _activityEventsLoading = false;
     });
   }
 
@@ -475,6 +512,38 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     });
   }
 
+  Future<void> _pickActivityEvent() async {
+    if (_activityEvents.isEmpty && !_activityEventsLoading) {
+      await _loadActivityEvents(syncRemote: true);
+    }
+    if (!mounted) {
+      return;
+    }
+
+    final selected = await showModalBottomSheet<IdolActivityEvent>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      builder: (context) => _ActivityEventSearchSheet(
+        events: _activityEvents,
+      ),
+    );
+    if (selected == null || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _occurredAt = DateTime(
+        selected.eventDate.year,
+        selected.eventDate.month,
+        selected.eventDate.day,
+      );
+      _activityNameController.text = selected.eventName;
+      _venueController.text = selected.venue;
+      _sessionController.text = selected.sessionLabel;
+    });
+  }
+
   String _formatDate(DateTime value) {
     String twoDigits(int number) => number.toString().padLeft(2, '0');
     return '${value.year}-${twoDigits(value.month)}-${twoDigits(value.day)}';
@@ -710,6 +779,31 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
               onTap: _pickDateTime,
             ),
             const SizedBox(height: 8),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
+              ),
+              leading: _activityEventsLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.event_available_outlined),
+              title: const Text('选择偶活场次'),
+              subtitle: Text(
+                _activityEvents.isEmpty
+                    ? '同步后可从 minecool 偶活行程中填入'
+                    : '已缓存 ${_activityEvents.length} 个近期场次',
+              ),
+              trailing: const Icon(Icons.search),
+              onTap: _pickActivityEvent,
+            ),
+            const SizedBox(height: 12),
             NoAutofillTextField(
               controller: _activityNameController,
               decoration: InputDecoration(
@@ -1169,6 +1263,102 @@ class _CounterSearchSheetState extends State<_CounterSearchSheet> {
         ),
       ),
     );
+  }
+}
+
+class _ActivityEventSearchSheet extends StatefulWidget {
+  final List<IdolActivityEvent> events;
+
+  const _ActivityEventSearchSheet({
+    required this.events,
+  });
+
+  @override
+  State<_ActivityEventSearchSheet> createState() =>
+      _ActivityEventSearchSheetState();
+}
+
+class _ActivityEventSearchSheetState extends State<_ActivityEventSearchSheet> {
+  final TextEditingController _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = _query.trim().toLowerCase();
+    final events = widget.events.where((event) {
+      if (normalized.isEmpty) {
+        return true;
+      }
+      return event.eventName.toLowerCase().contains(normalized) ||
+          event.city.toLowerCase().contains(normalized) ||
+          event.venue.toLowerCase().contains(normalized) ||
+          event.groupLabel.toLowerCase().contains(normalized);
+    }).toList(growable: false);
+
+    return FractionallySizedBox(
+      heightFactor: 0.85,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '选择偶活场次',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 12),
+            NoAutofillTextField(
+              controller: _searchController,
+              decoration: const InputDecoration(
+                labelText: '活动 / 城市 / 场地 / 团体',
+                prefixIcon: Icon(Icons.search),
+              ),
+              autofocus: true,
+              onChanged: (value) {
+                setState(() {
+                  _query = value;
+                });
+              },
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: events.isEmpty
+                  ? const Center(child: Text('没有匹配的场次'))
+                  : ListView.builder(
+                      itemCount: events.length,
+                      itemBuilder: (context, index) {
+                        final event = events[index];
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(event.eventName),
+                          subtitle: Text(
+                            [
+                              _formatDate(event.eventDate),
+                              event.displaySubtitle,
+                            ].where((item) => item.trim().isNotEmpty).join(' · '),
+                          ),
+                          onTap: () => Navigator.of(context).pop(event),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _formatDate(DateTime value) {
+    String twoDigits(int number) => number.toString().padLeft(2, '0');
+    return '${value.year}-${twoDigits(value.month)}-${twoDigits(value.day)}';
   }
 }
 

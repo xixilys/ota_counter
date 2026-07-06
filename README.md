@@ -2,8 +2,8 @@
 
 面向 OTA / 切奇记录的 Flutter 计数器应用。
 
-当前版本：`v1.4.0`
-Android build：`1.4.0+12`
+当前版本：`v1.4.1`
+Android build：`1.4.1+13`
 
 ## 主要功能
 
@@ -54,13 +54,13 @@ flutter build apk --release
 构建完成后，`build/app/outputs/flutter-apk/` 目录下会同时看到：
 
 - Flutter 默认产物：`app-release.apk`
-- `build/app/outputs/flutter-apk/OTA-Counter-v1.4.0.apk`
+- `build/app/outputs/flutter-apk/OTA-Counter-v1.4.1.apk`
 
 GitHub Release 建议继续保持：
 
-- release 标题：`OTA Counter v1.4.0`
-- tag：`v1.4.0`
-- APK 资产：`OTA-Counter-v1.4.0.apk`
+- release 标题：`OTA Counter v1.4.1`
+- tag：`v1.4.1`
+- APK 资产：`OTA-Counter-v1.4.1.apk`
 
 也可以直接用脚本读取：
 
@@ -83,7 +83,7 @@ dart run tool/release_metadata.dart --field=apkFileName
 2. 保持同一个 Android `applicationId`
 3. 每次发版递增 `versionCode`
 
-当前 Android `applicationId` 为 `top.huangxuanqi.otacounter`。当前版本号为 `1.4.0+12`。
+当前 Android `applicationId` 为 `top.huangxuanqi.otacounter`。当前版本号为 `1.4.1+13`。
 
 更新站点发布可直接使用：
 
@@ -96,7 +96,7 @@ tool/deploy_update_site.sh
 
 - `release/update_site/index.html`
 - `release/update_site/latest.json`
-- `build/app/outputs/flutter-apk/OTA-Counter-v1.4.0.apk`
+- `build/app/outputs/flutter-apk/OTA-Counter-v1.4.1.apk`
 
 支持的辅助参数：
 

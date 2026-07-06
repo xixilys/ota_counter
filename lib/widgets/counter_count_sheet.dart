@@ -409,12 +409,29 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
   }
 
   Future<void> _editCount(CounterCountField field) async {
+    final currentValue = _counter.countForField(field);
     final controller = TextEditingController(
-      text: _counter.countForField(field).toString(),
+      text: currentValue.toString(),
     );
     final nextValue = await showDialog<int>(
       context: context,
       builder: (dialogContext) {
+        void submitValue() {
+          final parsed = int.tryParse(controller.text.trim());
+          if (parsed == null || parsed < 0) {
+            return;
+          }
+          if (parsed < currentValue) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('不能直接减少数量，请删除对应流水后再重算计数。'),
+              ),
+            );
+            return;
+          }
+          Navigator.of(dialogContext).pop(parsed);
+        }
+
         return AlertDialog(
           title: Text('修改${field.label}'),
           content: NoAutofillTextField(
@@ -425,13 +442,7 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
               labelText: '数量',
               hintText: '请输入新的总数',
             ),
-            onSubmitted: (_) {
-              final parsed = int.tryParse(controller.text.trim());
-              if (parsed == null || parsed < 0) {
-                return;
-              }
-              Navigator.of(dialogContext).pop(parsed);
-            },
+            onSubmitted: (_) => submitValue(),
           ),
           actions: [
             TextButton(
@@ -439,13 +450,7 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
               child: const Text('取消'),
             ),
             FilledButton(
-              onPressed: () {
-                final parsed = int.tryParse(controller.text.trim());
-                if (parsed == null || parsed < 0) {
-                  return;
-                }
-                Navigator.of(dialogContext).pop(parsed);
-              },
+              onPressed: submitValue,
               child: const Text('保存'),
             ),
           ],
@@ -458,7 +463,7 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
       return;
     }
 
-    final delta = nextValue - _counter.countForField(field);
+    final delta = nextValue - currentValue;
     if (delta == 0) {
       return;
     }

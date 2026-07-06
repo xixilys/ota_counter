@@ -1,23 +1,23 @@
 {
   "appName": "OTA Counter",
-  "versionName": "1.4.0",
-  "versionCode": 12,
-  "versionLabel": "v1.4.0",
-  "title": "OTA Counter v1.4.0",
+  "versionName": "1.4.1",
+  "versionCode": 13,
+  "versionLabel": "v1.4.1",
+  "title": "OTA Counter v1.4.1",
   "notes": [
-    "刷新内置中国偶像数据库 Wiki 快照",
-    "新增成员切图总览，可快速查看已反和未反切图",
-    "切图记录支持标记已反状态并按状态筛选",
-    "更新下载通道切换到 ota-counter.huangxuanqi.top"
+    "修复流水记录与首页计数可能不一致的问题",
+    "修复多人切记录按同名成员回滚时可能串到其他成员的问题",
+    "新增从流水记录重算首页计数的修复入口",
+    "禁止通过手动编辑生成负数计数记录"
   ],
-  "publishedAt": "2026-06-18T17:58:00+08:00",
+  "publishedAt": "2026-07-07T03:04:28+08:00",
   "force": false,
-  "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.4.0.apk",
+  "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.4.1.apk",
   "downloadPageUrl": "https://ota-counter.huangxuanqi.top/ota-counter/",
   "backupUrl": "",
   "platforms": {
     "android": {
-      "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.4.0.apk",
+      "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.4.1.apk",
       "downloadPageUrl": "https://ota-counter.huangxuanqi.top/ota-counter/",
       "backupUrl": ""
     },

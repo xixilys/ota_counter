@@ -231,6 +231,12 @@ class CounterModel {
     }
   }
 
+  bool hasLowerCountThan(CounterModel other) {
+    return CounterCountField.values.any(
+      (field) => countForField(field) < other.countForField(field),
+    );
+  }
+
   CounterModel updateCount(CounterCountField field, int value) {
     final safeValue = max(0, value);
     switch (field.key) {

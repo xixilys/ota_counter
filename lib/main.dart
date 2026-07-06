@@ -891,6 +891,57 @@ class _MyHomePageState extends State<MyHomePage> {
     };
   }
 
+  bool _hasCounterDeltas(Map<CounterCountField, int> deltas) {
+    return deltas.values.any((value) => value != 0);
+  }
+
+  CounterModel _counterWithCountsFrom(
+    CounterModel counter,
+    CounterModel countSource,
+  ) {
+    return counter.copyWith(
+      threeInchCount: countSource.threeInchCount,
+      fiveInchCount: countSource.fiveInchCount,
+      unsignedThreeInchCount: countSource.unsignedThreeInchCount,
+      unsignedFiveInchCount: countSource.unsignedFiveInchCount,
+      groupCutCount: countSource.groupCutCount,
+      threeInchShukudaiCount: countSource.threeInchShukudaiCount,
+      fiveInchShukudaiCount: countSource.fiveInchShukudaiCount,
+    );
+  }
+
+  CounterModel _counterWithZeroCounts(CounterModel counter) {
+    return counter.copyWith(
+      threeInchCount: 0,
+      fiveInchCount: 0,
+      unsignedThreeInchCount: 0,
+      unsignedFiveInchCount: 0,
+      groupCutCount: 0,
+      threeInchShukudaiCount: 0,
+      fiveInchShukudaiCount: 0,
+    );
+  }
+
+  CounterModel _resolveSavedCounter(CounterModel requested) {
+    if (requested.id != null) {
+      for (final counter in _counters) {
+        if (counter.id == requested.id) {
+          return counter;
+        }
+      }
+    }
+
+    for (final counter in _counters) {
+      if (_normalizedLookupPart(counter.groupName) ==
+              _normalizedLookupPart(requested.groupName) &&
+          _normalizedLookupPart(counter.name) ==
+              _normalizedLookupPart(requested.name)) {
+        return counter;
+      }
+    }
+    return requested;
+  }
+
   Future<void> _recordCounterChange({
     required CounterModel counter,
     required Map<CounterCountField, int> deltas,
@@ -905,7 +956,7 @@ class _MyHomePageState extends State<MyHomePage> {
       counter.groupName,
     );
 
-    await DatabaseService.insertActivityRecord(
+    await DatabaseService.insertActivityRecordWithCounterImpact(
       ActivityRecordModel.counterAdjustment(
         counter: counter,
         occurredAt: occurredAt,
@@ -924,37 +975,29 @@ class _MyHomePageState extends State<MyHomePage> {
     final index =
         _counters.indexWhere((counter) => counter.id == updatedCounter.id);
     if (index == -1 || updatedCounter.id == null) {
-      final insertedId = await DatabaseService.insertCounter(updatedCounter);
-      final insertedCounter = updatedCounter.copyWith(id: insertedId);
       final deltas = {
         for (final field in CounterCountField.values)
-          field: insertedCounter.countForField(field),
+          field: updatedCounter.countForField(field),
       };
 
-      setState(() {
-        _counters.add(insertedCounter);
-        _applySort(_counters);
-      });
-
-      await _recordCounterChange(
-        counter: insertedCounter,
-        deltas: deltas,
-        occurredAt: occurredAt,
-        note: note,
-      );
-      return insertedCounter;
+      if (_hasCounterDeltas(deltas)) {
+        await _recordCounterChange(
+          counter: _counterWithZeroCounts(updatedCounter),
+          deltas: deltas,
+          occurredAt: occurredAt,
+          note: note,
+        );
+      } else {
+        await DatabaseService.insertCounter(updatedCounter);
+      }
+      await _loadCounters();
+      return _resolveSavedCounter(updatedCounter);
     }
 
     final previousCounter = _counters[index];
     final deltas = _buildCounterDeltas(previousCounter, updatedCounter);
 
-    setState(() {
-      _counters[index] = updatedCounter;
-      _applySort(_counters);
-    });
-
-    if (updatedCounter.id != null) {
-      await DatabaseService.updateCounter(updatedCounter.id!, updatedCounter);
+    if (_hasCounterDeltas(deltas)) {
       await _recordCounterChange(
         counter: updatedCounter,
         deltas: deltas,
@@ -963,7 +1006,8 @@ class _MyHomePageState extends State<MyHomePage> {
       );
     }
 
-    return updatedCounter;
+    await _loadCounters();
+    return _resolveSavedCounter(updatedCounter);
   }
 
   Future<void> _openCounterSheet(_HomeCounterEntry entry) async {
@@ -997,18 +1041,20 @@ class _MyHomePageState extends State<MyHomePage> {
       );
 
       if (result != null) {
-        final counterId = await DatabaseService.insertCounter(result.counter);
-        final insertedCounter = result.counter.copyWith(id: counterId);
         final deltas = {
           for (final field in CounterCountField.values)
-            field: insertedCounter.countForField(field),
+            field: result.counter.countForField(field),
         };
-        await _recordCounterChange(
-          counter: insertedCounter,
-          deltas: deltas,
-          occurredAt: result.occurredAt,
-          note: '初始化录入',
-        );
+        if (_hasCounterDeltas(deltas)) {
+          await _recordCounterChange(
+            counter: _counterWithZeroCounts(result.counter),
+            deltas: deltas,
+            occurredAt: result.occurredAt,
+            note: '初始化录入',
+          );
+        } else {
+          await DatabaseService.insertCounter(result.counter);
+        }
         await _loadCounters();
       }
     } catch (e) {
@@ -1027,10 +1073,26 @@ class _MyHomePageState extends State<MyHomePage> {
     );
 
     if (result != null && counter.id != null) {
+      if (result.counter.hasLowerCountThan(counter)) {
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('不能通过编辑计数器减少数量，请删除对应流水后再重算计数。'),
+          ),
+        );
+        return;
+      }
+
       final deltas = _buildCounterDeltas(counter, result.counter);
-      await DatabaseService.updateCounter(counter.id!, result.counter);
+      final metadataCounter = _counterWithCountsFrom(
+        result.counter.copyWith(id: counter.id),
+        counter,
+      );
+      await DatabaseService.updateCounter(counter.id!, metadataCounter);
       await _recordCounterChange(
-        counter: result.counter,
+        counter: metadataCounter,
         deltas: deltas,
         occurredAt: result.occurredAt,
         note: '编辑调整',
@@ -1145,6 +1207,51 @@ class _MyHomePageState extends State<MyHomePage> {
       ),
     );
     await _loadCounters();
+  }
+
+  Future<void> _recalculateCountersFromRecords() async {
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('从记录重算计数'),
+            content: const Text(
+              '会把所有计数器数量清零，再按现有流水记录重新计算。计数器名称、颜色、隐藏状态会保留。',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('开始重算'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      final replayed =
+          await DatabaseService.recalculateCountersFromActivityRecords();
+      await _loadCounters();
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已从 $replayed 条记录重算计数')),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('重算失败: $error')),
+      );
+    }
   }
 
   Future<void> _showHomeEntryActions(_HomeCounterEntry entry) async {
@@ -2018,6 +2125,9 @@ class _MyHomePageState extends State<MyHomePage> {
                   );
                   await _loadCounters();
                   break;
+                case 'recalculate':
+                  await _recalculateCountersFromRecords();
+                  break;
                 case 'grid':
                   _showGridSizeDialog();
                   break;
@@ -2082,6 +2192,16 @@ class _MyHomePageState extends State<MyHomePage> {
                     Icon(Icons.history_rounded),
                     SizedBox(width: 8),
                     Text('最近提交记录'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'recalculate',
+                child: Row(
+                  children: [
+                    Icon(Icons.calculate_outlined),
+                    SizedBox(width: 8),
+                    Text('从记录重算计数'),
                   ],
                 ),
               ),

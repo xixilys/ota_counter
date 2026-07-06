@@ -127,6 +127,43 @@ void main() {
     expect(find.text('修改3寸'), findsOneWidget);
   });
 
+  testWidgets('counter sheet direct edit cannot decrease a count', (
+    WidgetTester tester,
+  ) async {
+    final counter = CounterModel(
+      name: '成员A',
+      groupName: '团体A',
+      color: '#FFE135',
+      threeInchCount: 10,
+    );
+    var saveCalls = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CounterCountSheet(
+            counter: counter,
+            allCounters: [counter],
+            onCounterChanged: (updatedCounter, occurredAt) async {
+              saveCalls += 1;
+              return updatedCounter;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('10').first);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '5');
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+
+    expect(saveCalls, 0);
+    expect(find.text('总计 10'), findsOneWidget);
+  });
+
   testWidgets('counter sheet keeps quick buttons on one row in compact width', (
     WidgetTester tester,
   ) async {

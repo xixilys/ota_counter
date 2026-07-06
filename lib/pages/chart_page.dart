@@ -418,19 +418,6 @@ class _ChartPageState extends State<ChartPage> {
     return null;
   }
 
-  CounterModel? _findCounterForParticipant(ActivityParticipant participant) {
-    final normalizedGroup = _normalizedLookupPart(participant.groupName);
-    final normalizedMember = _normalizedLookupPart(participant.memberName);
-
-    for (final counter in _counters) {
-      if (_normalizedLookupPart(counter.groupName) == normalizedGroup &&
-          _normalizedLookupPart(counter.name) == normalizedMember) {
-        return counter;
-      }
-    }
-    return null;
-  }
-
   Map<CounterCountField, int> _counterDeltasFromRecord(
     ActivityRecordModel record,
   ) {
@@ -570,85 +557,6 @@ class _ChartPageState extends State<ChartPage> {
     );
   }
 
-  Future<void> _applyRecordCounterImpact(
-    ActivityRecordModel record, {
-    required bool reverse,
-  }) async {
-    var insertedNewCounter = false;
-    final multiplier = reverse ? -1 : 1;
-
-    if (record.isCounter) {
-      final existingCounter = _findCounterForRecord(record);
-      if (existingCounter == null && reverse) {
-        return;
-      }
-
-      final baseCounter = existingCounter ??
-          CounterModel(
-            name: record.subjectName,
-            groupName: record.groupName,
-            personId: record.personId,
-            personName: record.personName,
-            color: '#FFE135',
-          );
-      var updatedCounter = baseCounter;
-      for (final field in CounterCountField.values) {
-        final delta = record.countForField(field);
-        if (delta == 0) {
-          continue;
-        }
-        updatedCounter = updatedCounter.changeCount(field, delta * multiplier);
-      }
-
-      if (existingCounter?.id != null) {
-        await DatabaseService.updateCounter(
-            existingCounter!.id!, updatedCounter);
-      } else if (!reverse) {
-        await DatabaseService.insertCounter(updatedCounter);
-        insertedNewCounter = true;
-      }
-    } else if (record.isMulti) {
-      final field = record.multiCountField;
-      if (field == null || record.effectiveMultiQuantity <= 0) {
-        return;
-      }
-
-      for (final participant in record.effectiveParticipants) {
-        final existingCounter = _findCounterForParticipant(participant);
-        if (existingCounter == null && reverse) {
-          continue;
-        }
-
-        final baseCounter = existingCounter ??
-            CounterModel(
-              name: participant.memberName,
-              groupName: participant.groupName,
-              personId: participant.personId,
-              personName: participant.personName,
-              color: '#FFE135',
-            );
-        final updatedCounter = baseCounter.changeCount(
-          field,
-          record.effectiveMultiQuantity * multiplier,
-        );
-
-        if (existingCounter?.id != null) {
-          await DatabaseService.updateCounter(
-            existingCounter!.id!,
-            updatedCounter,
-          );
-        } else if (!reverse) {
-          await DatabaseService.insertCounter(updatedCounter);
-          insertedNewCounter = true;
-        }
-      }
-    }
-
-    if (insertedNewCounter) {
-      await DatabaseService.autoAssignCounterThemeColors();
-    }
-  }
-
   Future<void> _saveNewRecord(ActivityRecordDraft draft) async {
     final record = await _buildRecordFromDraft(draft);
     if (record == null) {
@@ -656,13 +564,7 @@ class _ChartPageState extends State<ChartPage> {
     }
 
     try {
-      await _applyRecordCounterImpact(record, reverse: false);
-      try {
-        await DatabaseService.insertActivityRecord(record);
-      } catch (_) {
-        await _applyRecordCounterImpact(record, reverse: true);
-        rethrow;
-      }
+      await DatabaseService.insertActivityRecordWithCounterImpact(record);
       await _loadData();
     } catch (error) {
       if (!mounted) {
@@ -719,14 +621,10 @@ class _ChartPageState extends State<ChartPage> {
     }
 
     try {
-      await _applyRecordCounterImpact(record, reverse: true);
-      try {
-        await DatabaseService.updateActivityRecord(record.id!, updatedRecord);
-        await _applyRecordCounterImpact(updatedRecord, reverse: false);
-      } catch (_) {
-        await _applyRecordCounterImpact(record, reverse: false);
-        rethrow;
-      }
+      await DatabaseService.updateActivityRecordWithCounterImpact(
+        record.id!,
+        updatedRecord,
+      );
       await _loadData();
       if (!mounted) {
         return;
@@ -774,13 +672,7 @@ class _ChartPageState extends State<ChartPage> {
     }
 
     try {
-      await _applyRecordCounterImpact(record, reverse: true);
-      try {
-        await DatabaseService.deleteActivityRecord(record.id!);
-      } catch (_) {
-        await _applyRecordCounterImpact(record, reverse: false);
-        rethrow;
-      }
+      await DatabaseService.deleteActivityRecordWithCounterImpact(record.id!);
       await _loadData();
       if (!mounted) {
         return;

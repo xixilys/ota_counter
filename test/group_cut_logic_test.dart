@@ -35,4 +35,17 @@ void main() {
     expect(fields, contains(CounterCountField.threeInch));
     expect(fields, contains(CounterCountField.fiveInch));
   });
+
+  test('counter detects when edited counts would decrease', () {
+    final before = CounterModel(
+      name: 'A',
+      color: '#ffffff',
+      threeInchCount: 9,
+      fiveInchCount: 1,
+    );
+    final after = before.copyWith(threeInchCount: 0);
+
+    expect(after.hasLowerCountThan(before), isTrue);
+    expect(before.hasLowerCountThan(after), isFalse);
+  });
 }

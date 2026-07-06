@@ -678,6 +678,314 @@ class DatabaseService {
     return record.toMap()..remove('id');
   }
 
+  static Future<List<CounterModel>> _getCountersFrom(
+    DatabaseExecutor db,
+  ) async {
+    final maps = await db.query(tableName);
+    return maps.map(CounterModel.fromMap).toList();
+  }
+
+  static Future<ActivityRecordModel?> _getActivityRecordFrom(
+    DatabaseExecutor db,
+    int id,
+  ) async {
+    final maps = await db.query(
+      activityRecordTableName,
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (maps.isEmpty) {
+      return null;
+    }
+    return ActivityRecordModel.fromMap(maps.first);
+  }
+
+  static CounterModel _resetCounterCounts(CounterModel counter) {
+    return counter.copyWith(
+      threeInchCount: 0,
+      fiveInchCount: 0,
+      unsignedThreeInchCount: 0,
+      unsignedFiveInchCount: 0,
+      groupCutCount: 0,
+      threeInchShukudaiCount: 0,
+      fiveInchShukudaiCount: 0,
+    );
+  }
+
+  static void _cacheCounter(
+    List<CounterModel> counters,
+    CounterModel counter,
+  ) {
+    final id = counter.id;
+    if (id != null) {
+      final index = counters.indexWhere((item) => item.id == id);
+      if (index != -1) {
+        counters[index] = counter;
+        return;
+      }
+    }
+    counters.add(counter);
+  }
+
+  static CounterModel? _firstCounterWhere(
+    List<CounterModel> counters,
+    bool Function(CounterModel counter) test,
+  ) {
+    for (final counter in counters) {
+      if (test(counter)) {
+        return counter;
+      }
+    }
+    return null;
+  }
+
+  static CounterModel? _findCounterForRecordIn(
+    List<CounterModel> counters,
+    ActivityRecordModel record,
+  ) {
+    final counterId = record.counterId;
+    if (counterId != null) {
+      final matched = _firstCounterWhere(
+        counters,
+        (counter) => counter.id == counterId,
+      );
+      if (matched != null) {
+        return matched;
+      }
+    }
+
+    final personId = record.personId;
+    if (personId != null) {
+      final matched = _firstCounterWhere(
+        counters,
+        (counter) => counter.personId == personId,
+      );
+      if (matched != null) {
+        return matched;
+      }
+    }
+
+    final normalizedPersonName = _normalizeLookupPart(record.personName);
+    if (normalizedPersonName.isNotEmpty) {
+      final matched = _firstCounterWhere(
+        counters,
+        (counter) =>
+            _normalizeLookupPart(counter.personName) == normalizedPersonName,
+      );
+      if (matched != null) {
+        return matched;
+      }
+    }
+
+    final normalizedGroup = _normalizeLookupPart(record.groupName);
+    final normalizedMember = _normalizeLookupPart(record.subjectName);
+    if (normalizedMember.isEmpty) {
+      return null;
+    }
+    return _firstCounterWhere(
+      counters,
+      (counter) =>
+          _normalizeLookupPart(counter.groupName) == normalizedGroup &&
+          _normalizeLookupPart(counter.name) == normalizedMember,
+    );
+  }
+
+  static CounterModel? _findCounterForParticipantIn(
+    List<CounterModel> counters,
+    ActivityParticipant participant,
+  ) {
+    final personId = participant.personId;
+    if (personId != null) {
+      final matched = _firstCounterWhere(
+        counters,
+        (counter) => counter.personId == personId,
+      );
+      if (matched != null) {
+        return matched;
+      }
+    }
+
+    final normalizedPersonName = _normalizeLookupPart(participant.personName);
+    if (normalizedPersonName.isNotEmpty) {
+      final matched = _firstCounterWhere(
+        counters,
+        (counter) =>
+            _normalizeLookupPart(counter.personName) == normalizedPersonName,
+      );
+      if (matched != null) {
+        return matched;
+      }
+    }
+
+    final normalizedGroup = _normalizeLookupPart(participant.groupName);
+    final normalizedMember = _normalizeLookupPart(participant.memberName);
+    if (normalizedMember.isEmpty) {
+      return null;
+    }
+    return _firstCounterWhere(
+      counters,
+      (counter) =>
+          _normalizeLookupPart(counter.groupName) == normalizedGroup &&
+          _normalizeLookupPart(counter.name) == normalizedMember,
+    );
+  }
+
+  static ActivityRecordModel _recordLinkedToCounter(
+    ActivityRecordModel record,
+    CounterModel counter,
+  ) {
+    final counterPersonName = counter.personName.trim();
+    return record.copyWith(
+      counterId: counter.id,
+      personId: counter.personId ?? record.personId,
+      personName:
+          counterPersonName.isNotEmpty ? counterPersonName : record.personName,
+    );
+  }
+
+  static Future<_PreparedActivityRecord> _prepareRecordForCounterImpact(
+    DatabaseExecutor db,
+    List<CounterModel> counters,
+    ActivityRecordModel record,
+  ) async {
+    if (!record.isCounter) {
+      return _PreparedActivityRecord(record: record);
+    }
+
+    final existingCounter = _findCounterForRecordIn(counters, record);
+    if (existingCounter != null) {
+      return _PreparedActivityRecord(
+        record: _recordLinkedToCounter(record, existingCounter),
+      );
+    }
+
+    final baseCounter = CounterModel(
+      name: record.subjectName,
+      groupName: record.groupName,
+      personId: record.personId,
+      personName: record.personName,
+      color: _defaultImportedCounterColor,
+    );
+    final values = await _filterValuesForTable(
+      db,
+      tableName,
+      _toDatabaseMap(baseCounter),
+    );
+    final counterId = await db.insert(
+      tableName,
+      values,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    final insertedCounter = baseCounter.copyWith(id: counterId);
+    _cacheCounter(counters, insertedCounter);
+
+    return _PreparedActivityRecord(
+      record: _recordLinkedToCounter(record, insertedCounter),
+      insertedNewCounter: true,
+    );
+  }
+
+  static Future<CounterModel> _persistCounter(
+    DatabaseExecutor db,
+    List<CounterModel> counters,
+    CounterModel counter,
+  ) async {
+    final values = await _filterValuesForTable(
+      db,
+      tableName,
+      _toDatabaseMap(counter),
+    );
+    if (counter.id != null) {
+      await db.update(
+        tableName,
+        values,
+        where: 'id = ?',
+        whereArgs: [counter.id],
+      );
+      _cacheCounter(counters, counter);
+      return counter;
+    }
+
+    final counterId = await db.insert(
+      tableName,
+      values,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    final insertedCounter = counter.copyWith(id: counterId);
+    _cacheCounter(counters, insertedCounter);
+    return insertedCounter;
+  }
+
+  static Future<bool> _applyRecordCounterImpact(
+    DatabaseExecutor db,
+    List<CounterModel> counters,
+    ActivityRecordModel record, {
+    required bool reverse,
+  }) async {
+    var insertedNewCounter = false;
+    final multiplier = reverse ? -1 : 1;
+
+    if (record.isCounter) {
+      final existingCounter = _findCounterForRecordIn(counters, record);
+      if (existingCounter == null && reverse) {
+        return false;
+      }
+
+      var updatedCounter = existingCounter ??
+          CounterModel(
+            name: record.subjectName,
+            groupName: record.groupName,
+            personId: record.personId,
+            personName: record.personName,
+            color: _defaultImportedCounterColor,
+          );
+      for (final field in CounterCountField.values) {
+        final delta = record.countForField(field);
+        if (delta == 0) {
+          continue;
+        }
+        updatedCounter = updatedCounter.changeCount(field, delta * multiplier);
+      }
+
+      await _persistCounter(db, counters, updatedCounter);
+      insertedNewCounter = existingCounter == null && !reverse;
+    } else if (record.isMulti) {
+      final field = record.multiCountField;
+      if (field == null || record.effectiveMultiQuantity <= 0) {
+        return false;
+      }
+
+      for (final participant in record.effectiveParticipants) {
+        final existingCounter = _findCounterForParticipantIn(
+          counters,
+          participant,
+        );
+        if (existingCounter == null && reverse) {
+          continue;
+        }
+
+        final baseCounter = existingCounter ??
+            CounterModel(
+              name: participant.memberName,
+              groupName: participant.groupName,
+              personId: participant.personId,
+              personName: participant.personName,
+              color: _defaultImportedCounterColor,
+            );
+        final updatedCounter = baseCounter.changeCount(
+          field,
+          record.effectiveMultiQuantity * multiplier,
+        );
+        await _persistCounter(db, counters, updatedCounter);
+        insertedNewCounter =
+            insertedNewCounter || (existingCounter == null && !reverse);
+      }
+    }
+
+    return insertedNewCounter;
+  }
+
   static Future<List<CounterModel>> getCounters() async {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query(tableName);
@@ -823,6 +1131,48 @@ class DatabaseService {
     );
   }
 
+  static Future<int> insertActivityRecordWithCounterImpact(
+    ActivityRecordModel record,
+  ) async {
+    final db = await database;
+    var insertedNewCounter = false;
+
+    final recordId = await db.transaction<int>((txn) async {
+      final counters = await _getCountersFrom(txn);
+      final prepared = await _prepareRecordForCounterImpact(
+        txn,
+        counters,
+        record,
+      );
+      insertedNewCounter = insertedNewCounter || prepared.insertedNewCounter;
+
+      final values = await _filterValuesForTable(
+        txn,
+        activityRecordTableName,
+        _recordToDatabaseMap(prepared.record),
+      );
+      final insertedId = await txn.insert(
+        activityRecordTableName,
+        values,
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      final persistedRecord = prepared.record.copyWith(id: insertedId);
+      insertedNewCounter = insertedNewCounter ||
+          await _applyRecordCounterImpact(
+            txn,
+            counters,
+            persistedRecord,
+            reverse: false,
+          );
+      return insertedId;
+    });
+
+    if (insertedNewCounter) {
+      await autoAssignCounterThemeColors();
+    }
+    return recordId;
+  }
+
   static Future<void> updateActivityRecord(
     int id,
     ActivityRecordModel record,
@@ -841,6 +1191,58 @@ class DatabaseService {
     );
   }
 
+  static Future<void> updateActivityRecordWithCounterImpact(
+    int id,
+    ActivityRecordModel record,
+  ) async {
+    final db = await database;
+    var insertedNewCounter = false;
+
+    await db.transaction((txn) async {
+      final existingRecord = await _getActivityRecordFrom(txn, id);
+      if (existingRecord == null) {
+        throw StateError('Activity record $id not found');
+      }
+
+      final counters = await _getCountersFrom(txn);
+      await _applyRecordCounterImpact(
+        txn,
+        counters,
+        existingRecord,
+        reverse: true,
+      );
+
+      final prepared = await _prepareRecordForCounterImpact(
+        txn,
+        counters,
+        record.copyWith(id: id),
+      );
+      insertedNewCounter = insertedNewCounter || prepared.insertedNewCounter;
+      final values = await _filterValuesForTable(
+        txn,
+        activityRecordTableName,
+        _recordToDatabaseMap(prepared.record.copyWith(id: id)),
+      );
+      await txn.update(
+        activityRecordTableName,
+        values,
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      insertedNewCounter = insertedNewCounter ||
+          await _applyRecordCounterImpact(
+            txn,
+            counters,
+            prepared.record.copyWith(id: id),
+            reverse: false,
+          );
+    });
+
+    if (insertedNewCounter) {
+      await autoAssignCounterThemeColors();
+    }
+  }
+
   static Future<void> deleteActivityRecord(int id) async {
     final db = await database;
     await db.transaction((txn) async {
@@ -851,6 +1253,124 @@ class DatabaseService {
         whereArgs: [id],
       );
     });
+  }
+
+  static Future<void> deleteActivityRecordWithCounterImpact(int id) async {
+    await deleteActivityRecordsWithCounterImpact([id]);
+  }
+
+  static Future<int> deleteActivityRecordsWithCounterImpact(
+    Iterable<int> ids,
+  ) async {
+    final scopedIds = ids.toSet().where((id) => id > 0).toList(growable: false);
+    if (scopedIds.isEmpty) {
+      return 0;
+    }
+
+    final db = await database;
+    return db.transaction<int>((txn) async {
+      final placeholders = List.filled(scopedIds.length, '?').join(', ');
+      final maps = await txn.query(
+        activityRecordTableName,
+        where: 'id IN ($placeholders)',
+        whereArgs: scopedIds,
+        orderBy: 'occurred_at DESC, id DESC',
+      );
+      if (maps.isEmpty) {
+        return 0;
+      }
+
+      final counters = await _getCountersFrom(txn);
+      final records = maps.map(ActivityRecordModel.fromMap).toList();
+      for (final record in records) {
+        await _applyRecordCounterImpact(
+          txn,
+          counters,
+          record,
+          reverse: true,
+        );
+      }
+
+      await _deleteActivityRecordMediaRows(txn, recordIds: scopedIds);
+      await txn.delete(
+        activityRecordTableName,
+        where: 'id IN ($placeholders)',
+        whereArgs: scopedIds,
+      );
+      return records.length;
+    });
+  }
+
+  static Future<int> recalculateCountersFromActivityRecords() async {
+    final db = await database;
+    var insertedNewCounter = false;
+
+    final replayedCount = await db.transaction<int>((txn) async {
+      final counters = await _getCountersFrom(txn);
+      for (var index = 0; index < counters.length; index += 1) {
+        final resetCounter = _resetCounterCounts(counters[index]);
+        counters[index] = resetCounter;
+        if (resetCounter.id == null) {
+          continue;
+        }
+        final values = await _filterValuesForTable(
+          txn,
+          tableName,
+          _toDatabaseMap(resetCounter),
+        );
+        await txn.update(
+          tableName,
+          values,
+          where: 'id = ?',
+          whereArgs: [resetCounter.id],
+        );
+      }
+
+      final maps = await txn.query(
+        activityRecordTableName,
+        orderBy: 'occurred_at ASC, id ASC',
+      );
+      for (final map in maps) {
+        final record = ActivityRecordModel.fromMap(map);
+        final prepared = await _prepareRecordForCounterImpact(
+          txn,
+          counters,
+          record,
+        );
+        insertedNewCounter = insertedNewCounter || prepared.insertedNewCounter;
+
+        if (record.id != null &&
+            (prepared.record.counterId != record.counterId ||
+                prepared.record.personId != record.personId ||
+                prepared.record.personName != record.personName)) {
+          final values = await _filterValuesForTable(
+            txn,
+            activityRecordTableName,
+            _recordToDatabaseMap(prepared.record),
+          );
+          await txn.update(
+            activityRecordTableName,
+            values,
+            where: 'id = ?',
+            whereArgs: [record.id],
+          );
+        }
+
+        insertedNewCounter = insertedNewCounter ||
+            await _applyRecordCounterImpact(
+              txn,
+              counters,
+              prepared.record,
+              reverse: false,
+            );
+      }
+      return maps.length;
+    });
+
+    if (insertedNewCounter) {
+      await autoAssignCounterThemeColors();
+    }
+    return replayedCount;
   }
 
   static Future<void> clearAppData() async {
@@ -1645,5 +2165,15 @@ class _ResolvedIdentity {
   const _ResolvedIdentity({
     required this.personId,
     required this.personName,
+  });
+}
+
+class _PreparedActivityRecord {
+  final ActivityRecordModel record;
+  final bool insertedNewCounter;
+
+  const _PreparedActivityRecord({
+    required this.record,
+    this.insertedNewCounter = false,
   });
 }

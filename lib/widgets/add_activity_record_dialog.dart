@@ -280,6 +280,9 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
   double get _ticketUnitPrice =>
       double.tryParse(_ticketPriceController.text.trim()) ?? 0;
 
+  double get _multiTotalPrice =>
+      double.tryParse(_multiPriceController.text.trim()) ?? 0;
+
   double get _counterPreviewTotal {
     final pricing = _selectedPricing;
     final builtInTotal = CounterCountField.visibleValues(
@@ -584,9 +587,11 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
         for (final field in CounterCountField.values) field: _parseCount(field),
       };
       final customChekiCounts = _buildCustomChekiCounts();
-      final hasCount = counterDeltas.values.any((value) => value != 0) ||
+      final hasNegativeCount = counterDeltas.values.any((value) => value < 0) ||
+          _counterCustomTypes.any((type) => _parseCustomCount(type) < 0);
+      final hasCount = counterDeltas.values.any((value) => value > 0) ||
           customChekiCounts.isNotEmpty;
-      if (!hasCount) {
+      if (hasNegativeCount || !hasCount) {
         return;
       }
 
@@ -609,7 +614,8 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
       if (_selectedParticipants.length < 2 ||
           (!_multiAsGroupCut && _multiQuantity <= 0) ||
           (!_multiAsGroupCut &&
-              !_multiVisibleFields.contains(_selectedMultiField))) {
+              !_multiVisibleFields.contains(_selectedMultiField)) ||
+          _multiTotalPrice < 0) {
         return;
       }
 
@@ -624,15 +630,14 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
           multiField: _effectiveMultiField,
           multiAsGroupCut: _multiAsGroupCut,
           multiQuantity: _multiAsGroupCut ? 1 : _multiQuantity,
-          multiTotalPrice:
-              double.tryParse(_multiPriceController.text.trim()) ?? 0,
+          multiTotalPrice: _multiTotalPrice,
         ),
       );
       return;
     }
 
     final activityName = _activityNameController.text.trim();
-    if (activityName.isEmpty || _ticketQuantity <= 0) {
+    if (activityName.isEmpty || _ticketQuantity <= 0 || _ticketUnitPrice < 0) {
       return;
     }
 

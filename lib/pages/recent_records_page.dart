@@ -93,46 +93,6 @@ class _RecentRecordsPageState extends State<RecentRecordsPage> {
     return null;
   }
 
-  CounterModel? _findCounterForRecordIn(
-    List<CounterModel> counters,
-    ActivityRecordModel record,
-  ) {
-    final counterId = record.counterId;
-    if (counterId != null) {
-      for (final counter in counters) {
-        if (counter.id == counterId) {
-          return counter;
-        }
-      }
-    }
-
-    final normalizedGroup = _normalizedLookupPart(record.groupName);
-    final normalizedMember = _normalizedLookupPart(record.subjectName);
-    for (final counter in counters) {
-      if (_normalizedLookupPart(counter.groupName) == normalizedGroup &&
-          _normalizedLookupPart(counter.name) == normalizedMember) {
-        return counter;
-      }
-    }
-    return null;
-  }
-
-  CounterModel? _findCounterForParticipantIn(
-    List<CounterModel> counters,
-    ActivityParticipant participant,
-  ) {
-    final normalizedGroup = _normalizedLookupPart(participant.groupName);
-    final normalizedMember = _normalizedLookupPart(participant.memberName);
-
-    for (final counter in counters) {
-      if (_normalizedLookupPart(counter.groupName) == normalizedGroup &&
-          _normalizedLookupPart(counter.name) == normalizedMember) {
-        return counter;
-      }
-    }
-    return null;
-  }
-
   Map<CounterCountField, int> _counterDeltasFromRecord(
     ActivityRecordModel record,
   ) {
@@ -286,87 +246,6 @@ class _RecentRecordsPageState extends State<RecentRecordsPage> {
     );
   }
 
-  Future<void> _applyRecordCounterImpact(
-    ActivityRecordModel record, {
-    required bool reverse,
-  }) async {
-    final counters = await DatabaseService.getCounters();
-    var insertedNewCounter = false;
-    final multiplier = reverse ? -1 : 1;
-
-    if (record.isCounter) {
-      final existingCounter = _findCounterForRecordIn(counters, record);
-      if (existingCounter == null && reverse) {
-        return;
-      }
-
-      final baseCounter = existingCounter ??
-          CounterModel(
-            name: record.subjectName,
-            groupName: record.groupName,
-            personId: record.personId,
-            personName: record.personName,
-            color: '#FFE135',
-          );
-      var updatedCounter = baseCounter;
-      for (final field in CounterCountField.values) {
-        final delta = record.countForField(field);
-        if (delta == 0) {
-          continue;
-        }
-        updatedCounter = updatedCounter.changeCount(field, delta * multiplier);
-      }
-
-      if (existingCounter?.id != null) {
-        await DatabaseService.updateCounter(
-            existingCounter!.id!, updatedCounter);
-      } else if (!reverse) {
-        await DatabaseService.insertCounter(updatedCounter);
-        insertedNewCounter = true;
-      }
-    } else if (record.isMulti) {
-      final field = record.multiCountField;
-      if (field == null || record.effectiveMultiQuantity <= 0) {
-        return;
-      }
-
-      for (final participant in record.effectiveParticipants) {
-        final existingCounter =
-            _findCounterForParticipantIn(counters, participant);
-        if (existingCounter == null && reverse) {
-          continue;
-        }
-
-        final baseCounter = existingCounter ??
-            CounterModel(
-              name: participant.memberName,
-              groupName: participant.groupName,
-              personId: participant.personId,
-              personName: participant.personName,
-              color: '#FFE135',
-            );
-        final updatedCounter = baseCounter.changeCount(
-          field,
-          record.effectiveMultiQuantity * multiplier,
-        );
-
-        if (existingCounter?.id != null) {
-          await DatabaseService.updateCounter(
-            existingCounter!.id!,
-            updatedCounter,
-          );
-        } else if (!reverse) {
-          await DatabaseService.insertCounter(updatedCounter);
-          insertedNewCounter = true;
-        }
-      }
-    }
-
-    if (insertedNewCounter) {
-      await DatabaseService.autoAssignCounterThemeColors();
-    }
-  }
-
   Future<void> _editRecord(ActivityRecordModel record) async {
     if (!_canMutateRecord(record)) {
       return;
@@ -397,14 +276,10 @@ class _RecentRecordsPageState extends State<RecentRecordsPage> {
     }
 
     try {
-      await _applyRecordCounterImpact(record, reverse: true);
-      try {
-        await DatabaseService.updateActivityRecord(record.id!, updatedRecord);
-        await _applyRecordCounterImpact(updatedRecord, reverse: false);
-      } catch (_) {
-        await _applyRecordCounterImpact(record, reverse: false);
-        rethrow;
-      }
+      await DatabaseService.updateActivityRecordWithCounterImpact(
+        record.id!,
+        updatedRecord,
+      );
       await _loadData();
       if (!mounted) {
         return;
@@ -427,13 +302,7 @@ class _RecentRecordsPageState extends State<RecentRecordsPage> {
       return;
     }
 
-    await _applyRecordCounterImpact(record, reverse: true);
-    try {
-      await DatabaseService.deleteActivityRecord(record.id!);
-    } catch (_) {
-      await _applyRecordCounterImpact(record, reverse: false);
-      rethrow;
-    }
+    await DatabaseService.deleteActivityRecordWithCounterImpact(record.id!);
   }
 
   Future<void> _deleteRecord(ActivityRecordModel record) async {
@@ -516,41 +385,33 @@ class _RecentRecordsPageState extends State<RecentRecordsPage> {
       return;
     }
 
-    var deletedCount = 0;
-    Object? failure;
-    for (final record in selectedRecords) {
-      try {
-        await _deleteRecordInternal(record);
-        deletedCount += 1;
-      } catch (error) {
-        failure = error;
-        break;
+    try {
+      final deletedCount =
+          await DatabaseService.deleteActivityRecordsWithCounterImpact(
+        selectedRecords.map((record) => record.id).whereType<int>(),
+      );
+      await _loadData();
+      if (!mounted) {
+        return;
       }
-    }
 
-    await _loadData();
-    if (!mounted) {
-      return;
-    }
+      setState(() {
+        _selectionMode = false;
+        _selectedRecordIds.clear();
+      });
 
-    setState(() {
-      _selectionMode = false;
-      _selectedRecordIds.clear();
-    });
-
-    if (failure == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('已删除 $deletedCount 条记录')),
       );
-      return;
+    } catch (error) {
+      await _loadData();
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('批量删除失败：$error')),
+      );
     }
-
-    final message = deletedCount > 0
-        ? '已删除 $deletedCount 条记录，剩余删除失败：$failure'
-        : '批量删除失败：$failure';
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
   }
 
   bool _shouldUseCurrentPricingForRecord(ActivityRecordModel record) {

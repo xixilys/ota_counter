@@ -2,8 +2,8 @@
 
 面向 OTA / 切奇记录的 Flutter 计数器应用。
 
-当前版本：`v1.4.1`
-Android build：`1.4.1+13`
+当前版本：`v1.4.2`
+Android build：`1.4.2+14`
 
 ## 主要功能
 
@@ -16,6 +16,7 @@ Android build：`1.4.1+13`
 - 统计与流水支持日 / 周 / 月 / 年 / 全部范围查看
 - 统计页会保存价格快照；旧的 0 价记录会按当前团价补算显示金额
 - 支持门票记录，支持同一天多场次
+- 支持从 MineCool 偶活行程缓存中选择场次，自动填入活动名 / 场地 / 日期
 - 内置中国偶像数据库，可搜索、编辑、补充团体 / 团籍 / 真人主档
 - 自动从偶像资料里识别担当色，并同步到成员卡片配色
 - 支持导入旧版计数器备份，以及 OTA 后台导出的历史 bundle
@@ -54,13 +55,13 @@ flutter build apk --release
 构建完成后，`build/app/outputs/flutter-apk/` 目录下会同时看到：
 
 - Flutter 默认产物：`app-release.apk`
-- `build/app/outputs/flutter-apk/OTA-Counter-v1.4.1.apk`
+- `build/app/outputs/flutter-apk/OTA-Counter-v1.4.2.apk`
 
 GitHub Release 建议继续保持：
 
-- release 标题：`OTA Counter v1.4.1`
-- tag：`v1.4.1`
-- APK 资产：`OTA-Counter-v1.4.1.apk`
+- release 标题：`OTA Counter v1.4.2`
+- tag：`v1.4.2`
+- APK 资产：`OTA-Counter-v1.4.2.apk`
 
 也可以直接用脚本读取：
 
@@ -83,7 +84,7 @@ dart run tool/release_metadata.dart --field=apkFileName
 2. 保持同一个 Android `applicationId`
 3. 每次发版递增 `versionCode`
 
-当前 Android `applicationId` 为 `top.huangxuanqi.otacounter`。当前版本号为 `1.4.1+13`。
+当前 Android `applicationId` 为 `top.huangxuanqi.otacounter`。当前版本号为 `1.4.2+14`。
 
 更新站点发布可直接使用：
 
@@ -96,7 +97,7 @@ tool/deploy_update_site.sh
 
 - `release/update_site/index.html`
 - `release/update_site/latest.json`
-- `build/app/outputs/flutter-apk/OTA-Counter-v1.4.1.apk`
+- `build/app/outputs/flutter-apk/OTA-Counter-v1.4.2.apk`
 
 支持的辅助参数：
 

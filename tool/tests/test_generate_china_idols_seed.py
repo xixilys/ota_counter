@@ -30,7 +30,12 @@ class GenerateChinaIdolsSeedTest(unittest.TestCase):
                     return_value={"测试团": "== 成员 ==\n* 小明"},
                 ),
             ):
-                generate_china_idols_seed.main(["--output", str(output_path)])
+                manual_path = Path(temp_dir) / "manual_idols.json"
+                manual_path.write_text('{"groups": []}', encoding="utf-8")
+
+                generate_china_idols_seed.main(
+                    ["--output", str(output_path), "--manual", str(manual_path)]
+                )
 
             payload = json.loads(output_path.read_text(encoding="utf-8"))
 
@@ -41,6 +46,58 @@ class GenerateChinaIdolsSeedTest(unittest.TestCase):
                 "members": [{"name": "小明", "status": "未分类"}],
             }
         ])
+
+    def test_main_merges_manual_idol_additions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "public" / "china_idols_seed.json"
+            manual_path = Path(temp_dir) / "manual_idols.json"
+            manual_path.write_text(
+                json.dumps(
+                    {
+                        "groups": [
+                            {
+                                "name": "ReCream",
+                                "members": [
+                                    {
+                                        "name": "兔兔Miottie",
+                                        "status": "正式成员 / 粉色担当",
+                                    }
+                                ],
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                patch.object(
+                    generate_china_idols_seed,
+                    "fetch_all_group_titles",
+                    return_value=["测试团"],
+                ),
+                patch.object(
+                    generate_china_idols_seed,
+                    "fetch_pages",
+                    return_value={"测试团": "== 成员 ==\n* 小明"},
+                ),
+            ):
+                generate_china_idols_seed.main(
+                    ["--output", str(output_path), "--manual", str(manual_path)]
+                )
+
+            payload = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertIn(
+            {
+                "name": "ReCream",
+                "members": [
+                    {"name": "兔兔Miottie", "status": "正式成员 / 粉色担当"}
+                ],
+            },
+            payload["groups"],
+        )
 
 
 if __name__ == "__main__":

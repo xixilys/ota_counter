@@ -1,0 +1,205 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import 'package:ota_counter/models/counter_model.dart';
+import 'package:ota_counter/widgets/counter_card.dart';
+import 'package:ota_counter/widgets/counter_count_sheet.dart';
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUpAll(() {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  });
+
+  testWidgets('counter card breakdown hides group cut', (
+    WidgetTester tester,
+  ) async {
+    final counter = CounterModel(
+      name: '成员A',
+      groupName: '团体A',
+      color: '#FFE135',
+      threeInchCount: 2,
+      fiveInchCount: 1,
+      threeInchShukudaiCount: 4,
+      fiveInchShukudaiCount: 5,
+      groupCutCount: 3,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 220,
+              height: 260,
+              child: CounterCard(
+                counter: counter,
+                totalCount: counter.count,
+                percentage: 0.5,
+                onTap: () {},
+                onDelete: () {},
+                onEdit: () {},
+                gridColumns: 2,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('3寸'), findsOneWidget);
+    expect(find.text('5寸'), findsOneWidget);
+    expect(find.text('3寸宿'), findsOneWidget);
+    expect(find.text('5寸宿'), findsOneWidget);
+    expect(find.text('团切'), findsNothing);
+  });
+
+  testWidgets('counter sheet shows group cut as read only', (
+    WidgetTester tester,
+  ) async {
+    final counter = CounterModel(
+      name: '成员A',
+      groupName: '团体A',
+      color: '#FFE135',
+      groupCutCount: 4,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CounterCountSheet(
+            counter: counter,
+            allCounters: [counter],
+            onCounterChanged: (updatedCounter, occurredAt) async =>
+                updatedCounter,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('团切'), findsOneWidget);
+    expect(find.text('只读'), findsOneWidget);
+    expect(find.text('团切请通过多人切记录处理，这里仅展示当前累计数量。'), findsOneWidget);
+  });
+
+  testWidgets('counter sheet quick count keeps edit and additive buttons', (
+    WidgetTester tester,
+  ) async {
+    final counter = CounterModel(
+      name: '成员A',
+      groupName: '团体A',
+      color: '#FFE135',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CounterCountSheet(
+            counter: counter,
+            allCounters: [counter],
+            onCounterChanged: (updatedCounter, occurredAt) async =>
+                updatedCounter,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.remove), findsNothing);
+    expect(find.text('+1'), findsWidgets);
+    expect(find.text('+5'), findsWidgets);
+    expect(find.text('+10'), findsWidgets);
+    expect(find.text('+50'), findsWidgets);
+    expect(find.text('+100'), findsNothing);
+
+    await tester.tap(find.text('+10').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('总计 10'), findsOneWidget);
+
+    await tester.tap(find.text('10').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('修改3寸'), findsOneWidget);
+  });
+
+  testWidgets('counter sheet direct edit cannot decrease a count', (
+    WidgetTester tester,
+  ) async {
+    final counter = CounterModel(
+      name: '成员A',
+      groupName: '团体A',
+      color: '#FFE135',
+      threeInchCount: 10,
+    );
+    var saveCalls = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CounterCountSheet(
+            counter: counter,
+            allCounters: [counter],
+            onCounterChanged: (updatedCounter, occurredAt) async {
+              saveCalls += 1;
+              return updatedCounter;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('10').first);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '5');
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+
+    expect(saveCalls, 0);
+    expect(find.text('总计 10'), findsOneWidget);
+  });
+
+  testWidgets('counter sheet keeps quick buttons on one row in compact width', (
+    WidgetTester tester,
+  ) async {
+    final counter = CounterModel(
+      name: '成员A',
+      groupName: '团体A',
+      color: '#FFE135',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 320,
+              child: CounterCountSheet(
+                counter: counter,
+                allCounters: [counter],
+                onCounterChanged: (updatedCounter, occurredAt) async =>
+                    updatedCounter,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+
+    final firstButtonY = tester.getCenter(find.text('+1').first).dy;
+    for (final label in ['+5', '+10', '+50']) {
+      expect(
+        (tester.getCenter(find.text(label).first).dy - firstButtonY).abs(),
+        lessThan(1),
+      );
+    }
+  });
+}

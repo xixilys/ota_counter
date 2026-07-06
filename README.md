@@ -1,3 +1,161 @@
-# ota_counter
+# OTA Counter
 
-A simple counter app for otaku
+面向 OTA / 切奇记录的 Flutter 计数器应用。
+
+当前版本：`v1.4.1`
+Android build：`1.4.1+13`
+
+## 主要功能
+
+- 成员卡片计数，首页展示 `3寸`、`5寸`、`3寸宿题`、`5寸宿题`；`团切` 在卡片详情里查看
+- 支持“单成员多团 / 兼任 / 重生改名”场景：同一个真人可以绑定多个团籍，首页按真人聚合为同一张卡片，不会因为换团或改名被拆散
+- 支持手动绑定或解绑真人主档，不再只靠名字猜测；填同一个真人主档名，或并入已有真人卡片后，就能把跨团时期接到一起
+- 快捷计数支持切换“记录到团体”，同一个真人在不同团的切可以分别落到对应团籍，默认仍用当前团
+- 支持“团体是否启用无签”开关；录入时可区分有签 / 无签，首页仍按 `3寸`、`5寸` 聚合展示
+- 支持多人切，成员可来自不同团体；录入总价后会按总价保存流水，并给每个参与成员同步加数
+- 统计与流水支持日 / 周 / 月 / 年 / 全部范围查看
+- 统计页会保存价格快照；旧的 0 价记录会按当前团价补算显示金额
+- 支持门票记录，支持同一天多场次
+- 内置中国偶像数据库，可搜索、编辑、补充团体 / 团籍 / 真人主档
+- 自动从偶像资料里识别担当色，并同步到成员卡片配色
+- 支持导入旧版计数器备份，以及 OTA 后台导出的历史 bundle
+- 支持导出当前数据
+- 支持隐藏不想在首页看到的成员卡片
+- 删除计数器时，会一并删除对应的单成员流水记录
+
+## 开发环境
+
+在仓库根目录执行：
+
+```bash
+flutter pub get
+flutter analyze
+flutter run
+```
+
+如果本地 Flutter / Android SDK 不在系统默认路径，请先自行配置环境变量，例如 `ANDROID_HOME`、`ANDROID_SDK_ROOT`。
+
+## 开发约定
+
+- 日常开发默认在 `codex/v1.3-prep` 分支进行，不直接在 `main` 上开发
+- 需要发版或推 GitHub Release 时，默认先把 `codex/v1.3-prep` 合并到 `main`，除非明确说明“不要合并”
+- release 完成后默认切回 `codex/v1.3-prep`，后续继续在开发分支推进
+- Android 发版时同步递增 `pubspec.yaml` 里的版本号，并保持 GitHub release 标题、tag、APK 文件名三者一致
+- 可运行 `dart run tool/release_metadata.dart` 获取当前统一的 release 元信息，避免手写出错
+
+## Android Release
+
+正式包构建命令：
+
+```bash
+flutter build apk --release
+```
+
+构建完成后，`build/app/outputs/flutter-apk/` 目录下会同时看到：
+
+- Flutter 默认产物：`app-release.apk`
+- `build/app/outputs/flutter-apk/OTA-Counter-v1.4.1.apk`
+
+GitHub Release 建议继续保持：
+
+- release 标题：`OTA Counter v1.4.1`
+- tag：`v1.4.1`
+- APK 资产：`OTA-Counter-v1.4.1.apk`
+
+也可以直接用脚本读取：
+
+```bash
+dart run tool/release_metadata.dart
+dart run tool/release_metadata.dart --field=releaseTitle
+dart run tool/release_metadata.dart --field=tag
+dart run tool/release_metadata.dart --field=apkFileName
+```
+
+当前仓库已接入 `android/key.properties` 形式的本地签名配置：
+
+- 示例文件：`android/key.properties.example`
+- 本地配置文件：`android/key.properties`（已加入 `.gitignore`）
+- `storeFile` 建议填写相对路径，例如 `../secrets/ota_counter-release.jks`
+
+想让后续 APK 可以覆盖升级，必须同时满足这三点：
+
+1. 始终使用同一个 keystore
+2. 保持同一个 Android `applicationId`
+3. 每次发版递增 `versionCode`
+
+当前 Android `applicationId` 为 `top.huangxuanqi.otacounter`。当前版本号为 `1.4.1+13`。
+
+更新站点发布可直接使用：
+
+```bash
+tool/deploy_update_site.sh
+```
+
+这条命令会通过 SSH / SCP 把以下文件推到 `hk-ares` 的
+`/var/www/status/ota-counter`，对外更新地址是 `https://ota-counter.huangxuanqi.top/ota-counter/`：
+
+- `release/update_site/index.html`
+- `release/update_site/latest.json`
+- `build/app/outputs/flutter-apk/OTA-Counter-v1.4.1.apk`
+
+支持的辅助参数：
+
+```bash
+tool/deploy_update_site.sh --dry-run
+tool/deploy_update_site.sh --skip-apk
+```
+
+如果后续更换服务器或目录，可通过环境变量覆盖：
+
+```bash
+OTA_UPDATE_SSH_USER=your-user \
+OTA_UPDATE_SSH_HOST=your-host \
+OTA_UPDATE_REMOTE_DIR=/your/remote/path \
+tool/deploy_update_site.sh
+```
+
+## 数据脚本
+
+重新生成内置偶像数据库：
+
+```bash
+python3 tool/generate_china_idols_seed.py
+```
+
+把偶像数据库自动更新任务部署到 `hk-ares`：
+
+```bash
+tool/deploy_idol_seed_updater.sh
+```
+
+部署后，服务器会通过 systemd timer 每天运行 2 次爬虫。`hk-ares` 使用 UTC 时区，
+当前计划时间是 `00:20` 和 `12:20`，折合北京时间 `08:20` 和 `20:20`，并带
+`RandomizedDelaySec=30m` 的随机延迟。生成结果会发布到：
+
+```text
+https://ota-counter.huangxuanqi.top/ota-counter/data/china_idols_seed.json
+```
+
+辅助命令：
+
+```bash
+tool/deploy_idol_seed_updater.sh --dry-run
+tool/deploy_idol_seed_updater.sh --no-run-now
+python3 tool/validate_china_idols_seed.py assets/data/china_idols_seed.json
+```
+
+从 OTA 后台导出历史数据 bundle：
+
+```bash
+python3 tool/export_ota_history.py --admin-key YOUR_ADMIN_KEY
+```
+
+脚本会输出：
+
+- 一个可直接导入 App 的 JSON bundle
+- 一份 latest JSON
+- 团体 / 成员 / 流水 CSV
+
+## 许可证
+
+MIT，见 [LICENSE](LICENSE)。

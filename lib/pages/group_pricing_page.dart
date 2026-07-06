@@ -1,0 +1,685 @@
+import 'package:flutter/material.dart';
+
+import '../models/counter_model.dart';
+import '../models/custom_cheki_type_model.dart';
+import '../models/group_pricing_model.dart';
+import '../services/database_service.dart';
+import '../widgets/no_autofill_text_field.dart';
+
+class GroupPricingPage extends StatefulWidget {
+  const GroupPricingPage({super.key});
+
+  @override
+  State<GroupPricingPage> createState() => _GroupPricingPageState();
+}
+
+class _GroupPricingPageState extends State<GroupPricingPage> {
+  final TextEditingController _searchController = TextEditingController();
+
+  List<CounterModel> _counters = [];
+  List<GroupPricingModel> _pricings = [];
+  bool _loading = true;
+  String _query = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadData() async {
+    setState(() {
+      _loading = true;
+    });
+
+    final counters = await DatabaseService.getCounters();
+    final pricings = await DatabaseService.getGroupPricings();
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _counters = counters;
+      _pricings = pricings;
+      _loading = false;
+    });
+  }
+
+  List<_GroupPricingEntry> get _entries {
+    final pricingByName = {
+      for (final pricing in _pricings) pricing.groupName.trim(): pricing,
+    };
+    final groupNames = <String>{
+      for (final counter in _counters)
+        if (counter.groupName.trim().isNotEmpty) counter.groupName.trim(),
+      ...pricingByName.keys,
+    }.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    final query = _query.trim().toLowerCase();
+    return groupNames
+        .where((groupName) {
+          if (query.isEmpty) {
+            return true;
+          }
+          return groupName.toLowerCase().contains(query);
+        })
+        .map(
+          (groupName) => _GroupPricingEntry(
+            groupName: groupName,
+            pricing: pricingByName[groupName],
+          ),
+        )
+        .toList();
+  }
+
+  Future<void> _editPricing({
+    GroupPricingModel? pricing,
+    String initialGroupName = '',
+  }) async {
+    final result = await showDialog<GroupPricingModel>(
+      context: context,
+      builder: (context) => _PricingEditorDialog(
+        initialPricing: pricing,
+        initialGroupName: initialGroupName,
+      ),
+    );
+
+    if (result == null) {
+      return;
+    }
+
+    await DatabaseService.upsertGroupPricing(result);
+    await _loadData();
+  }
+
+  Future<void> _deletePricing(GroupPricingModel pricing) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('删除团体配置'),
+        content: Text('确定删除 ${pricing.groupName} 的团体配置吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || pricing.id == null) {
+      return;
+    }
+
+    await DatabaseService.deleteGroupPricing(pricing.id!);
+    await _loadData();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = _entries;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('团体配置'),
+        actions: [
+          IconButton(
+            onPressed: () => _editPricing(),
+            icon: const Icon(Icons.add),
+            tooltip: '新增团体配置',
+          ),
+        ],
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: _loadData,
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  NoAutofillTextField(
+                    controller: _searchController,
+                    decoration: const InputDecoration(
+                      labelText: '搜索团体',
+                      prefixIcon: Icon(Icons.search),
+                    ),
+                    onChanged: (value) {
+                      setState(() {
+                        _query = value;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    '后续新增的记录会自动带上当前团体配置里的默认价格和价格标签。使用内置默认价的旧记录会自动跟随当前配置，已经明确保存过价格的旧记录仍保留原价。',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 16),
+                  if (entries.isEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color:
+                            Theme.of(context).colorScheme.surfaceContainerLow,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Text('还没有可配置的团体，先新增成员或手动添加一个团体配置。'),
+                    )
+                  else
+                    ...entries.map((entry) {
+                      final pricing = entry.pricing;
+                      final effectivePricing = pricing ??
+                          GroupPricingModel.unconfigured(entry.groupName);
+                      final hasPricing = pricing != null;
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          entry.groupName,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .titleMedium
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          hasPricing
+                                              ? '价格标签：${pricing.label}'
+                                              : '未配置，当前使用内置默认价',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodyMedium
+                                              ?.copyWith(
+                                                color: hasPricing
+                                                    ? null
+                                                    : Theme.of(context)
+                                                        .colorScheme
+                                                        .error,
+                                              ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  IconButton(
+                                    onPressed: () => _editPricing(
+                                      pricing: pricing,
+                                      initialGroupName: entry.groupName,
+                                    ),
+                                    icon: const Icon(Icons.edit_outlined),
+                                  ),
+                                  if (pricing != null)
+                                    IconButton(
+                                      onPressed: () => _deletePricing(pricing),
+                                      icon: const Icon(Icons.delete_outline),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              Wrap(
+                                spacing: 10,
+                                runSpacing: 10,
+                                children: [
+                                  ...CounterCountField.visibleValues(
+                                    enableUnsigned:
+                                        effectivePricing.enableUnsignedOptions,
+                                  ).map((field) {
+                                    final value =
+                                        effectivePricing.priceForField(field);
+                                    return _PriceChip(
+                                      label: field.label,
+                                      value: value,
+                                    );
+                                  }),
+                                  _PriceChip(
+                                    label: '多人切参考价',
+                                    value: effectivePricing.doubleCutPrice,
+                                  ),
+                                  ...effectivePricing.availableCustomChekiTypes
+                                      .map((type) {
+                                    return _PriceChip(
+                                      label: type.label,
+                                      value: type.unitPrice,
+                                    );
+                                  }),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+                ],
+              ),
+            ),
+    );
+  }
+}
+
+class _GroupPricingEntry {
+  final String groupName;
+  final GroupPricingModel? pricing;
+
+  const _GroupPricingEntry({
+    required this.groupName,
+    required this.pricing,
+  });
+}
+
+class _PriceChip extends StatelessWidget {
+  final String label;
+  final double value;
+
+  const _PriceChip({
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 120,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 4),
+          Text(
+            '¥${value.toStringAsFixed(value == value.roundToDouble() ? 0 : 2)}',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PricingEditorDialog extends StatefulWidget {
+  final GroupPricingModel? initialPricing;
+  final String initialGroupName;
+
+  const _PricingEditorDialog({
+    required this.initialPricing,
+    required this.initialGroupName,
+  });
+
+  @override
+  State<_PricingEditorDialog> createState() => _PricingEditorDialogState();
+}
+
+class _PricingEditorDialogState extends State<_PricingEditorDialog> {
+  static const String _doubleCutPriceKey = 'doubleCutPrice';
+
+  late final TextEditingController _groupController;
+  late final TextEditingController _labelController;
+  late final Map<String, TextEditingController> _priceControllers;
+  late final List<_CustomChekiTypeEditor> _customTypeEditors;
+  late bool _enableUnsignedOptions;
+
+  @override
+  void initState() {
+    super.initState();
+    final pricing = widget.initialPricing ??
+        GroupPricingModel.unconfigured(widget.initialGroupName);
+    _groupController = TextEditingController(
+      text: pricing.groupName,
+    );
+    _labelController = TextEditingController(
+      text: widget.initialPricing?.label ?? '默认价格',
+    );
+    _enableUnsignedOptions = pricing.enableUnsignedOptions;
+    _priceControllers = {
+      CounterCountField.threeInch.key: TextEditingController(
+        text: _formatPrice(pricing.threeInchPrice),
+      ),
+      CounterCountField.fiveInch.key: TextEditingController(
+        text: _formatPrice(pricing.fiveInchPrice),
+      ),
+      CounterCountField.unsignedThreeInch.key: TextEditingController(
+        text: _formatPrice(pricing.unsignedThreeInchPrice),
+      ),
+      CounterCountField.unsignedFiveInch.key: TextEditingController(
+        text: _formatPrice(pricing.unsignedFiveInchPrice),
+      ),
+      CounterCountField.groupCut.key: TextEditingController(
+        text: _formatPrice(pricing.groupCutPrice),
+      ),
+      _doubleCutPriceKey: TextEditingController(
+        text: _formatPrice(pricing.doubleCutPrice),
+      ),
+      CounterCountField.threeInchShukudai.key: TextEditingController(
+        text: _formatPrice(pricing.threeInchShukudaiPrice),
+      ),
+      CounterCountField.fiveInchShukudai.key: TextEditingController(
+        text: _formatPrice(pricing.fiveInchShukudaiPrice),
+      ),
+    };
+    _customTypeEditors = pricing.availableCustomChekiTypes.map((type) {
+      return _CustomChekiTypeEditor.fromType(type);
+    }).toList(growable: true);
+  }
+
+  @override
+  void dispose() {
+    _groupController.dispose();
+    _labelController.dispose();
+    for (final controller in _priceControllers.values) {
+      controller.dispose();
+    }
+    for (final editor in _customTypeEditors) {
+      editor.dispose();
+    }
+    super.dispose();
+  }
+
+  String _formatPrice(double value) {
+    return value == value.roundToDouble()
+        ? value.toStringAsFixed(0)
+        : value.toStringAsFixed(2);
+  }
+
+  double _parsePrice(CounterCountField field) {
+    return double.tryParse(_priceControllers[field.key]!.text.trim()) ?? 0;
+  }
+
+  double _parseDoubleCutPrice() {
+    return double.tryParse(
+            _priceControllers[_doubleCutPriceKey]!.text.trim()) ??
+        0;
+  }
+
+  void _addCustomTypeEditor([CustomChekiTypeModel? type]) {
+    setState(() {
+      _customTypeEditors.add(
+        type == null
+            ? _CustomChekiTypeEditor.empty()
+            : _CustomChekiTypeEditor.fromType(type),
+      );
+    });
+  }
+
+  void _removeCustomTypeEditor(int index) {
+    setState(() {
+      final removed = _customTypeEditors.removeAt(index);
+      removed.dispose();
+    });
+  }
+
+  List<CustomChekiTypeModel> _buildCustomChekiTypes() {
+    final results = <CustomChekiTypeModel>[];
+    for (final editor in _customTypeEditors) {
+      final label = editor.labelController.text.trim();
+      if (label.isEmpty) {
+        continue;
+      }
+      results.add(
+        CustomChekiTypeModel(
+          id: editor.id,
+          label: label,
+          unitPrice: double.tryParse(editor.priceController.text.trim()) ?? 0,
+        ),
+      );
+    }
+    return results;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEditing = widget.initialPricing != null;
+
+    return AlertDialog(
+      title: Text(isEditing ? '编辑团体配置' : '新增团体配置'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            NoAutofillTextField(
+              controller: _groupController,
+              decoration: const InputDecoration(
+                labelText: '团体名称',
+                hintText: '例如 EA人间计划',
+              ),
+            ),
+            const SizedBox(height: 12),
+            NoAutofillTextField(
+              controller: _labelController,
+              decoration: const InputDecoration(
+                labelText: '价格标签',
+                hintText: '例如 2026 春巡 / 常规价',
+              ),
+            ),
+            const SizedBox(height: 16),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('启用无签选项'),
+              subtitle: const Text('开启后可配置无签3寸和无签5寸价格'),
+              value: _enableUnsignedOptions,
+              onChanged: (value) {
+                setState(() {
+                  _enableUnsignedOptions = value;
+                });
+              },
+            ),
+            const SizedBox(height: 12),
+            ...CounterCountField.visibleValues(
+              enableUnsigned: _enableUnsignedOptions,
+            ).map((field) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: NoAutofillTextField(
+                  controller: _priceControllers[field.key]!,
+                  decoration: InputDecoration(
+                    labelText: '${field.label} 单价',
+                    prefixText: '¥',
+                  ),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                ),
+              );
+            }),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: NoAutofillTextField(
+                controller: _priceControllers[_doubleCutPriceKey]!,
+                decoration: const InputDecoration(
+                  labelText: '多人切参考价',
+                  prefixText: '¥',
+                ),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '自定义 cheki 类型',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () => _addCustomTypeEditor(),
+                  icon: const Icon(Icons.add),
+                  label: const Text('新增'),
+                ),
+              ],
+            ),
+            Text(
+              '例如主题切、服装切。这里只会在对应团体的成员记录里出现。',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            if (_customTypeEditors.isEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerLow,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Text('还没有自定义类型，点右上角新增即可。'),
+              )
+            else
+              ..._customTypeEditors.asMap().entries.map((entry) {
+                final index = entry.key;
+                final editor = entry.value;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: NoAutofillTextField(
+                          controller: editor.labelController,
+                          decoration: const InputDecoration(
+                            labelText: '类型名称',
+                            hintText: '例如 主题切',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: NoAutofillTextField(
+                          controller: editor.priceController,
+                          decoration: const InputDecoration(
+                            labelText: '单价',
+                            prefixText: '¥',
+                          ),
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => _removeCustomTypeEditor(index),
+                        icon: const Icon(Icons.delete_outline),
+                        tooltip: '删除',
+                      ),
+                    ],
+                  ),
+                );
+              }),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final groupName = _groupController.text.trim();
+            if (groupName.isEmpty) {
+              return;
+            }
+
+            Navigator.of(context).pop(
+              GroupPricingModel(
+                id: widget.initialPricing?.id,
+                groupName: groupName,
+                label: _labelController.text.trim().isEmpty
+                    ? '默认价格'
+                    : _labelController.text.trim(),
+                enableUnsignedOptions: _enableUnsignedOptions,
+                threeInchPrice: _parsePrice(CounterCountField.threeInch),
+                fiveInchPrice: _parsePrice(CounterCountField.fiveInch),
+                unsignedThreeInchPrice: _parsePrice(
+                  CounterCountField.unsignedThreeInch,
+                ),
+                unsignedFiveInchPrice: _parsePrice(
+                  CounterCountField.unsignedFiveInch,
+                ),
+                groupCutPrice: _parsePrice(CounterCountField.groupCut),
+                doubleCutPrice: _parseDoubleCutPrice(),
+                threeInchShukudaiPrice: _parsePrice(
+                  CounterCountField.threeInchShukudai,
+                ),
+                fiveInchShukudaiPrice: _parsePrice(
+                  CounterCountField.fiveInchShukudai,
+                ),
+                customChekiTypes: _buildCustomChekiTypes(),
+                updatedAt: DateTime.now(),
+              ),
+            );
+          },
+          child: const Text('保存'),
+        ),
+      ],
+    );
+  }
+}
+
+class _CustomChekiTypeEditor {
+  final String id;
+  final TextEditingController labelController;
+  final TextEditingController priceController;
+
+  _CustomChekiTypeEditor({
+    required this.id,
+    required this.labelController,
+    required this.priceController,
+  });
+
+  factory _CustomChekiTypeEditor.empty() {
+    return _CustomChekiTypeEditor(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      labelController: TextEditingController(),
+      priceController: TextEditingController(text: '0'),
+    );
+  }
+
+  factory _CustomChekiTypeEditor.fromType(CustomChekiTypeModel type) {
+    return _CustomChekiTypeEditor(
+      id: type.id,
+      labelController: TextEditingController(text: type.label),
+      priceController: TextEditingController(
+        text: type.unitPrice == type.unitPrice.roundToDouble()
+            ? type.unitPrice.toStringAsFixed(0)
+            : type.unitPrice.toStringAsFixed(2),
+      ),
+    );
+  }
+
+  void dispose() {
+    labelController.dispose();
+    priceController.dispose();
+  }
+}

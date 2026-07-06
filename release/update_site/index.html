@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OTA Counter v1.4.1</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f5f7fb;
+        --card: rgba(255, 255, 255, 0.9);
+        --text: #132238;
+        --muted: #5d6b82;
+        --primary: #2563eb;
+        --primary-strong: #1d4ed8;
+        --border: rgba(37, 99, 235, 0.12);
+        --shadow: 0 24px 60px rgba(16, 24, 40, 0.14);
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #09111d;
+          --card: rgba(15, 23, 42, 0.9);
+          --text: #e7eef9;
+          --muted: #a8b4c8;
+          --border: rgba(96, 165, 250, 0.2);
+          --shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(37, 99, 235, 0.18), transparent 35%),
+          radial-gradient(circle at bottom right, rgba(14, 165, 233, 0.16), transparent 32%),
+          var(--bg);
+        color: var(--text);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+
+      .card {
+        width: min(720px, 100%);
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 28px;
+        box-shadow: var(--shadow);
+        padding: 28px;
+        backdrop-filter: blur(18px);
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(37, 99, 235, 0.1);
+        color: var(--primary);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      h1 {
+        margin: 16px 0 8px;
+        font-size: clamp(28px, 5vw, 44px);
+        line-height: 1.05;
+      }
+
+      p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      .meta {
+        margin-top: 18px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      .meta span {
+        padding: 10px 14px;
+        border-radius: 14px;
+        background: rgba(148, 163, 184, 0.12);
+        color: var(--text);
+        font-size: 14px;
+      }
+
+      .section {
+        margin-top: 28px;
+      }
+
+      .section h2 {
+        margin: 0 0 12px;
+        font-size: 18px;
+      }
+
+      ul {
+        margin: 0;
+        padding-left: 20px;
+        color: var(--muted);
+        line-height: 1.8;
+      }
+
+      .actions {
+        margin-top: 28px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 48px;
+        padding: 0 18px;
+        border-radius: 16px;
+        font-weight: 700;
+        text-decoration: none;
+        transition: transform 0.18s ease, background 0.18s ease, opacity 0.18s ease;
+      }
+
+      .button:hover {
+        transform: translateY(-1px);
+      }
+
+      .button.primary {
+        background: var(--primary);
+        color: #fff;
+      }
+
+      .button.primary:hover {
+        background: var(--primary-strong);
+      }
+
+      .button.secondary {
+        background: rgba(148, 163, 184, 0.12);
+        color: var(--text);
+      }
+
+      .notice {
+        margin-top: 18px;
+        padding: 14px 16px;
+        border: 1px solid rgba(14, 165, 233, 0.24);
+        border-radius: 14px;
+        background: rgba(14, 165, 233, 0.1);
+        color: var(--text);
+        font-size: 14px;
+        line-height: 1.7;
+      }
+
+      .footer {
+        margin-top: 26px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <div class="eyebrow">OTA Counter 更新页</div>
+      <h1>OTA Counter v1.4.1</h1>
+      <p>这里提供当前稳定版本下载，也可以作为 App 内检查更新时跳转的下载页。</p>
+
+      <div class="meta">
+        <span>版本号：v1.4.1</span>
+        <span>构建号：13</span>
+        <span>发布时间：2026-07-07</span>
+      </div>
+
+      <section class="section">
+        <h2>本次更新</h2>
+        <ul>
+          <li>修复流水记录与首页计数可能不一致的问题</li>
+          <li>修复多人切记录按同名成员回滚时可能串到其他成员的问题</li>
+          <li>新增从流水记录重算首页计数的修复入口</li>
+          <li>禁止通过手动编辑生成负数计数记录</li>
+        </ul>
+      </section>
+
+      <div class="actions">
+        <a class="button primary" href="./OTA-Counter-v1.4.1.apk">下载 APK</a>
+        <a class="button secondary" href="./latest.json">查看 latest.json</a>
+      </div>
+
+      <div class="notice" id="ios">
+        iOS 版本正在准备签名和分发配置；当前页面会作为 iOS App 内更新入口，
+        等 IPA 或 TestFlight 链接可用后会直接更新到这里。
+      </div>
+
+      <div class="footer">
+        如果是从 App 内打开，这个页面也可以作为更新跳转页使用。
+      </div>
+    </main>
+  </body>
+</html>

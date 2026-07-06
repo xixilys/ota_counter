@@ -27,12 +27,12 @@ class _ImagePageState extends State<ImagePage> {
   bool _hasInitialized = false;
   bool _isLocked = false;
   bool _showText = true;
-  bool _isPlaceholder = true;  // 添加占位符状态
+  bool _isPlaceholder = true; // 添加占位符状态
 
   @override
   void initState() {
     super.initState();
-    _initImageSequence();  // 仍然初始化序列，但不显示图片
+    _initImageSequence(); // 仍然初始化序列，但不显示图片
   }
 
   @override
@@ -49,9 +49,7 @@ class _ImagePageState extends State<ImagePage> {
       if (_isLocked) return;
 
       final acceleration = sqrt(
-        event.x * event.x +
-        event.y * event.y +
-        event.z * event.z,
+        event.x * event.x + event.y * event.y + event.z * event.z,
       );
 
       final now = DateTime.now();
@@ -67,7 +65,7 @@ class _ImagePageState extends State<ImagePage> {
 
   Future<void> _initImageSequence() async {
     try {
-      final allImages = await ImageService.getUnusedImages();  // 只获取未使用的图片
+      final allImages = await ImageService.getUnusedImages(); // 只获取未使用的图片
       if (allImages.isEmpty) {
         setState(() {
           _currentImagePath = null;
@@ -100,7 +98,7 @@ class _ImagePageState extends State<ImagePage> {
       await _initImageSequence();
       return;
     }
-    
+
     setState(() {
       if (_isPlaceholder) {
         _currentIndex = 0;
@@ -125,14 +123,14 @@ class _ImagePageState extends State<ImagePage> {
     try {
       final isUsed = await ImageService.isImageUsed(_currentImagePath!);
       await ImageService.markAsUsed(_currentImagePath!, used: !isUsed);
-      
+
       // 如果标记为已使用，重新初始化序列
       if (!isUsed) {
         await _initImageSequence();
       }
-      
-      setState(() {});  // 刷新界面
-      
+
+      setState(() {}); // 刷新界面
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(isUsed ? '已取消标记' : '已标记为使用过')),
@@ -159,7 +157,7 @@ class _ImagePageState extends State<ImagePage> {
       if (Platform.isAndroid) {
         final androidInfo = await DeviceInfoPlugin().androidInfo;
         final sdkInt = androidInfo.version.sdkInt;
-        
+
         if (sdkInt >= 33) {
           if (!await Permission.photos.isGranted) {
             final status = await Permission.photos.request();
@@ -193,7 +191,7 @@ class _ImagePageState extends State<ImagePage> {
         maxHeight: 1920,
         imageQuality: 85,
       );
-      
+
       if (pickedFiles.isEmpty) return;
 
       // 显示进度对话框
@@ -260,15 +258,16 @@ class _ImagePageState extends State<ImagePage> {
 
   @override
   Widget build(BuildContext context) {
-    final appBarColor = Theme.of(context).colorScheme.inversePrimary.withAlpha(204);
+    final appBarColor =
+        Theme.of(context).colorScheme.inversePrimary.withAlpha(204);
     final screenSize = MediaQuery.of(context).size;
-    
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('抽取图片'),
         backgroundColor: appBarColor,
         actions: [
-          if (_currentImagePath != null)  // 只在显示图片时显示标记按钮
+          if (_currentImagePath != null) // 只在显示图片时显示标记按钮
             FutureBuilder<bool>(
               future: ImageService.isImageUsed(_currentImagePath!),
               builder: (context, snapshot) {
@@ -290,7 +289,7 @@ class _ImagePageState extends State<ImagePage> {
               MaterialPageRoute(
                 builder: (context) => const ImageListPage(),
               ),
-            ).then((_) => _initImageSequence()),  // 返回时重新加载序列
+            ).then((_) => _initImageSequence()), // 返回时重新加载序列
             tooltip: '图片列表',
           ),
           IconButton(
@@ -351,10 +350,10 @@ class _ImagePageState extends State<ImagePage> {
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      Colors.black.withOpacity(0.4),
+                      Colors.black.withValues(alpha: 0.4),
                       Colors.transparent,
                       Colors.transparent,
-                      Colors.black.withOpacity(0.4),
+                      Colors.black.withValues(alpha: 0.4),
                     ],
                     stops: const [0.0, 0.3, 0.7, 1.0],
                   ),
@@ -400,4 +399,4 @@ class _ImagePageState extends State<ImagePage> {
       ),
     );
   }
-} 
+}

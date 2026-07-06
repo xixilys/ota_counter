@@ -1,4 +1,4 @@
-package com.example.ota_counter
+package top.huangxuanqi.otacounter
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/idol_database_models.dart';
@@ -12,13 +14,19 @@ class IdolDatabasePage extends StatefulWidget {
 }
 
 class _IdolDatabasePageState extends State<IdolDatabasePage> {
+  static const int _initialMemberDisplayLimit = 300;
+  static const int _memberDisplayPageSize = 300;
+
   final TextEditingController _searchController = TextEditingController();
 
   List<IdolGroup> _groups = [];
   List<IdolPerson> _people = [];
   List<IdolMember> _allMembers = [];
+  List<IdolMember> _filteredMembers = [];
   Map<String, String> _meta = {};
+  Timer? _searchDebounce;
   int? _selectedGroupId;
+  int _memberDisplayLimit = _initialMemberDisplayLimit;
   bool _showMembers = true;
   bool _loading = true;
   bool _syncing = false;
@@ -32,6 +40,7 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -58,10 +67,11 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
       _meta = meta;
       _loading = false;
     });
+    _rebuildFilteredMembers(resetDisplayLimit: true);
   }
 
-  List<IdolMember> get _filteredMembers {
-    return _allMembers.where((member) {
+  void _rebuildFilteredMembers({bool resetDisplayLimit = false}) {
+    final filteredMembers = _allMembers.where((member) {
       final matchesGroup =
           _selectedGroupId == null || member.groupId == _selectedGroupId;
       if (!matchesGroup) {
@@ -70,6 +80,40 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
 
       return member.matchesQuery(_searchQuery);
     }).toList();
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _filteredMembers = filteredMembers;
+      if (resetDisplayLimit) {
+        _memberDisplayLimit = _initialMemberDisplayLimit;
+      }
+    });
+  }
+
+  void _handleSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 180), () {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _searchQuery = value;
+      });
+      _rebuildFilteredMembers(resetDisplayLimit: true);
+    });
+  }
+
+  void _clearSearch() {
+    _searchDebounce?.cancel();
+    _searchController.clear();
+    setState(() {
+      _searchQuery = '';
+    });
+    _rebuildFilteredMembers(resetDisplayLimit: true);
   }
 
   Future<void> _restoreBuiltInData() async {
@@ -394,6 +438,9 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
     final generatedAt = _meta['generated_at'];
     final totalMembers =
         _groups.fold<int>(0, (sum, group) => sum + group.memberCount);
+    final visibleMembers =
+        _filteredMembers.take(_memberDisplayLimit).toList(growable: false);
+    final hasMoreMembers = visibleMembers.length < _filteredMembers.length;
 
     return Scaffold(
       appBar: AppBar(
@@ -507,21 +554,12 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
                             suffixIcon: _searchQuery.isEmpty
                                 ? null
                                 : IconButton(
-                                    onPressed: () {
-                                      _searchController.clear();
-                                      setState(() {
-                                        _searchQuery = '';
-                                      });
-                                    },
+                                    onPressed: _clearSearch,
                                     icon: const Icon(Icons.clear),
                                   ),
                             labelText: '搜索成员 / 团体 / 拼音',
                           ),
-                          onChanged: (value) {
-                            setState(() {
-                              _searchQuery = value;
-                            });
-                          },
+                          onChanged: _handleSearchChanged,
                         ),
                         const SizedBox(height: 12),
                         DropdownButtonFormField<int?>(
@@ -545,6 +583,7 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
                             setState(() {
                               _selectedGroupId = value;
                             });
+                            _rebuildFilteredMembers(resetDisplayLimit: true);
                           },
                         ),
                       ],
@@ -555,11 +594,27 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
                   child: _showMembers
                       ? ListView.separated(
                           padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
-                          itemCount: _filteredMembers.length,
+                          itemCount:
+                              visibleMembers.length + (hasMoreMembers ? 1 : 0),
                           separatorBuilder: (_, __) =>
                               const SizedBox(height: 8),
                           itemBuilder: (context, index) {
-                            final member = _filteredMembers[index];
+                            if (index >= visibleMembers.length) {
+                              return FilledButton.tonalIcon(
+                                onPressed: () {
+                                  setState(() {
+                                    _memberDisplayLimit +=
+                                        _memberDisplayPageSize;
+                                  });
+                                },
+                                icon: const Icon(Icons.expand_more),
+                                label: Text(
+                                  '继续显示 ${(_filteredMembers.length - visibleMembers.length).clamp(0, _memberDisplayPageSize)} 条',
+                                ),
+                              );
+                            }
+
+                            final member = visibleMembers[index];
                             final memberColor = _colorFromHex(
                               member.themeColorHex,
                             );

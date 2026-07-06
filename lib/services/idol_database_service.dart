@@ -224,8 +224,7 @@ class IdolDatabaseService {
     if ((count ?? 0) > 0) {
       final bundle = await _loadSeedBundle();
       final meta = await getMeta();
-      final isLatestBundle =
-          meta['source_label'] == bundle.sourceLabel &&
+      final isLatestBundle = meta['source_label'] == bundle.sourceLabel &&
           meta['generated_at'] == bundle.generatedAt;
 
       if (!isLatestBundle) {
@@ -462,9 +461,7 @@ class IdolDatabaseService {
       for (final event in bundle.events) {
         batch.insert(
           'idol_activity_events',
-          event
-              .copyWithSyncedAt(syncedAt)
-              .toDbMap(),
+          event.copyWithSyncedAt(syncedAt).toDbMap(),
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       }
@@ -689,6 +686,8 @@ class IdolDatabaseService {
     String query = '',
   }) async {
     final db = await database;
+    final where = groupId == null ? '' : 'WHERE idol_members.group_id = ?';
+    final whereArgs = groupId == null ? <Object?>[] : <Object?>[groupId];
     final maps = await db.rawQuery('''
       SELECT
         idol_members.id,
@@ -703,12 +702,12 @@ class IdolDatabaseService {
       FROM idol_members
       INNER JOIN idol_groups ON idol_groups.id = idol_members.group_id
       LEFT JOIN idol_people ON idol_people.id = idol_members.person_id
+      $where
       ORDER BY idol_groups.name COLLATE NOCASE ASC, idol_members.name COLLATE NOCASE ASC
-    ''');
+    ''', whereArgs);
 
     return maps
         .map(IdolMember.fromMap)
-        .where((member) => groupId == null || member.groupId == groupId)
         .where((member) => member.matchesQuery(query))
         .toList();
   }
@@ -915,8 +914,8 @@ class IdolDatabaseService {
 
     final merged = <String, String>{};
     for (final entry in membersByName.entries) {
-      final statuses =
-          entry.value.where((value) => value.isNotEmpty).toList()..sort();
+      final statuses = entry.value.where((value) => value.isNotEmpty).toList()
+        ..sort();
       merged[entry.key] = statuses.join(' / ');
     }
     return merged;

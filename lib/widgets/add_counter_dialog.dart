@@ -63,6 +63,7 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
   List<_PersonPickerOption> _personOptions = [];
   bool _idolLoading = false;
   bool _idolMemberLoading = false;
+  bool _idolDatabaseLoaded = false;
   bool _useIdolDatabase = true;
   int? _selectedIdolGroupId;
   int? _selectedIdolMemberId;
@@ -95,7 +96,10 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
       }
     }
 
-    _loadIdolDatabase();
+    _loadExistingCounters();
+    if (widget.initialData != null) {
+      _loadIdolDatabase();
+    }
     _loadUnsignedOptionsForGroup(_groupController.text);
   }
 
@@ -110,7 +114,23 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
     super.dispose();
   }
 
+  Future<void> _loadExistingCounters() async {
+    final counters = await DatabaseService.getCounters();
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _existingCounters = counters;
+      _personOptions = _buildPersonOptions(_idolPeople, counters);
+    });
+  }
+
   Future<void> _loadIdolDatabase() async {
+    if (_idolLoading || _idolDatabaseLoaded) {
+      return;
+    }
+
     setState(() {
       _idolLoading = true;
     });
@@ -154,6 +174,7 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
         _personController.text = matchedPerson.name;
       }
       _useIdolDatabase = groups.isNotEmpty;
+      _idolDatabaseLoaded = true;
       _idolLoading = false;
     });
 
@@ -478,6 +499,13 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
   }
 
   Future<void> _pickIdolGroup() async {
+    if (!_idolDatabaseLoaded) {
+      await _loadIdolDatabase();
+    }
+    if (!mounted || _idolGroups.isEmpty) {
+      return;
+    }
+
     final selectedGroup = await _showSearchPicker<IdolGroup>(
       title: '搜索团体',
       searchLabel: '输入团体名称',
@@ -546,7 +574,10 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
   }
 
   Future<void> _pickExistingPerson() async {
-    if (_personOptions.isEmpty) {
+    if (_personOptions.isEmpty && !_idolDatabaseLoaded) {
+      await _loadIdolDatabase();
+    }
+    if (!mounted || _personOptions.isEmpty) {
       return;
     }
 
@@ -829,7 +860,17 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
                 padding: EdgeInsets.only(bottom: 16),
                 child: LinearProgressIndicator(),
               )
-            else if (_idolGroups.isNotEmpty) ...[
+            else if (!_idolDatabaseLoaded) ...[
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: _loadIdolDatabase,
+                  icon: const Icon(Icons.search),
+                  label: const Text('从内置偶像库快速选择'),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ] else if (_idolGroups.isNotEmpty) ...[
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -1135,8 +1176,25 @@ class _IdolSearchSheet<T> extends StatefulWidget {
 }
 
 class _IdolSearchSheetState<T> extends State<_IdolSearchSheet<T>> {
+  static const int _resultLimit = 200;
+
   final TextEditingController _searchController = TextEditingController();
   String _query = '';
+
+  List<T> _filteredItems() {
+    final filtered = <T>[];
+    for (final item in widget.items) {
+      if (!widget.matchesQuery(item, _query)) {
+        continue;
+      }
+
+      filtered.add(item);
+      if (filtered.length >= _resultLimit) {
+        break;
+      }
+    }
+    return filtered;
+  }
 
   @override
   void dispose() {
@@ -1146,9 +1204,8 @@ class _IdolSearchSheetState<T> extends State<_IdolSearchSheet<T>> {
 
   @override
   Widget build(BuildContext context) {
-    final filteredItems = widget.items
-        .where((item) => widget.matchesQuery(item, _query))
-        .toList();
+    final filteredItems = _filteredItems();
+    final mayHaveMoreResults = filteredItems.length >= _resultLimit;
     final theme = Theme.of(context);
     final viewInsets = MediaQuery.of(context).viewInsets;
 
@@ -1195,6 +1252,13 @@ class _IdolSearchSheetState<T> extends State<_IdolSearchSheet<T>> {
                 },
               ),
               const SizedBox(height: 12),
+              if (mayHaveMoreResults) ...[
+                Text(
+                  '仅显示前 $_resultLimit 条，继续输入可缩小范围',
+                  style: theme.textTheme.bodySmall,
+                ),
+                const SizedBox(height: 8),
+              ],
               Expanded(
                 child: filteredItems.isEmpty
                     ? Center(

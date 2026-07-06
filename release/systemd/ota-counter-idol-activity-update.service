@@ -1,0 +1,8 @@
+[Unit]
+Description=Update OTA Counter idol activity events JSON
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/ota-counter-idol-activity-updater/run_idol_activity_events_update.sh

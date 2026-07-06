@@ -8,11 +8,12 @@ import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../app_metadata.dart';
+import '../models/idol_activity_event_model.dart';
 import '../models/idol_database_models.dart';
 
 class IdolDatabaseService {
   static const String _dbName = 'idol_database.db';
-  static const int _version = 2;
+  static const int _version = 3;
   static const String _seedAssetPath = 'assets/data/china_idols_seed.json';
 
   static Database? _database;
@@ -64,6 +65,9 @@ class IdolDatabaseService {
     if (oldVersion < 2) {
       await _migrateToV2(db);
     }
+    if (oldVersion < 3) {
+      await _createActivityEventSchema(db);
+    }
   }
 
   static Future<void> _createSchema(DatabaseExecutor db) async {
@@ -113,6 +117,37 @@ class IdolDatabaseService {
     await db.execute(
       'CREATE INDEX idx_idol_members_person_id ON idol_members(person_id)',
     );
+    await _createActivityEventSchema(db);
+  }
+
+  static Future<void> _createActivityEventSchema(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS idol_activity_events(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source TEXT NOT NULL DEFAULT 'minecool',
+        source_event_id TEXT NOT NULL,
+        event_date TEXT NOT NULL,
+        city TEXT NOT NULL DEFAULT '',
+        venue TEXT NOT NULL DEFAULT '',
+        event_name TEXT NOT NULL,
+        open_time TEXT NOT NULL DEFAULT '',
+        start_time TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL DEFAULT '',
+        source_link TEXT NOT NULL DEFAULT '',
+        poster_url TEXT NOT NULL DEFAULT '',
+        groups_json TEXT NOT NULL DEFAULT '[]',
+        synced_at TEXT NOT NULL,
+        UNIQUE(source, source_event_id)
+      )
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_idol_activity_events_date
+      ON idol_activity_events(event_date, city, event_name)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_idol_activity_events_name
+      ON idol_activity_events(event_name COLLATE NOCASE)
+    ''');
   }
 
   static Future<void> _migrateToV2(Database db) async {
@@ -364,6 +399,157 @@ class IdolDatabaseService {
     } finally {
       client.close(force: true);
     }
+  }
+
+  static Future<void> syncActivityEventsFromRemote({String? url}) async {
+    final eventsUrl = url ?? kIdolActivityEventsUrl;
+    final uri = Uri.tryParse(eventsUrl);
+    if (uri == null) {
+      throw const FormatException('偶活数据地址无效');
+    }
+
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 15);
+    try {
+      final request = await client.getUrl(uri);
+      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      final response =
+          await request.close().timeout(const Duration(seconds: 15));
+
+      if (response.statusCode != HttpStatus.ok) {
+        throw HttpException(
+          '下载偶活数据失败 (${response.statusCode})',
+          uri: uri,
+        );
+      }
+
+      final body = await utf8.decodeStream(response);
+      final decoded = jsonDecode(body);
+      if (decoded is! Map<String, Object?>) {
+        throw const FormatException('偶活数据格式不正确');
+      }
+
+      final bundle = IdolActivityEventBundle.fromJson(decoded);
+      await _syncActivityEventBundle(bundle);
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  static Future<void> syncActivityEventsFromRemoteIfStale({
+    String? url,
+    Duration maxAge = const Duration(hours: 12),
+  }) async {
+    final meta = await getMeta();
+    final lastSyncedAt = DateTime.tryParse(
+      meta['activity_events_synced_at'] ?? '',
+    );
+    if (lastSyncedAt != null &&
+        DateTime.now().difference(lastSyncedAt).compareTo(maxAge) < 0) {
+      return;
+    }
+    await syncActivityEventsFromRemote(url: url);
+  }
+
+  static Future<void> _syncActivityEventBundle(
+    IdolActivityEventBundle bundle,
+  ) async {
+    final db = await database;
+    final syncedAt = DateTime.now();
+
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      for (final event in bundle.events) {
+        batch.insert(
+          'idol_activity_events',
+          event
+              .copyWithSyncedAt(syncedAt)
+              .toDbMap(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      await batch.commit(noResult: true);
+
+      await txn.delete(
+        'idol_activity_events',
+        where: 'source = ? AND synced_at != ?',
+        whereArgs: ['minecool', syncedAt.toIso8601String()],
+      );
+
+      await txn.insert(
+        'idol_meta',
+        {
+          'key': 'activity_events_source_url',
+          'value': bundle.sourceUrl,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      await txn.insert(
+        'idol_meta',
+        {
+          'key': 'activity_events_source_label',
+          'value': bundle.sourceLabel,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      await txn.insert(
+        'idol_meta',
+        {
+          'key': 'activity_events_generated_at',
+          'value': bundle.generatedAt,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      await txn.insert(
+        'idol_meta',
+        {
+          'key': 'activity_events_synced_at',
+          'value': syncedAt.toIso8601String(),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    });
+  }
+
+  static Future<List<IdolActivityEvent>> getActivityEvents({
+    DateTime? from,
+    DateTime? to,
+    String query = '',
+    int limit = 200,
+  }) async {
+    final db = await database;
+    final where = <String>[];
+    final whereArgs = <Object?>[];
+    if (from != null) {
+      where.add('event_date >= ?');
+      whereArgs.add(_formatDate(from));
+    }
+    if (to != null) {
+      where.add('event_date <= ?');
+      whereArgs.add(_formatDate(to));
+    }
+    final normalizedQuery = query.trim();
+    if (normalizedQuery.isNotEmpty) {
+      where.add('''
+        (
+          event_name LIKE ? COLLATE NOCASE OR
+          city LIKE ? COLLATE NOCASE OR
+          venue LIKE ? COLLATE NOCASE OR
+          groups_json LIKE ? COLLATE NOCASE
+        )
+      ''');
+      final pattern = '%$normalizedQuery%';
+      whereArgs.addAll([pattern, pattern, pattern, pattern]);
+    }
+
+    final maps = await db.query(
+      'idol_activity_events',
+      where: where.isEmpty ? null : where.join(' AND '),
+      whereArgs: whereArgs,
+      orderBy: 'event_date ASC, city COLLATE NOCASE ASC, event_name ASC',
+      limit: limit,
+    );
+    return maps.map(IdolActivityEvent.fromMap).toList(growable: false);
   }
 
   static Future<void> restoreBuiltInData() async {
@@ -757,5 +943,10 @@ class IdolDatabaseService {
       RegExp(r'[\s·•・_\-~/\\\(\)\[\]\{\}]+'),
       '',
     );
+  }
+
+  static String _formatDate(DateTime value) {
+    String twoDigits(int number) => number.toString().padLeft(2, '0');
+    return '${value.year}-${twoDigits(value.month)}-${twoDigits(value.day)}';
   }
 }

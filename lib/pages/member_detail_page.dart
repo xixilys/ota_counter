@@ -13,10 +13,7 @@ class MemberDetailPage extends StatefulWidget {
   final CounterModel displayCounter;
   final CounterModel primaryCounter;
   final List<CounterModel> sourceCounters;
-  final Future<CounterModel> Function(
-    CounterModel updatedCounter,
-    DateTime occurredAt,
-  ) onCounterChanged;
+  final CounterChangedCallback onCounterChanged;
 
   const MemberDetailPage({
     super.key,
@@ -234,9 +231,20 @@ class _MemberDetailPageState extends State<MemberDetailPage> {
       builder: (context) => CounterCountSheet(
         counter: _sheetCounter,
         allCounters: _allCounters,
-        onCounterChanged: (updatedCounter, occurredAt) async {
-          final saved =
-              await widget.onCounterChanged(updatedCounter, occurredAt);
+        onCounterChanged: (
+          updatedCounter,
+          occurredAt, {
+          activityName = '',
+          venueName = '',
+          sessionLabel = '',
+        }) async {
+          final saved = await widget.onCounterChanged(
+            updatedCounter,
+            occurredAt,
+            activityName: activityName,
+            venueName: venueName,
+            sessionLabel: sessionLabel,
+          );
           _dirty = true;
           return saved;
         },

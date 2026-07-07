@@ -158,8 +158,13 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     if (syncRemote) {
       try {
         await IdolDatabaseService.syncActivityEventsFromRemoteIfStale();
-      } catch (_) {
-        // Keep the dialog usable with cached/manual input if the network is down.
+      } catch (error) {
+        if (mounted) {
+          setState(() {
+            _activityEventsLoading = false;
+          });
+        }
+        rethrow;
       }
     }
 
@@ -514,7 +519,20 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
 
   Future<void> _pickActivityEvent() async {
     if (_activityEvents.isEmpty && !_activityEventsLoading) {
-      await _loadActivityEvents(syncRemote: true);
+      try {
+        await _loadActivityEvents(syncRemote: true);
+      } catch (error) {
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('偶活场次加载失败：$error'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
     }
     if (!mounted) {
       return;
@@ -542,6 +560,19 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
       _venueController.text = selected.venue;
       _sessionController.text = selected.sessionLabel;
     });
+  }
+
+  String get _selectedActivityEventSummary {
+    final activityName = _activityNameController.text.trim();
+    if (activityName.isEmpty) {
+      return '';
+    }
+    return [
+      activityName,
+      if (_venueController.text.trim().isNotEmpty) _venueController.text.trim(),
+      if (_sessionController.text.trim().isNotEmpty)
+        _sessionController.text.trim(),
+    ].join(' · ');
   }
 
   String _formatDate(DateTime value) {
@@ -671,6 +702,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
           occurredAt: _occurredAt,
           activityName: _activityNameController.text.trim(),
           venueName: _venueController.text.trim(),
+          sessionLabel: _sessionController.text.trim(),
           note: _noteController.text.trim(),
           counterDeltas: counterDeltas,
           customChekiCounts: customChekiCounts,
@@ -694,6 +726,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
           occurredAt: _occurredAt,
           activityName: _activityNameController.text.trim(),
           venueName: _venueController.text.trim(),
+          sessionLabel: _sessionController.text.trim(),
           note: _noteController.text.trim(),
           multiParticipants: _selectedParticipants,
           multiField: _effectiveMultiField,
@@ -796,9 +829,11 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
                   : const Icon(Icons.event_available_outlined),
               title: const Text('选择偶活场次'),
               subtitle: Text(
-                _activityEvents.isEmpty
-                    ? '同步后可从 minecool 偶活行程中填入'
-                    : '已缓存 ${_activityEvents.length} 个近期场次',
+                _selectedActivityEventSummary.isNotEmpty
+                    ? _selectedActivityEventSummary
+                    : _activityEvents.isEmpty
+                        ? '同步后可从 minecool 偶活行程中填入'
+                        : '已缓存 ${_activityEvents.length} 个近期场次',
               ),
               trailing: const Icon(Icons.search),
               onTap: _pickActivityEvent,
@@ -1343,7 +1378,9 @@ class _ActivityEventSearchSheetState extends State<_ActivityEventSearchSheet> {
                             [
                               _formatDate(event.eventDate),
                               event.displaySubtitle,
-                            ].where((item) => item.trim().isNotEmpty).join(' · '),
+                            ]
+                                .where((item) => item.trim().isNotEmpty)
+                                .join(' · '),
                           ),
                           onTap: () => Navigator.of(context).pop(event),
                         );

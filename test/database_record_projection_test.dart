@@ -175,6 +175,36 @@ void main() {
     expect(counterById(counters, counterId).count, 4);
   });
 
+  test('counter and multi records preserve selected activity session', () {
+    final counterRecord = ActivityRecordModel.counterAdjustment(
+      counter: CounterModel(
+        id: 1,
+        name: 'A',
+        groupName: 'G',
+        color: '#111111',
+      ),
+      occurredAt: DateTime(2026, 7, 7),
+      deltas: const {CounterCountField.threeInch: 1},
+      activityName: '测试偶活',
+      venueName: '测试场地',
+      sessionLabel: '一部',
+    );
+    final multiRecord = ActivityRecordModel.multiCut(
+      participants: const [
+        ActivityParticipant(memberName: 'A', groupName: 'G'),
+        ActivityParticipant(memberName: 'B', groupName: 'G'),
+      ],
+      field: CounterCountField.threeInch,
+      occurredAt: DateTime(2026, 7, 7),
+      activityName: '测试偶活',
+      venueName: '测试场地',
+      sessionLabel: '一部',
+    );
+
+    expect(counterRecord.sessionLabel, '一部');
+    expect(multiRecord.sessionLabel, '一部');
+  });
+
   testWidgets('manual counter record dialog rejects negative deltas',
       (tester) async {
     var dialogClosed = false;

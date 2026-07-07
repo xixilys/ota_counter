@@ -4,10 +4,19 @@ import 'package:flutter/material.dart';
 
 import '../models/counter_model.dart';
 import '../models/group_pricing_model.dart';
+import '../models/idol_activity_event_model.dart';
+import '../models/idol_database_models.dart';
 import '../services/database_service.dart';
 import '../services/idol_database_service.dart';
-import '../models/idol_database_models.dart';
 import 'no_autofill_text_field.dart';
+
+typedef CounterChangedCallback = Future<CounterModel> Function(
+  CounterModel updatedCounter,
+  DateTime occurredAt, {
+  String activityName,
+  String venueName,
+  String sessionLabel,
+});
 
 class CounterRecordTarget {
   final String key;
@@ -24,10 +33,7 @@ class CounterRecordTarget {
 class CounterCountSheet extends StatefulWidget {
   final CounterModel counter;
   final List<CounterModel> allCounters;
-  final Future<CounterModel> Function(
-    CounterModel updatedCounter,
-    DateTime occurredAt,
-  ) onCounterChanged;
+  final CounterChangedCallback onCounterChanged;
 
   const CounterCountSheet({
     super.key,
@@ -45,8 +51,13 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
   late DateTime _occurredAt;
   late List<CounterRecordTarget> _targets;
   late String _selectedTargetKey;
+  List<IdolActivityEvent> _activityEvents = [];
+  String _activityName = '';
+  String _venueName = '';
+  String _sessionLabel = '';
   bool _enableUnsignedOptions = false;
   bool _targetsLoading = false;
+  bool _activityEventsLoading = false;
 
   @override
   void initState() {
@@ -355,8 +366,13 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
     CounterModel updatedCounter,
     String targetKey,
   ) async {
-    final savedCounter =
-        await widget.onCounterChanged(updatedCounter, _occurredAt);
+    final savedCounter = await widget.onCounterChanged(
+      updatedCounter,
+      _occurredAt,
+      activityName: _activityName,
+      venueName: _venueName,
+      sessionLabel: _sessionLabel,
+    );
     if (!mounted) {
       return;
     }
@@ -366,6 +382,84 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
       if (_selectedTargetKey == targetKey) {
         _counter = savedCounter;
       }
+    });
+  }
+
+  Future<void> _loadActivityEvents({bool syncRemote = false}) async {
+    setState(() {
+      _activityEventsLoading = true;
+    });
+
+    if (syncRemote) {
+      await IdolDatabaseService.syncActivityEventsFromRemoteIfStale();
+    }
+
+    final now = DateTime.now();
+    final events = await IdolDatabaseService.getActivityEvents(
+      from: DateTime(now.year, now.month, now.day).subtract(
+        const Duration(days: 30),
+      ),
+      to: DateTime(now.year, now.month, now.day).add(
+        const Duration(days: 240),
+      ),
+      limit: 500,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _activityEvents = events;
+      _activityEventsLoading = false;
+    });
+  }
+
+  Future<void> _pickActivityEvent() async {
+    if (_activityEvents.isEmpty && !_activityEventsLoading) {
+      try {
+        await _loadActivityEvents(syncRemote: true);
+      } catch (error) {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _activityEventsLoading = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('偶活场次加载失败：$error'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+    }
+    if (!mounted) {
+      return;
+    }
+
+    final selected = await showModalBottomSheet<IdolActivityEvent>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      builder: (context) => _ActivityEventSearchSheet(
+        events: _activityEvents,
+      ),
+    );
+    if (selected == null || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _occurredAt = DateTime(
+        selected.eventDate.year,
+        selected.eventDate.month,
+        selected.eventDate.day,
+      );
+      _activityName = selected.eventName;
+      _venueName = selected.venue;
+      _sessionLabel = selected.sessionLabel;
     });
   }
 
@@ -523,6 +617,35 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
                 trailing: const Icon(Icons.edit_calendar_outlined),
                 onTap: _pickDateTime,
               ),
+              const SizedBox(height: 8),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
+                ),
+                leading: _activityEventsLoading
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.event_available_outlined),
+                title: const Text('选择偶活场次'),
+                subtitle: Text(
+                  _activityName.isEmpty
+                      ? '从 MineCool 偶活行程填入日期、活动和场地'
+                      : [
+                          _activityName,
+                          if (_venueName.isNotEmpty) _venueName,
+                          if (_sessionLabel.isNotEmpty) _sessionLabel,
+                        ].join(' · '),
+                ),
+                trailing: const Icon(Icons.search),
+                onTap: _pickActivityEvent,
+              ),
               if (_targetsLoading) ...[
                 const SizedBox(height: 8),
                 const LinearProgressIndicator(),
@@ -586,6 +709,107 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
         ),
       ),
     );
+  }
+}
+
+class _ActivityEventSearchSheet extends StatefulWidget {
+  final List<IdolActivityEvent> events;
+
+  const _ActivityEventSearchSheet({
+    required this.events,
+  });
+
+  @override
+  State<_ActivityEventSearchSheet> createState() =>
+      _ActivityEventSearchSheetState();
+}
+
+class _ActivityEventSearchSheetState extends State<_ActivityEventSearchSheet> {
+  final TextEditingController _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = _query.trim().toLowerCase();
+    final events = widget.events
+        .where((event) {
+          if (normalized.isEmpty) {
+            return true;
+          }
+          return event.eventName.toLowerCase().contains(normalized) ||
+              event.city.toLowerCase().contains(normalized) ||
+              event.venue.toLowerCase().contains(normalized) ||
+              event.groupLabel.toLowerCase().contains(normalized);
+        })
+        .take(200)
+        .toList(growable: false);
+
+    return FractionallySizedBox(
+      heightFactor: 0.85,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '选择偶活场次',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 12),
+            NoAutofillTextField(
+              controller: _searchController,
+              decoration: const InputDecoration(
+                labelText: '活动 / 城市 / 场地 / 团体',
+                prefixIcon: Icon(Icons.search),
+              ),
+              autofocus: true,
+              onChanged: (value) {
+                setState(() {
+                  _query = value;
+                });
+              },
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: events.isEmpty
+                  ? const Center(child: Text('没有匹配的场次'))
+                  : ListView.builder(
+                      itemCount: events.length,
+                      itemBuilder: (context, index) {
+                        final event = events[index];
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(event.eventName),
+                          subtitle: Text(
+                            [
+                              _formatDate(event.eventDate),
+                              event.displaySubtitle,
+                            ]
+                                .where((item) => item.trim().isNotEmpty)
+                                .join(' · '),
+                          ),
+                          onTap: () => Navigator.of(context).pop(event),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _formatDate(DateTime value) {
+    String twoDigits(int number) => number.toString().padLeft(2, '0');
+    return '${value.year}-${twoDigits(value.month)}-${twoDigits(value.day)}';
   }
 }
 

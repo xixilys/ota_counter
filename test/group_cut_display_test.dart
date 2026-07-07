@@ -73,7 +73,13 @@ void main() {
           body: CounterCountSheet(
             counter: counter,
             allCounters: [counter],
-            onCounterChanged: (updatedCounter, occurredAt) async =>
+            onCounterChanged: (
+              updatedCounter,
+              occurredAt, {
+              activityName = "",
+              venueName = "",
+              sessionLabel = "",
+            }) async =>
                 updatedCounter,
           ),
         ),
@@ -101,7 +107,13 @@ void main() {
           body: CounterCountSheet(
             counter: counter,
             allCounters: [counter],
-            onCounterChanged: (updatedCounter, occurredAt) async =>
+            onCounterChanged: (
+              updatedCounter,
+              occurredAt, {
+              activityName = "",
+              venueName = "",
+              sessionLabel = "",
+            }) async =>
                 updatedCounter,
           ),
         ),
@@ -127,6 +139,38 @@ void main() {
     expect(find.text('修改3寸'), findsOneWidget);
   });
 
+  testWidgets('counter sheet exposes activity event picker', (
+    WidgetTester tester,
+  ) async {
+    final counter = CounterModel(
+      name: '成员A',
+      groupName: '团体A',
+      color: '#FFE135',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CounterCountSheet(
+            counter: counter,
+            allCounters: [counter],
+            onCounterChanged: (
+              updatedCounter,
+              occurredAt, {
+              activityName = "",
+              venueName = "",
+              sessionLabel = "",
+            }) async =>
+                updatedCounter,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('选择偶活场次'), findsOneWidget);
+  });
+
   testWidgets('counter sheet direct edit cannot decrease a count', (
     WidgetTester tester,
   ) async {
@@ -144,7 +188,13 @@ void main() {
           body: CounterCountSheet(
             counter: counter,
             allCounters: [counter],
-            onCounterChanged: (updatedCounter, occurredAt) async {
+            onCounterChanged: (
+              updatedCounter,
+              occurredAt, {
+              activityName = "",
+              venueName = "",
+              sessionLabel = "",
+            }) async {
               saveCalls += 1;
               return updatedCounter;
             },
@@ -182,7 +232,13 @@ void main() {
               child: CounterCountSheet(
                 counter: counter,
                 allCounters: [counter],
-                onCounterChanged: (updatedCounter, occurredAt) async =>
+                onCounterChanged: (
+                  updatedCounter,
+                  occurredAt, {
+                  activityName = "",
+                  venueName = "",
+                  sessionLabel = "",
+                }) async =>
                     updatedCounter,
               ),
             ),

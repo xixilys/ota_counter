@@ -947,6 +947,9 @@ class _MyHomePageState extends State<MyHomePage> {
     required Map<CounterCountField, int> deltas,
     required DateTime occurredAt,
     required String note,
+    String activityName = '',
+    String venueName = '',
+    String sessionLabel = '',
   }) async {
     if (deltas.values.every((value) => value == 0)) {
       return;
@@ -963,6 +966,9 @@ class _MyHomePageState extends State<MyHomePage> {
         deltas: deltas,
         pricing: pricing,
         note: note,
+        activityName: activityName,
+        venueName: venueName,
+        sessionLabel: sessionLabel,
       ),
     );
   }
@@ -971,6 +977,9 @@ class _MyHomePageState extends State<MyHomePage> {
     CounterModel updatedCounter, {
     required DateTime occurredAt,
     String note = '快捷计数',
+    String activityName = '',
+    String venueName = '',
+    String sessionLabel = '',
   }) async {
     final index =
         _counters.indexWhere((counter) => counter.id == updatedCounter.id);
@@ -986,6 +995,9 @@ class _MyHomePageState extends State<MyHomePage> {
           deltas: deltas,
           occurredAt: occurredAt,
           note: note,
+          activityName: activityName,
+          venueName: venueName,
+          sessionLabel: sessionLabel,
         );
       } else {
         await DatabaseService.insertCounter(updatedCounter);
@@ -1003,6 +1015,9 @@ class _MyHomePageState extends State<MyHomePage> {
         deltas: deltas,
         occurredAt: occurredAt,
         note: note,
+        activityName: activityName,
+        venueName: venueName,
+        sessionLabel: sessionLabel,
       );
     }
 
@@ -1019,10 +1034,19 @@ class _MyHomePageState extends State<MyHomePage> {
           displayCounter: entry.displayCounter,
           primaryCounter: entry.primaryCounter,
           sourceCounters: entry.sourceCounters,
-          onCounterChanged: (updatedCounter, occurredAt) async {
+          onCounterChanged: (
+            updatedCounter,
+            occurredAt, {
+            activityName = '',
+            venueName = '',
+            sessionLabel = '',
+          }) async {
             return _saveCounter(
               updatedCounter,
               occurredAt: occurredAt,
+              activityName: activityName,
+              venueName: venueName,
+              sessionLabel: sessionLabel,
             );
           },
         ),

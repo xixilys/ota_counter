@@ -1,23 +1,22 @@
 {
   "appName": "OTA Counter",
-  "versionName": "1.4.2",
-  "versionCode": 14,
-  "versionLabel": "v1.4.2",
-  "title": "OTA Counter v1.4.2",
+  "versionName": "1.4.3",
+  "versionCode": 15,
+  "versionLabel": "v1.4.3",
+  "title": "OTA Counter v1.4.3",
   "notes": [
-    "新增 MineCool 偶活行程同步缓存",
-    "新增记录时可直接搜索偶活场次并填入日期、活动名、场地和时间",
-    "服务器每日两次刷新偶活场次 JSON，App 侧按需同步本地缓存",
-    "继续保留本地偶像资料补充数据"
+    "修复偶活场次数据无法加载的问题",
+    "快捷计数新增选择偶活场次，可带入日期、活动名和场地",
+    "成员记录和多人切会保留所选场次标签"
   ],
-  "publishedAt": "2026-07-07T04:25:10+08:00",
+  "publishedAt": "2026-07-07T14:55:00+08:00",
   "force": false,
-  "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.4.2.apk",
+  "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.4.3.apk",
   "downloadPageUrl": "https://ota-counter.huangxuanqi.top/ota-counter/",
   "backupUrl": "",
   "platforms": {
     "android": {
-      "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.4.2.apk",
+      "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.4.3.apk",
       "downloadPageUrl": "https://ota-counter.huangxuanqi.top/ota-counter/",
       "backupUrl": ""
     },

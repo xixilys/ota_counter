@@ -29,6 +29,7 @@ class _ChartPageState extends State<ChartPage> {
   List<ActivityRecordModel> _records = [];
   List<ActivityRecordMediaModel> _recordMedia = [];
   List<GroupPricingModel> _pricings = [];
+  Map<String, GroupPricingModel> _pricingsByGroupName = const {};
   bool _loading = true;
   bool _initialComposerHandled = false;
   StatsScope _scope = StatsScope.day;
@@ -64,6 +65,9 @@ class _ChartPageState extends State<ChartPage> {
       _records = records;
       _recordMedia = media;
       _pricings = pricings;
+      _pricingsByGroupName = {
+        for (final pricing in pricings) pricing.groupName.trim(): pricing,
+      };
       _loading = false;
     });
 
@@ -132,10 +136,6 @@ class _ChartPageState extends State<ChartPage> {
       return const <DateTime, _CalendarDaySummary>{};
     }
     return _buildCalendarDaySummariesForMonth(_calendarMonth);
-  }
-
-  _CalendarDaySummary? get _selectedCalendarSummary {
-    return _calendarMonthSummaries[_selectedCalendarDate];
   }
 
   Map<DateTime, _CalendarDaySummary> _buildCalendarDaySummariesForMonth(
@@ -397,86 +397,10 @@ class _ChartPageState extends State<ChartPage> {
     return record.id != null;
   }
 
-  CounterModel? _findCounterForRecord(ActivityRecordModel record) {
-    final counterId = record.counterId;
-    if (counterId != null) {
-      for (final counter in _counters) {
-        if (counter.id == counterId) {
-          return counter;
-        }
-      }
-    }
-
-    final normalizedGroup = _normalizedLookupPart(record.groupName);
-    final normalizedMember = _normalizedLookupPart(record.subjectName);
-    for (final counter in _counters) {
-      if (_normalizedLookupPart(counter.groupName) == normalizedGroup &&
-          _normalizedLookupPart(counter.name) == normalizedMember) {
-        return counter;
-      }
-    }
-    return null;
-  }
-
-  Map<CounterCountField, int> _counterDeltasFromRecord(
-    ActivityRecordModel record,
-  ) {
-    return {
-      for (final field in CounterCountField.values)
-        if (record.countForField(field) != 0)
-          field: record.countForField(field),
-    };
-  }
-
   ActivityRecordDraft _draftFromRecord(ActivityRecordModel record) {
-    if (record.isCounter) {
-      return ActivityRecordDraft(
-        type: ActivityRecordType.counter,
-        counter: _findCounterForRecord(record) ??
-            CounterModel(
-              id: record.counterId,
-              name: record.subjectName,
-              groupName: record.groupName,
-              personId: record.personId,
-              personName: record.personName,
-              color: '#FFE135',
-            ),
-        occurredAt: record.occurredAt,
-        activityName: record.resolvedActivityName,
-        venueName: record.resolvedVenueName,
-        note: record.note,
-        counterDeltas: _counterDeltasFromRecord(record),
-        customChekiCounts: record.customChekiCounts,
-      );
-    }
-
-    if (record.isMulti) {
-      final multiField = record.multiCountField;
-      return ActivityRecordDraft(
-        type: ActivityRecordType.multi,
-        occurredAt: record.occurredAt,
-        activityName: record.resolvedActivityName,
-        venueName: record.resolvedVenueName,
-        note: record.note,
-        multiParticipants: record.effectiveParticipants,
-        multiField: multiField == CounterCountField.groupCut
-            ? CounterCountField.threeInch
-            : (multiField ?? CounterCountField.threeInch),
-        multiAsGroupCut: multiField == CounterCountField.groupCut,
-        multiQuantity: record.effectiveMultiQuantity,
-        multiTotalPrice: record.totalAmount,
-      );
-    }
-
-    return ActivityRecordDraft(
-      type: ActivityRecordType.ticket,
-      occurredAt: record.occurredAt,
-      activityName: record.resolvedActivityName,
-      venueName: record.resolvedVenueName,
-      note: record.note,
-      sessionLabel: record.sessionLabel,
-      ticketQuantity: record.ticketQuantity > 0 ? record.ticketQuantity : 1,
-      ticketUnitPrice: record.ticketUnitPrice,
+    return ActivityRecordDraft.fromRecord(
+      record,
+      resolvedCounter: resolveCounterForActivityRecord(_counters, record),
     );
   }
 
@@ -486,72 +410,9 @@ class _ChartPageState extends State<ChartPage> {
     String source = 'local',
     String? sourceRecordId,
   }) async {
-    if (draft.type == ActivityRecordType.counter) {
-      final counter = draft.counter;
-      if (counter == null) {
-        return null;
-      }
-      final pricing = _resolvePricingByGroupName(counter.groupName) ??
-          GroupPricingModel.unconfigured(counter.groupName);
-      return ActivityRecordModel.counterAdjustment(
-        id: id,
-        counter: counter,
-        occurredAt: draft.occurredAt,
-        deltas: draft.counterDeltas,
-        pricing: pricing,
-        activityName: draft.activityName,
-        venueName: draft.venueName,
-        note: draft.note,
-        customChekiCounts: draft.customChekiCounts,
-      ).copyWith(
-        source: source,
-        sourceRecordId: sourceRecordId,
-      );
-    }
-
-    if (draft.type == ActivityRecordType.multi) {
-      final isGroupCut = draft.multiAsGroupCut;
-      final participantGroups = draft.multiParticipants
-          .map((participant) => participant.groupName.trim())
-          .where((groupName) => groupName.isNotEmpty)
-          .toSet();
-      final pricing = participantGroups.length == 1
-          ? _resolvePricingByGroupName(participantGroups.first)
-          : null;
-      final pricingLabel = pricing == null
-          ? (participantGroups.length > 1
-              ? (isGroupCut ? '跨团团切' : '跨团多人切')
-              : (isGroupCut ? '团切' : '多人切'))
-          : pricing.label;
-      return ActivityRecordModel.multiCut(
-        id: id,
-        participants: draft.multiParticipants,
-        field: isGroupCut
-            ? CounterCountField.groupCut
-            : (draft.multiField ?? CounterCountField.threeInch),
-        occurredAt: draft.occurredAt,
-        activityName: draft.activityName,
-        venueName: draft.venueName,
-        note: draft.note,
-        pricingLabel: pricingLabel,
-        quantity: isGroupCut ? 1 : draft.multiQuantity,
-        totalPrice: draft.multiTotalPrice,
-      ).copyWith(
-        source: source,
-        sourceRecordId: sourceRecordId,
-      );
-    }
-
-    return ActivityRecordModel.ticket(
+    return draft.toActivityRecord(
+      pricings: _pricings,
       id: id,
-      eventName: draft.activityName,
-      occurredAt: draft.occurredAt,
-      venueName: draft.venueName,
-      sessionLabel: draft.sessionLabel,
-      note: draft.note,
-      quantity: draft.ticketQuantity,
-      unitPrice: draft.ticketUnitPrice,
-    ).copyWith(
       source: source,
       sourceRecordId: sourceRecordId,
     );
@@ -690,17 +551,6 @@ class _ChartPageState extends State<ChartPage> {
     }
   }
 
-  String _normalizedLookupPart(String value) {
-    final trimmed = value.trim().toLowerCase();
-    if (trimmed.isEmpty) {
-      return '';
-    }
-    return trimmed.replaceAll(
-      RegExp(r'[\s·•・_\-~/\\\(\)\[\]\{\}]+'),
-      '',
-    );
-  }
-
   String _memberStatKey(String groupName, String subjectName) {
     final normalizedGroup = groupName.trim().toLowerCase();
     final normalizedSubject = subjectName.trim().toLowerCase();
@@ -713,12 +563,8 @@ class _ChartPageState extends State<ChartPage> {
       return null;
     }
 
-    for (final pricing in _pricings) {
-      if (pricing.groupName.trim() == normalizedGroup) {
-        return pricing;
-      }
-    }
-    return GroupPricingModel.unconfigured(normalizedGroup);
+    return _pricingsByGroupName[normalizedGroup] ??
+        GroupPricingModel.unconfigured(normalizedGroup);
   }
 
   String _personStatKey({
@@ -727,18 +573,12 @@ class _ChartPageState extends State<ChartPage> {
     required String groupName,
     required String subjectName,
   }) {
-    final normalizedPerson = _normalizedLookupPart(personName);
-    if (normalizedPerson.isNotEmpty) {
-      return 'person-name:$normalizedPerson';
-    }
-
-    if (personId != null) {
-      return 'person:$personId';
-    }
-
-    final normalizedGroup = _normalizedLookupPart(groupName);
-    final normalizedSubject = _normalizedLookupPart(subjectName);
-    return 'fallback:$normalizedGroup|$normalizedSubject';
+    return chartPersonStatsKey(
+      personId: personId,
+      personName: personName,
+      groupName: groupName,
+      subjectName: subjectName,
+    );
   }
 
   bool _shouldUseCurrentPricingForRecord(ActivityRecordModel record) {
@@ -907,7 +747,7 @@ class _ChartPageState extends State<ChartPage> {
     final calendarMonth = _calendarMonth;
     final calendarSummaries = _calendarMonthSummaries;
     final selectedCalendarDate = _selectedCalendarDate;
-    final selectedCalendarSummary = _selectedCalendarSummary;
+    final selectedCalendarSummary = calendarSummaries[selectedCalendarDate];
     final selectedDayRecords = _records.where((record) {
       return _sameDay(record.occurredAt, selectedCalendarDate);
     }).toList()
@@ -927,9 +767,15 @@ class _ChartPageState extends State<ChartPage> {
       bucket.add(media);
     }
     final filteredRecords = _filteredRecords;
-    final counterRecords = filteredRecords.where((record) => record.isCounter);
-    final multiRecords = filteredRecords.where((record) => record.isMulti);
-    final ticketRecords = filteredRecords.where((record) => record.isTicket);
+    final counterRecords = filteredRecords
+        .where((record) => record.isCounter)
+        .toList(growable: false);
+    final multiRecords = filteredRecords
+        .where((record) => record.isMulti)
+        .toList(growable: false);
+    final ticketRecords = filteredRecords
+        .where((record) => record.isTicket)
+        .toList(growable: false);
     final recordCount = filteredRecords.length;
     final counterCountTotal = counterRecords.fold<int>(
       0,
@@ -1896,12 +1742,19 @@ enum StatsScope {
       case StatsScope.week:
         return anchor.add(Duration(days: 7 * offset));
       case StatsScope.month:
-        return DateTime(anchor.year, anchor.month + offset, anchor.day);
+        return _shiftCalendarMonths(anchor, offset);
       case StatsScope.year:
-        return DateTime(anchor.year + offset, anchor.month, anchor.day);
+        return _shiftCalendarMonths(anchor, offset * 12);
       case StatsScope.all:
         return anchor;
     }
+  }
+
+  DateTime _shiftCalendarMonths(DateTime anchor, int monthOffset) {
+    final targetMonth = DateTime(anchor.year, anchor.month + monthOffset);
+    final lastDay = DateTime(targetMonth.year, targetMonth.month + 1, 0).day;
+    final targetDay = anchor.day <= lastDay ? anchor.day : lastDay;
+    return DateTime(targetMonth.year, targetMonth.month, targetDay);
   }
 }
 

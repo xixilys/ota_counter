@@ -24,6 +24,10 @@ class ActivityRecordDraft {
   final String activityName;
   final String venueName;
   final String sessionLabel;
+  final String pricingLabel;
+  final Map<CounterCountField, double> counterUnitPrices;
+  final bool preserveCounterPricing;
+  final bool followCurrentCounterPricing;
   final int ticketQuantity;
   final double ticketUnitPrice;
 
@@ -42,9 +46,267 @@ class ActivityRecordDraft {
     this.activityName = '',
     this.venueName = '',
     this.sessionLabel = '',
+    this.pricingLabel = '',
+    this.counterUnitPrices = const {},
+    this.preserveCounterPricing = false,
+    this.followCurrentCounterPricing = false,
     this.ticketQuantity = 0,
     this.ticketUnitPrice = 0,
   });
+
+  ActivityRecordDraft copyWith({
+    ActivityRecordType? type,
+    CounterModel? counter,
+    DateTime? occurredAt,
+    String? note,
+    Map<CounterCountField, int>? counterDeltas,
+    List<ActivityRecordCustomChekiCount>? customChekiCounts,
+    List<ActivityParticipant>? multiParticipants,
+    CounterCountField? multiField,
+    bool? multiAsGroupCut,
+    int? multiQuantity,
+    double? multiTotalPrice,
+    String? activityName,
+    String? venueName,
+    String? sessionLabel,
+    String? pricingLabel,
+    Map<CounterCountField, double>? counterUnitPrices,
+    bool? preserveCounterPricing,
+    bool? followCurrentCounterPricing,
+    int? ticketQuantity,
+    double? ticketUnitPrice,
+  }) {
+    return ActivityRecordDraft(
+      type: type ?? this.type,
+      counter: counter ?? this.counter,
+      occurredAt: occurredAt ?? this.occurredAt,
+      note: note ?? this.note,
+      counterDeltas: counterDeltas ?? this.counterDeltas,
+      customChekiCounts: customChekiCounts ?? this.customChekiCounts,
+      multiParticipants: multiParticipants ?? this.multiParticipants,
+      multiField: multiField ?? this.multiField,
+      multiAsGroupCut: multiAsGroupCut ?? this.multiAsGroupCut,
+      multiQuantity: multiQuantity ?? this.multiQuantity,
+      multiTotalPrice: multiTotalPrice ?? this.multiTotalPrice,
+      activityName: activityName ?? this.activityName,
+      venueName: venueName ?? this.venueName,
+      sessionLabel: sessionLabel ?? this.sessionLabel,
+      pricingLabel: pricingLabel ?? this.pricingLabel,
+      counterUnitPrices: counterUnitPrices ?? this.counterUnitPrices,
+      preserveCounterPricing:
+          preserveCounterPricing ?? this.preserveCounterPricing,
+      followCurrentCounterPricing:
+          followCurrentCounterPricing ?? this.followCurrentCounterPricing,
+      ticketQuantity: ticketQuantity ?? this.ticketQuantity,
+      ticketUnitPrice: ticketUnitPrice ?? this.ticketUnitPrice,
+    );
+  }
+
+  factory ActivityRecordDraft.fromRecord(
+    ActivityRecordModel record, {
+    CounterModel? resolvedCounter,
+  }) {
+    if (record.isCounter) {
+      return ActivityRecordDraft(
+        type: ActivityRecordType.counter,
+        counter: resolvedCounter ??
+            CounterModel(
+              id: record.counterId,
+              name: record.subjectName,
+              groupName: record.groupName,
+              personId: record.personId,
+              personName: record.personName,
+              color: '#FFE135',
+            ),
+        occurredAt: record.occurredAt,
+        activityName: record.resolvedActivityName,
+        venueName: record.resolvedVenueName,
+        note: record.note,
+        sessionLabel: record.sessionLabel,
+        pricingLabel: record.pricingLabel,
+        counterDeltas: {
+          for (final field in CounterCountField.values)
+            if (record.countForField(field) != 0)
+              field: record.countForField(field),
+        },
+        customChekiCounts: record.customChekiCounts,
+        counterUnitPrices: {
+          for (final field in CounterCountField.values)
+            field: record.priceForField(field),
+        },
+        preserveCounterPricing: !record.shouldResolveWithCurrentPricing,
+        followCurrentCounterPricing: record.shouldResolveWithCurrentPricing,
+      );
+    }
+
+    if (record.isMulti) {
+      final multiField = record.multiCountField;
+      return ActivityRecordDraft(
+        type: ActivityRecordType.multi,
+        occurredAt: record.occurredAt,
+        activityName: record.resolvedActivityName,
+        venueName: record.resolvedVenueName,
+        sessionLabel: record.sessionLabel,
+        pricingLabel: record.pricingLabel,
+        note: record.note,
+        multiParticipants: record.effectiveParticipants,
+        multiField: multiField == CounterCountField.groupCut
+            ? CounterCountField.threeInch
+            : (multiField ?? CounterCountField.threeInch),
+        multiAsGroupCut: multiField == CounterCountField.groupCut,
+        multiQuantity: record.effectiveMultiQuantity,
+        multiTotalPrice: record.totalAmount,
+      );
+    }
+
+    return ActivityRecordDraft(
+      type: ActivityRecordType.ticket,
+      occurredAt: record.occurredAt,
+      activityName: record.resolvedActivityName,
+      venueName: record.resolvedVenueName,
+      note: record.note,
+      sessionLabel: record.sessionLabel,
+      pricingLabel: record.pricingLabel,
+      ticketQuantity: record.ticketQuantity > 0 ? record.ticketQuantity : 1,
+      ticketUnitPrice: record.ticketUnitPrice,
+    );
+  }
+
+  ActivityRecordModel? toActivityRecord({
+    required List<GroupPricingModel> pricings,
+    int? id,
+    String source = 'local',
+    String? sourceRecordId,
+  }) {
+    GroupPricingModel? resolvePricingByGroupName(String groupName) {
+      final normalizedGroup = groupName.trim();
+      if (normalizedGroup.isEmpty) {
+        return null;
+      }
+
+      for (final pricing in pricings) {
+        if (pricing.groupName.trim() == normalizedGroup) {
+          return pricing;
+        }
+      }
+      return GroupPricingModel.unconfigured(normalizedGroup);
+    }
+
+    if (type == ActivityRecordType.counter) {
+      final selectedCounter = counter;
+      if (selectedCounter == null) {
+        return null;
+      }
+      final pricing = resolvePricingByGroupName(selectedCounter.groupName) ??
+          GroupPricingModel.unconfigured(selectedCounter.groupName);
+      final builtRecord = ActivityRecordModel.counterAdjustment(
+        id: id,
+        counter: selectedCounter,
+        occurredAt: occurredAt,
+        deltas: counterDeltas,
+        pricing: pricing,
+        activityName: activityName,
+        venueName: venueName,
+        sessionLabel: sessionLabel,
+        note: note,
+        customChekiCounts: customChekiCounts,
+      );
+      if (!preserveCounterPricing) {
+        return builtRecord.copyWith(
+          source: source,
+          sourceRecordId: sourceRecordId,
+          usesCurrentPricing: followCurrentCounterPricing
+              ? true
+              : builtRecord.usesCurrentPricing,
+        );
+      }
+
+      final totalAmount =
+          CounterCountField.values.fold<double>(0, (sum, field) {
+                final unitPrice = counterUnitPrices[field] ??
+                    builtRecord.priceForField(field);
+                return sum + (builtRecord.countForField(field) * unitPrice);
+              }) +
+              customChekiCounts.fold<double>(0, (sum, item) {
+                return sum + (item.count * item.unitPrice);
+              });
+
+      return builtRecord.copyWith(
+        source: source,
+        sourceRecordId: sourceRecordId,
+        usesCurrentPricing: false,
+        pricingLabel: pricingLabel.trim().isEmpty
+            ? builtRecord.pricingLabel
+            : pricingLabel,
+        threeInchPrice: counterUnitPrices[CounterCountField.threeInch],
+        fiveInchPrice: counterUnitPrices[CounterCountField.fiveInch],
+        unsignedThreeInchPrice:
+            counterUnitPrices[CounterCountField.unsignedThreeInch],
+        unsignedFiveInchPrice:
+            counterUnitPrices[CounterCountField.unsignedFiveInch],
+        groupCutPrice: counterUnitPrices[CounterCountField.groupCut],
+        threeInchShukudaiPrice:
+            counterUnitPrices[CounterCountField.threeInchShukudai],
+        fiveInchShukudaiPrice:
+            counterUnitPrices[CounterCountField.fiveInchShukudai],
+        totalAmount: totalAmount,
+      );
+    }
+
+    if (type == ActivityRecordType.multi) {
+      final isGroupCut = multiAsGroupCut;
+      final participantGroups = multiParticipants
+          .map((participant) => participant.groupName.trim())
+          .where((groupName) => groupName.isNotEmpty)
+          .toSet();
+      final currentPricing = participantGroups.length == 1
+          ? resolvePricingByGroupName(participantGroups.first)
+          : null;
+      final effectivePricingLabel = pricingLabel.trim().isNotEmpty
+          ? pricingLabel
+          : currentPricing == null
+              ? (participantGroups.length > 1
+                  ? (isGroupCut ? '跨团团切' : '跨团多人切')
+                  : (isGroupCut ? '团切' : '多人切'))
+              : currentPricing.label;
+      return ActivityRecordModel.multiCut(
+        id: id,
+        participants: multiParticipants,
+        field: isGroupCut
+            ? CounterCountField.groupCut
+            : (multiField ?? CounterCountField.threeInch),
+        occurredAt: occurredAt,
+        activityName: activityName,
+        venueName: venueName,
+        sessionLabel: sessionLabel,
+        note: note,
+        pricingLabel: effectivePricingLabel,
+        quantity: isGroupCut ? 1 : multiQuantity,
+        totalPrice: multiTotalPrice,
+      ).copyWith(
+        source: source,
+        sourceRecordId: sourceRecordId,
+      );
+    }
+
+    final ticketRecord = ActivityRecordModel.ticket(
+      id: id,
+      eventName: activityName,
+      occurredAt: occurredAt,
+      venueName: venueName,
+      sessionLabel: sessionLabel,
+      note: note,
+      quantity: ticketQuantity,
+      unitPrice: ticketUnitPrice,
+    );
+    return ticketRecord.copyWith(
+      source: source,
+      sourceRecordId: sourceRecordId,
+      pricingLabel: pricingLabel.trim().isEmpty
+          ? ticketRecord.pricingLabel
+          : pricingLabel,
+    );
+  }
 }
 
 class AddActivityRecordDialog extends StatefulWidget {
@@ -94,6 +356,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
   List<ActivityParticipant> _selectedParticipants = [];
   CounterCountField _selectedMultiField = CounterCountField.threeInch;
   bool _multiAsGroupCut = false;
+  bool _preserveCounterPricing = false;
   bool _multiPriceEditedInSession = false;
   bool _isApplyingSuggestedMultiPrice = false;
   String? _lastSuggestedMultiPriceText;
@@ -197,6 +460,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
 
     _type = draft.type;
     _selectedCounter = draft.counter;
+    _preserveCounterPricing = draft.preserveCounterPricing;
     _selectedParticipants = List<ActivityParticipant>.from(
       draft.multiParticipants,
     );
@@ -225,8 +489,21 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     List<ActivityRecordCustomChekiCount> seedCounts = const [],
   }) {
     final pricing = _selectedPricingOrNull;
+    final seedByTypeId = {
+      for (final item in seedCounts) item.typeId: item,
+    };
     final nextTypes = <CustomChekiTypeModel>[
-      ...(pricing?.availableCustomChekiTypes ?? const <CustomChekiTypeModel>[]),
+      ...(pricing?.availableCustomChekiTypes ?? const <CustomChekiTypeModel>[])
+          .map((type) {
+        final seed = seedByTypeId[type.id];
+        if (!_preserveCounterPricing || seed == null) {
+          return type;
+        }
+        return type.copyWith(
+          label: seed.label.trim().isEmpty ? type.label : seed.label,
+          unitPrice: seed.unitPrice,
+        );
+      }),
     ];
     for (final count in seedCounts) {
       final alreadyExists = nextTypes.any((item) => item.id == count.typeId);
@@ -242,9 +519,6 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
       );
     }
 
-    final seedByTypeId = {
-      for (final item in seedCounts) item.typeId: item,
-    };
     final nextControllers = <String, TextEditingController>{};
     for (final type in nextTypes) {
       final existing = _customCountControllers[type.id];
@@ -327,16 +601,39 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
 
   double get _counterPreviewTotal {
     final pricing = _selectedPricing;
-    final builtInTotal = CounterCountField.visibleValues(
-      enableUnsigned: pricing.enableUnsignedOptions,
-      includeGroupCut: false,
-    ).fold<double>(0, (sum, field) {
-      return sum + (_parseCount(field) * pricing.priceForField(field));
+    final fields = _preserveCounterPricing
+        ? CounterCountField.values
+        : CounterCountField.visibleValues(
+            enableUnsigned: pricing.enableUnsignedOptions,
+            includeGroupCut: false,
+          );
+    final builtInTotal = fields.fold<double>(0, (sum, field) {
+      final unitPrice = _preserveCounterPricing
+          ? widget.initialDraft?.counterUnitPrices[field] ??
+              pricing.priceForField(field)
+          : pricing.priceForField(field);
+      return sum + (_parseCount(field) * unitPrice);
     });
     final customTotal = _counterCustomTypes.fold<double>(0, (sum, type) {
       return sum + (_parseCustomCount(type) * type.unitPrice);
     });
     return builtInTotal + customTotal;
+  }
+
+  String get _counterPricingLabelText {
+    if (!_preserveCounterPricing) {
+      return '当前价格标签：${_selectedPricing.label}';
+    }
+    final historicalLabel = widget.initialDraft?.pricingLabel.trim() ?? '';
+    return historicalLabel.isEmpty ? '记录价格快照' : '记录价格标签：$historicalLabel';
+  }
+
+  double _counterDisplayUnitPrice(CounterCountField field) {
+    if (_preserveCounterPricing) {
+      return widget.initialDraft?.counterUnitPrices[field] ??
+          _selectedPricing.priceForField(field);
+    }
+    return _selectedPricing.priceForField(field);
   }
 
   List<ActivityRecordCustomChekiCount> _buildCustomChekiCounts() {
@@ -407,8 +704,18 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
   }
 
   List<CounterCountField> get _counterVisibleFields {
+    final historicalUnsignedCount = _preserveCounterPricing &&
+        (CounterCountField.unsignedPhotoValues.any(
+          (field) => _parseCount(field) != 0,
+        ));
+    final historicalUnsignedPrice = _preserveCounterPricing &&
+        (CounterCountField.unsignedPhotoValues.any(
+          (field) => (widget.initialDraft?.counterUnitPrices[field] ?? 0) != 0,
+        ));
     return CounterCountField.visibleValues(
-      enableUnsigned: _selectedPricing.enableUnsignedOptions,
+      enableUnsigned: _selectedPricing.enableUnsignedOptions ||
+          historicalUnsignedCount ||
+          historicalUnsignedPrice,
       includeGroupCut: false,
     );
   }
@@ -598,6 +905,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
           previousCounter?.name != selected.name ||
           previousCounter?.groupName != selected.groupName;
       if (changedCounter) {
+        _preserveCounterPricing = false;
         _countControllers[CounterCountField.groupCut.key]!.text = '0';
         _syncCustomCountControllers();
       }
@@ -706,6 +1014,11 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
           note: _noteController.text.trim(),
           counterDeltas: counterDeltas,
           customChekiCounts: customChekiCounts,
+          pricingLabel: widget.initialDraft?.pricingLabel ?? '',
+          counterUnitPrices: widget.initialDraft?.counterUnitPrices ?? const {},
+          preserveCounterPricing: _preserveCounterPricing,
+          followCurrentCounterPricing:
+              widget.initialDraft?.followCurrentCounterPricing ?? false,
         ),
       );
       return;
@@ -733,6 +1046,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
           multiAsGroupCut: _multiAsGroupCut,
           multiQuantity: _multiAsGroupCut ? 1 : _multiQuantity,
           multiTotalPrice: _multiTotalPrice,
+          pricingLabel: widget.initialDraft?.pricingLabel ?? '',
         ),
       );
       return;
@@ -753,13 +1067,13 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
         sessionLabel: _sessionController.text.trim(),
         ticketQuantity: _ticketQuantity,
         ticketUnitPrice: _ticketUnitPrice,
+        pricingLabel: widget.initialDraft?.pricingLabel ?? '',
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final pricing = _selectedPricing;
     final participantGroups = _selectedParticipants
         .map((participant) => participant.groupName.trim())
         .where((groupName) => groupName.isNotEmpty)
@@ -889,7 +1203,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '当前价格标签：${pricing.label}',
+                      _counterPricingLabelText,
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
                     const SizedBox(height: 8),
@@ -909,7 +1223,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
-                            '${field.shortLabel} ¥${pricing.priceForField(field).toStringAsFixed(0)}',
+                            '${field.shortLabel} ¥${_counterDisplayUnitPrice(field).toStringAsFixed(0)}',
                           ),
                         );
                       }).toList(),

@@ -19,14 +19,36 @@ class DatabaseService {
   static const String activityRecordTableName = 'activity_records';
   static const String activityRecordMediaTableName = 'activity_record_media';
   static const String counterSyncTableName = 'counter_sync_log';
-  static const int _version = 16;
+  static const int _version = 17;
 
   static Database? _database;
+  static Future<Database>? _databaseOpening;
+  static final Map<String, Set<String>> _tableColumnsCache = {};
 
-  static Future<Database> get database async {
-    if (_database != null) return _database!;
-    _database = await _initDatabase();
-    return _database!;
+  static Future<Database> get database {
+    final cachedDatabase = _database;
+    if (cachedDatabase != null) {
+      return Future<Database>.value(cachedDatabase);
+    }
+
+    final openingDatabase = _databaseOpening;
+    if (openingDatabase != null) {
+      return openingDatabase;
+    }
+
+    final future = _openDatabaseOnce();
+    _databaseOpening = future;
+    return future;
+  }
+
+  static Future<Database> _openDatabaseOnce() async {
+    try {
+      final openedDatabase = await _initDatabase();
+      _database = openedDatabase;
+      return openedDatabase;
+    } finally {
+      _databaseOpening = null;
+    }
   }
 
   static Future<Database> _initDatabase() async {
@@ -116,6 +138,9 @@ class DatabaseService {
     if (oldVersion < 16) {
       await _migrateToV16(db);
     }
+    if (oldVersion < 17) {
+      await _migrateToV17(db);
+    }
     await _ensureLatestSchema(db);
   }
 
@@ -177,6 +202,7 @@ class DatabaseService {
         note TEXT NOT NULL DEFAULT '',
         occurred_at TEXT NOT NULL,
         pricing_label TEXT NOT NULL DEFAULT '',
+        uses_current_pricing INTEGER,
         three_inch_count INTEGER NOT NULL DEFAULT 0,
         five_inch_count INTEGER NOT NULL DEFAULT 0,
         unsigned_three_inch_count INTEGER NOT NULL DEFAULT 0,
@@ -236,6 +262,7 @@ class DatabaseService {
         PRIMARY KEY(source, source_record_id)
       )
     ''');
+    _tableColumnsCache.clear();
   }
 
   static Future<void> _migrateToV2(Database db) async {
@@ -492,6 +519,16 @@ class DatabaseService {
     );
   }
 
+  static Future<void> _migrateToV17(Database db) async {
+    await _ensureColumns(
+      db,
+      activityRecordTableName,
+      {
+        'uses_current_pricing': 'INTEGER',
+      },
+    );
+  }
+
   static Future<void> _ensureLatestSchema(DatabaseExecutor db) async {
     await _createSchema(db);
 
@@ -548,6 +585,7 @@ class DatabaseService {
         'session_label': "TEXT NOT NULL DEFAULT ''",
         'note': "TEXT NOT NULL DEFAULT ''",
         'pricing_label': "TEXT NOT NULL DEFAULT ''",
+        'uses_current_pricing': 'INTEGER',
         'three_inch_count': 'INTEGER NOT NULL DEFAULT 0',
         'five_inch_count': 'INTEGER NOT NULL DEFAULT 0',
         'unsigned_three_inch_count': 'INTEGER NOT NULL DEFAULT 0',
@@ -640,7 +678,8 @@ class DatabaseService {
     String table,
     Map<String, Object?> values,
   ) async {
-    final columns = await _getColumnNames(db, table);
+    final columns =
+        _tableColumnsCache[table] ??= await _getColumnNames(db, table);
     return {
       for (final entry in values.entries)
         if (columns.contains(entry.key)) entry.key: entry.value,
@@ -740,57 +779,6 @@ class DatabaseService {
     return null;
   }
 
-  static CounterModel? _findCounterForRecordIn(
-    List<CounterModel> counters,
-    ActivityRecordModel record,
-  ) {
-    final counterId = record.counterId;
-    if (counterId != null) {
-      final matched = _firstCounterWhere(
-        counters,
-        (counter) => counter.id == counterId,
-      );
-      if (matched != null) {
-        return matched;
-      }
-    }
-
-    final personId = record.personId;
-    if (personId != null) {
-      final matched = _firstCounterWhere(
-        counters,
-        (counter) => counter.personId == personId,
-      );
-      if (matched != null) {
-        return matched;
-      }
-    }
-
-    final normalizedPersonName = _normalizeLookupPart(record.personName);
-    if (normalizedPersonName.isNotEmpty) {
-      final matched = _firstCounterWhere(
-        counters,
-        (counter) =>
-            _normalizeLookupPart(counter.personName) == normalizedPersonName,
-      );
-      if (matched != null) {
-        return matched;
-      }
-    }
-
-    final normalizedGroup = _normalizeLookupPart(record.groupName);
-    final normalizedMember = _normalizeLookupPart(record.subjectName);
-    if (normalizedMember.isEmpty) {
-      return null;
-    }
-    return _firstCounterWhere(
-      counters,
-      (counter) =>
-          _normalizeLookupPart(counter.groupName) == normalizedGroup &&
-          _normalizeLookupPart(counter.name) == normalizedMember,
-    );
-  }
-
   static CounterModel? _findCounterForParticipantIn(
     List<CounterModel> counters,
     ActivityParticipant participant,
@@ -799,7 +787,9 @@ class DatabaseService {
     if (personId != null) {
       final matched = _firstCounterWhere(
         counters,
-        (counter) => counter.personId == personId,
+        (counter) =>
+            _groupsCanMatch(counter.groupName, participant.groupName) &&
+            counter.personId == personId,
       );
       if (matched != null) {
         return matched;
@@ -811,6 +801,8 @@ class DatabaseService {
       final matched = _firstCounterWhere(
         counters,
         (counter) =>
+            _groupsCanMatch(counter.groupName, participant.groupName) &&
+            _identitiesCanMatch(counter.personId, participant.personId) &&
             _normalizeLookupPart(counter.personName) == normalizedPersonName,
       );
       if (matched != null) {
@@ -826,8 +818,40 @@ class DatabaseService {
     return _firstCounterWhere(
       counters,
       (counter) =>
+          _identitiesCanMatch(counter.personId, participant.personId) &&
           _normalizeLookupPart(counter.groupName) == normalizedGroup &&
           _normalizeLookupPart(counter.name) == normalizedMember,
+    );
+  }
+
+  static bool _groupsCanMatch(String counterGroup, String candidateGroup) {
+    final normalizedCounterGroup = _normalizeLookupPart(counterGroup);
+    final normalizedCandidateGroup = _normalizeLookupPart(candidateGroup);
+    return normalizedCounterGroup.isEmpty ||
+        normalizedCandidateGroup.isEmpty ||
+        normalizedCounterGroup == normalizedCandidateGroup;
+  }
+
+  static bool _identitiesCanMatch(
+      int? counterPersonId, int? candidatePersonId) {
+    return counterPersonId == null ||
+        candidatePersonId == null ||
+        counterPersonId == candidatePersonId;
+  }
+
+  static bool _recordAffectsCounter(
+    ActivityRecordModel record,
+    CounterModel counter,
+  ) {
+    if (record.isCounter) {
+      return resolveCounterForActivityRecord([counter], record) != null;
+    }
+    if (!record.isMulti) {
+      return false;
+    }
+    return record.effectiveParticipants.any(
+      (participant) =>
+          _findCounterForParticipantIn([counter], participant) != null,
     );
   }
 
@@ -853,7 +877,7 @@ class DatabaseService {
       return _PreparedActivityRecord(record: record);
     }
 
-    final existingCounter = _findCounterForRecordIn(counters, record);
+    final existingCounter = resolveCounterForActivityRecord(counters, record);
     if (existingCounter != null) {
       return _PreparedActivityRecord(
         record: _recordLinkedToCounter(record, existingCounter),
@@ -927,7 +951,7 @@ class DatabaseService {
     final multiplier = reverse ? -1 : 1;
 
     if (record.isCounter) {
-      final existingCounter = _findCounterForRecordIn(counters, record);
+      final existingCounter = resolveCounterForActivityRecord(counters, record);
       if (existingCounter == null && reverse) {
         return false;
       }
@@ -1020,24 +1044,58 @@ class DatabaseService {
   static Future<void> deleteCounter(int id) async {
     final db = await database;
     await db.transaction((txn) async {
-      final relatedRecords = await txn.query(
-        activityRecordTableName,
-        columns: ['id'],
-        where: 'counter_id = ?',
+      final counterMaps = await txn.query(
+        tableName,
+        where: 'id = ?',
         whereArgs: [id],
+        limit: 1,
       );
+      if (counterMaps.isEmpty) {
+        return;
+      }
+
+      final counter = CounterModel.fromMap(counterMaps.first);
+      final recordMaps = await txn.query(
+        activityRecordTableName,
+        orderBy: 'occurred_at DESC, id DESC',
+      );
+      final relatedRecords = recordMaps
+          .map(ActivityRecordModel.fromMap)
+          .where((record) => _recordAffectsCounter(record, counter))
+          .toList(growable: false);
       final recordIds = relatedRecords
-          .map((row) => (row['id'] as num?)?.toInt())
+          .map((record) => record.id)
           .whereType<int>()
           .toList(growable: false);
+
       if (recordIds.isNotEmpty) {
+        final counters = await _getCountersFrom(txn);
+        for (final record in relatedRecords) {
+          await _applyRecordCounterImpact(
+            txn,
+            counters,
+            record,
+            reverse: true,
+          );
+          final sourceRecordId = record.sourceRecordId?.trim();
+          if (sourceRecordId != null && sourceRecordId.isNotEmpty) {
+            await txn.delete(
+              counterSyncTableName,
+              where: 'source = ? AND source_record_id = ?',
+              whereArgs: [record.source, sourceRecordId],
+            );
+          }
+        }
+
         await _deleteActivityRecordMediaRows(txn, recordIds: recordIds);
+        final placeholders = List.filled(recordIds.length, '?').join(', ');
+        await txn.delete(
+          activityRecordTableName,
+          where: 'id IN ($placeholders)',
+          whereArgs: recordIds,
+        );
       }
-      await txn.delete(
-        activityRecordTableName,
-        where: 'counter_id = ?',
-        whereArgs: [id],
-      );
+
       await txn.delete(
         tableName,
         where: 'id = ?',
@@ -1606,13 +1664,22 @@ class DatabaseService {
 
       final counterMaps = await txn.query(tableName);
       final countersByKey = <String, CounterModel>{};
+      final countersByIdentityKey = <String, CounterModel>{};
       for (final row in counterMaps) {
         final counter = CounterModel.fromMap(row);
         final key = _normalizeCounterKey(counter.name, counter.groupName);
         if (key.isEmpty) {
           continue;
         }
-        countersByKey[key] = counter;
+        countersByKey.putIfAbsent(key, () => counter);
+        final personId = counter.personId;
+        if (personId != null) {
+          countersByIdentityKey[_normalizeCounterIdentityKey(
+            counter.name,
+            counter.groupName,
+            personId,
+          )] = counter;
+        }
       }
 
       var appliedCount = 0;
@@ -1635,7 +1702,6 @@ class DatabaseService {
           continue;
         }
 
-        final existingCounter = countersByKey[key];
         final resolvedIdentity = _resolveIdentity(
           name: counterName,
           groupName: record.groupName.trim(),
@@ -1643,6 +1709,18 @@ class DatabaseService {
           personName: record.personName,
           lookup: identityLookup,
         );
+        final existingByName = countersByKey[key];
+        final resolvedPersonId = resolvedIdentity?.personId ?? record.personId;
+        final existingCounter = resolvedPersonId == null
+            ? existingByName
+            : countersByIdentityKey[_normalizeCounterIdentityKey(
+                  counterName,
+                  record.groupName,
+                  resolvedPersonId,
+                )] ??
+                (existingByName == null || existingByName.personId == null
+                    ? existingByName
+                    : null);
         final resolvedThemeColor = _resolveCounterThemeColor(
           name: counterName,
           groupName: record.groupName.trim(),
@@ -1712,7 +1790,17 @@ class DatabaseService {
           persistedCounter = updatedCounter.copyWith(id: insertedId);
         }
 
-        countersByKey[key] = persistedCounter;
+        if (existingByName == null ||
+            existingByName.id == persistedCounter.id) {
+          countersByKey[key] = persistedCounter;
+        }
+        if (persistedCounter.personId != null) {
+          countersByIdentityKey[_normalizeCounterIdentityKey(
+            persistedCounter.name,
+            persistedCounter.groupName,
+            persistedCounter.personId!,
+          )] = persistedCounter;
+        }
         await txn.insert(
           counterSyncTableName,
           {
@@ -2124,6 +2212,14 @@ class DatabaseService {
     }
     final normalizedGroup = _normalizeLookupPart(groupName);
     return '$normalizedGroup|$normalizedName';
+  }
+
+  static String _normalizeCounterIdentityKey(
+    String name,
+    String groupName,
+    int personId,
+  ) {
+    return '${_normalizeCounterKey(name, groupName)}|person:$personId';
   }
 
   static String _normalizeLookupPart(String value) {

@@ -89,6 +89,7 @@ class ActivityRecordModel {
   final String note;
   final DateTime occurredAt;
   final String pricingLabel;
+  final bool? usesCurrentPricing;
   final int threeInchCount;
   final int fiveInchCount;
   final int unsignedThreeInchCount;
@@ -128,6 +129,7 @@ class ActivityRecordModel {
     this.note = '',
     required this.occurredAt,
     this.pricingLabel = '',
+    this.usesCurrentPricing,
     this.threeInchCount = 0,
     this.fiveInchCount = 0,
     this.unsignedThreeInchCount = 0,
@@ -210,6 +212,8 @@ class ActivityRecordModel {
       note: note,
       occurredAt: occurredAt,
       pricingLabel: pricingLabel ?? resolvedPricing.label,
+      usesCurrentPricing:
+          resolvedPricing.label.trim() == GroupPricingModel.builtInDefaultLabel,
       threeInchCount: threeInchCount,
       fiveInchCount: fiveInchCount,
       unsignedThreeInchCount: unsignedThreeInchCount,
@@ -340,6 +344,7 @@ class ActivityRecordModel {
     String? note,
     DateTime? occurredAt,
     String? pricingLabel,
+    bool? usesCurrentPricing,
     int? threeInchCount,
     int? fiveInchCount,
     int? unsignedThreeInchCount,
@@ -379,6 +384,7 @@ class ActivityRecordModel {
       note: note ?? this.note,
       occurredAt: occurredAt ?? this.occurredAt,
       pricingLabel: pricingLabel ?? this.pricingLabel,
+      usesCurrentPricing: usesCurrentPricing ?? this.usesCurrentPricing,
       threeInchCount: threeInchCount ?? this.threeInchCount,
       fiveInchCount: fiveInchCount ?? this.fiveInchCount,
       unsignedThreeInchCount:
@@ -593,6 +599,11 @@ class ActivityRecordModel {
       return false;
     }
 
+    final explicitMode = usesCurrentPricing;
+    if (explicitMode != null) {
+      return explicitMode;
+    }
+
     final normalizedLabel = pricingLabel.trim();
     if (normalizedLabel.isEmpty ||
         normalizedLabel == GroupPricingModel.builtInDefaultLabel) {
@@ -640,6 +651,8 @@ class ActivityRecordModel {
       'note': note,
       'occurred_at': occurredAt.toIso8601String(),
       'pricing_label': pricingLabel,
+      'uses_current_pricing':
+          usesCurrentPricing == null ? null : (usesCurrentPricing! ? 1 : 0),
       'three_inch_count': threeInchCount,
       'five_inch_count': fiveInchCount,
       'unsigned_three_inch_count': unsignedThreeInchCount,
@@ -704,6 +717,9 @@ class ActivityRecordModel {
       occurredAt: DateTime.tryParse((map['occurred_at'] ?? '') as String) ??
           DateTime.fromMillisecondsSinceEpoch(0),
       pricingLabel: (map['pricing_label'] ?? '') as String,
+      usesCurrentPricing: _readNullableBool(
+        map['uses_current_pricing'] ?? map['usesCurrentPricing'],
+      ),
       threeInchCount: _readInt(map['three_inch_count']),
       fiveInchCount: _readInt(map['five_inch_count']),
       unsignedThreeInchCount: _readInt(map['unsigned_three_inch_count']),
@@ -814,4 +830,120 @@ class ActivityRecordModel {
     }
     return 0;
   }
+
+  static bool? _readNullableBool(Object? value) {
+    if (value == null) {
+      return null;
+    }
+    if (value is bool) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt() != 0;
+    }
+    if (value is String) {
+      final normalized = value.trim().toLowerCase();
+      if (normalized == 'true' || normalized == '1') {
+        return true;
+      }
+      if (normalized == 'false' || normalized == '0') {
+        return false;
+      }
+    }
+    return null;
+  }
+}
+
+CounterModel? resolveCounterForActivityRecord(
+  Iterable<CounterModel> counters,
+  ActivityRecordModel record,
+) {
+  final counterId = record.counterId;
+  if (counterId != null) {
+    for (final counter in counters) {
+      if (counter.id == counterId) {
+        return counter;
+      }
+    }
+  }
+
+  final personId = record.personId;
+  if (personId != null) {
+    for (final counter in counters) {
+      if (_activityRecordGroupsCanMatch(counter.groupName, record.groupName) &&
+          counter.personId == personId) {
+        return counter;
+      }
+    }
+  }
+
+  final normalizedPersonName =
+      _normalizeActivityRecordIdentityPart(record.personName);
+  if (normalizedPersonName.isNotEmpty) {
+    for (final counter in counters) {
+      if (_activityRecordGroupsCanMatch(counter.groupName, record.groupName) &&
+          _activityRecordIdentitiesCanMatch(
+            counter.personId,
+            record.personId,
+          ) &&
+          _normalizeActivityRecordIdentityPart(counter.personName) ==
+              normalizedPersonName) {
+        return counter;
+      }
+    }
+  }
+
+  final normalizedGroup =
+      _normalizeActivityRecordIdentityPart(record.groupName);
+  final normalizedMember =
+      _normalizeActivityRecordIdentityPart(record.subjectName);
+  if (normalizedMember.isEmpty) {
+    return null;
+  }
+  for (final counter in counters) {
+    if (_activityRecordIdentitiesCanMatch(
+          counter.personId,
+          record.personId,
+        ) &&
+        _normalizeActivityRecordIdentityPart(counter.groupName) ==
+            normalizedGroup &&
+        _normalizeActivityRecordIdentityPart(counter.name) ==
+            normalizedMember) {
+      return counter;
+    }
+  }
+  return null;
+}
+
+bool _activityRecordGroupsCanMatch(
+  String counterGroup,
+  String recordGroup,
+) {
+  final normalizedCounterGroup =
+      _normalizeActivityRecordIdentityPart(counterGroup);
+  final normalizedRecordGroup =
+      _normalizeActivityRecordIdentityPart(recordGroup);
+  return normalizedCounterGroup.isEmpty ||
+      normalizedRecordGroup.isEmpty ||
+      normalizedCounterGroup == normalizedRecordGroup;
+}
+
+bool _activityRecordIdentitiesCanMatch(
+  int? counterPersonId,
+  int? recordPersonId,
+) {
+  return counterPersonId == null ||
+      recordPersonId == null ||
+      counterPersonId == recordPersonId;
+}
+
+String _normalizeActivityRecordIdentityPart(String value) {
+  final trimmed = value.trim().toLowerCase();
+  if (trimmed.isEmpty) {
+    return '';
+  }
+  return trimmed.replaceAll(
+    RegExp(r'[\s·•・_\-~/\\\(\)\[\]\{\}]+'),
+    '',
+  );
 }

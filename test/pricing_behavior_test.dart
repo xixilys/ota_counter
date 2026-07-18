@@ -70,6 +70,34 @@ void main() {
     expect(record.shouldResolveWithCurrentPricing, isFalse);
   });
 
+  test('explicit free pricing remains a zero-value historical snapshot', () {
+    final record = ActivityRecordModel.counterAdjustment(
+      counter: CounterModel(
+        name: '测试成员',
+        groupName: '测试团',
+        color: '#ffffff',
+      ),
+      occurredAt: DateTime(2026, 3, 18),
+      deltas: const {
+        CounterCountField.threeInch: 1,
+      },
+      pricing: GroupPricingModel(
+        groupName: '测试团',
+        label: '赠送券',
+        threeInchPrice: 0,
+        updatedAt: DateTime(2026, 3, 18),
+      ),
+    );
+
+    final restored = ActivityRecordModel.fromMap(record.toMap());
+
+    expect(record.totalAmount, 0);
+    expect(record.usesCurrentPricing, isFalse);
+    expect(record.shouldResolveWithCurrentPricing, isFalse);
+    expect(restored.usesCurrentPricing, isFalse);
+    expect(restored.shouldResolveWithCurrentPricing, isFalse);
+  });
+
   test('legacy zero-priced records still follow current group pricing', () {
     final record = ActivityRecordModel(
       type: ActivityRecordType.counter,

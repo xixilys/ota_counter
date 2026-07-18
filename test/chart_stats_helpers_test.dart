@@ -5,6 +5,23 @@ import 'package:ota_counter/models/chart_stats_helpers.dart';
 import 'package:ota_counter/models/counter_model.dart';
 
 void main() {
+  test('person stats prefer stable ids over duplicate display names', () {
+    final first = chartPersonStatsKey(
+      personId: 101,
+      personName: '小王',
+      groupName: 'G',
+      subjectName: 'A',
+    );
+    final second = chartPersonStatsKey(
+      personId: 202,
+      personName: '小王',
+      groupName: 'G',
+      subjectName: 'B',
+    );
+
+    expect(first, isNot(second));
+  });
+
   test('group-cut multi records contribute one group cut in chart stats', () {
     final record = ActivityRecordModel.multiCut(
       participants: const [

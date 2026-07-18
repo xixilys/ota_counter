@@ -353,6 +353,7 @@ class OtaAdminImportService {
       note: note,
       occurredAt: occurredAt,
       pricingLabel: 'OTA 历史导入',
+      usesCurrentPricing: false,
       threeInchCount: threeInchCount,
       fiveInchCount: fiveInchCount,
       groupCutCount: groupCutCount,

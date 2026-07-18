@@ -30,6 +30,22 @@ class CounterRecordTarget {
   });
 }
 
+class _PendingCounterSave {
+  final CounterModel counter;
+  final DateTime occurredAt;
+  final String activityName;
+  final String venueName;
+  final String sessionLabel;
+
+  const _PendingCounterSave({
+    required this.counter,
+    required this.occurredAt,
+    required this.activityName,
+    required this.venueName,
+    required this.sessionLabel,
+  });
+}
+
 class CounterCountSheet extends StatefulWidget {
   final CounterModel counter;
   final List<CounterModel> allCounters;
@@ -58,6 +74,9 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
   bool _enableUnsignedOptions = false;
   bool _targetsLoading = false;
   bool _activityEventsLoading = false;
+  final Map<String, _PendingCounterSave> _pendingCounterSaves = {};
+  final Map<String, CounterModel> _lastPersistedCounters = {};
+  bool _saveQueueRunning = false;
 
   @override
   void initState() {
@@ -75,6 +94,7 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
       ),
     ];
     _selectedTargetKey = _targets.first.key;
+    _lastPersistedCounters[_selectedTargetKey] = widget.counter;
     _loadUnsignedOptions();
     _loadRecordTargets();
   }
@@ -97,6 +117,22 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
 
   String _groupKey(String groupName) {
     return _normalizeLookupValue(groupName);
+  }
+
+  String _targetKey(CounterModel counter) {
+    final groupKey = _groupKey(counter.groupName);
+    if (counter.personId != null) {
+      return 'person:${counter.personId}|group:$groupKey';
+    }
+    final personName = _normalizeLookupValue(counter.personName);
+    if (personName.isNotEmpty) {
+      return 'person-name:$personName|group:$groupKey';
+    }
+    return 'group:$groupKey|name:${_normalizeLookupValue(counter.name)}';
+  }
+
+  bool _isCurrentTarget(CounterModel counter) {
+    return _targetKey(counter) == _targetKey(widget.counter);
   }
 
   bool _hasExplicitCounterIdentity(CounterModel counter) {
@@ -140,13 +176,12 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
     String? labelOverride,
   }) {
     return CounterRecordTarget(
-      key: _groupKey(counter.groupName),
+      key: _targetKey(counter),
       label: labelOverride ??
           _buildTargetLabel(
             counter.groupName,
             counter.name,
-            isCurrent: _groupKey(counter.groupName) ==
-                _groupKey(widget.counter.groupName),
+            isCurrent: _isCurrentTarget(counter),
           ),
       counter: counter,
     );
@@ -287,13 +322,13 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
         ..sort((a, b) => _compareTargetGroups(a.groupName, b.groupName));
 
       for (final counter in relatedCounters) {
-        final key = _groupKey(counter.groupName);
+        final key = _targetKey(counter);
         targetsByKey[key] = _buildTarget(
           counter,
           labelOverride: _buildTargetLabel(
             counter.groupName,
             counter.name,
-            isCurrent: key == _groupKey(widget.counter.groupName),
+            isCurrent: _isCurrentTarget(counter),
           ),
         );
       }
@@ -302,21 +337,21 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
         final existingCounter = _findExistingCounterForMember(member);
         final targetCounter =
             existingCounter ?? _buildDraftCounterForMember(member);
-        final key = _groupKey(targetCounter.groupName);
+        final key = _targetKey(targetCounter);
         targetsByKey[key] = _buildTarget(
           targetCounter,
           labelOverride: _buildTargetLabel(
             targetCounter.groupName,
             targetCounter.name,
-            isCurrent: key == _groupKey(widget.counter.groupName),
+            isCurrent: _isCurrentTarget(targetCounter),
           ),
         );
       }
 
       final nextTargets = targetsByKey.values.toList()
         ..sort((a, b) {
-          final aIsCurrent = a.key == _groupKey(widget.counter.groupName);
-          final bIsCurrent = b.key == _groupKey(widget.counter.groupName);
+          final aIsCurrent = a.key == _targetKey(widget.counter);
+          final bIsCurrent = b.key == _targetKey(widget.counter);
           if (aIsCurrent != bIsCurrent) {
             return aIsCurrent ? -1 : 1;
           }
@@ -325,6 +360,12 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
 
       setState(() {
         _targets = nextTargets;
+        for (final target in nextTargets) {
+          _lastPersistedCounters.putIfAbsent(
+            target.key,
+            () => target.counter,
+          );
+        }
       });
     } finally {
       if (mounted) {
@@ -362,27 +403,86 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
     _targets = nextTargets;
   }
 
-  Future<void> _persistCounter(
+  Future<CounterModel> _persistCounter(
+    _PendingCounterSave request,
+  ) async {
+    return widget.onCounterChanged(
+      request.counter,
+      request.occurredAt,
+      activityName: request.activityName,
+      venueName: request.venueName,
+      sessionLabel: request.sessionLabel,
+    );
+  }
+
+  void _enqueueCounterSave(
     CounterModel updatedCounter,
     String targetKey,
-  ) async {
-    final savedCounter = await widget.onCounterChanged(
-      updatedCounter,
-      _occurredAt,
+  ) {
+    _pendingCounterSaves[targetKey] = _PendingCounterSave(
+      counter: updatedCounter,
+      occurredAt: _occurredAt,
       activityName: _activityName,
       venueName: _venueName,
       sessionLabel: _sessionLabel,
     );
-    if (!mounted) {
+    if (!_saveQueueRunning) {
+      unawaited(_drainCounterSaveQueue());
+    }
+  }
+
+  Future<void> _drainCounterSaveQueue() async {
+    if (_saveQueueRunning) {
       return;
     }
+    _saveQueueRunning = true;
 
-    setState(() {
-      _replaceTargetCounter(savedCounter);
-      if (_selectedTargetKey == targetKey) {
-        _counter = savedCounter;
+    try {
+      while (_pendingCounterSaves.isNotEmpty) {
+        final entry = _pendingCounterSaves.entries.first;
+        final targetKey = entry.key;
+        final request = entry.value;
+        _pendingCounterSaves.remove(targetKey);
+
+        try {
+          final savedCounter = await _persistCounter(request);
+          _lastPersistedCounters[targetKey] = savedCounter;
+          if (!mounted || _pendingCounterSaves.containsKey(targetKey)) {
+            continue;
+          }
+
+          setState(() {
+            _replaceTargetCounter(savedCounter);
+            if (_selectedTargetKey == targetKey) {
+              _counter = savedCounter;
+            }
+          });
+        } catch (error) {
+          if (!mounted) {
+            continue;
+          }
+
+          final fallbackCounter = _lastPersistedCounters[targetKey];
+          if (!_pendingCounterSaves.containsKey(targetKey) &&
+              fallbackCounter != null) {
+            setState(() {
+              _replaceTargetCounter(fallbackCounter);
+              if (_selectedTargetKey == targetKey) {
+                _counter = fallbackCounter;
+              }
+            });
+          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('计数保存失败：$error')),
+          );
+        }
       }
-    });
+    } finally {
+      _saveQueueRunning = false;
+      if (_pendingCounterSaves.isNotEmpty) {
+        unawaited(_drainCounterSaveQueue());
+      }
+    }
   }
 
   Future<void> _loadActivityEvents({bool syncRemote = false}) async {
@@ -499,7 +599,7 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
       _counter = updatedCounter;
       _replaceTargetCounter(updatedCounter);
     });
-    unawaited(_persistCounter(updatedCounter, targetKey));
+    _enqueueCounterSave(updatedCounter, targetKey);
   }
 
   Future<void> _editCount(CounterCountField field) async {

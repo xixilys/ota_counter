@@ -108,6 +108,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
   final List<CounterModel> _counters = [];
   final List<ActivityRecordModel> _activityRecords = [];
+  List<_HomeCounterEntry>? _homeEntriesCache;
   double _gridSize = 2;
   bool _sortAscending = true;
   String _sortType = SettingsService.sortByCount; // 添加排序类型
@@ -124,7 +125,7 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void initState() {
     super.initState();
-    _loadCounters();
+    _loadCounters(reconcileImportedRecords: true);
     _loadSettings();
     _loadPackageInfo();
     _initializeIdolDatabase();
@@ -181,6 +182,9 @@ class _MyHomePageState extends State<MyHomePage> {
     final overviewMetricOrder = await SettingsService.getOverviewMetricOrder();
     final overviewMetricColumns =
         await SettingsService.getOverviewMetricColumns();
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _gridSize = size;
       _sortAscending = sortDirection;
@@ -190,15 +194,22 @@ class _MyHomePageState extends State<MyHomePage> {
       _selectedOverviewMetricIds = overviewMetricIds.toSet();
       _overviewMetricOrder = overviewMetricOrder;
       _overviewMetricColumns = overviewMetricColumns;
+      _applySort(_counters);
+      _homeEntriesCache = null;
     });
   }
 
-  Future<void> _loadCounters() async {
+  Future<void> _loadCounters({bool reconcileImportedRecords = false}) async {
     try {
-      await DatabaseService.syncActivityRecordsToCounters('ota_site');
-      await DatabaseService.autoAssignCounterThemeColors();
+      if (reconcileImportedRecords) {
+        await DatabaseService.syncActivityRecordsToCounters('ota_site');
+        await DatabaseService.autoAssignCounterThemeColors();
+      }
       final counters = await DatabaseService.getCounters();
       final activityRecords = await DatabaseService.getActivityRecords();
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _counters.clear();
         _counters.addAll(counters);
@@ -206,6 +217,7 @@ class _MyHomePageState extends State<MyHomePage> {
           ..clear()
           ..addAll(activityRecords);
         _applySort(_counters);
+        _homeEntriesCache = null;
       });
     } catch (e) {
       if (mounted) {
@@ -273,13 +285,13 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   String _homeEntryKey(CounterModel counter) {
+    if (counter.personId != null) {
+      return 'person-id:${counter.personId}';
+    }
+
     final personName = counter.personName.trim();
     if (personName.isNotEmpty) {
       return 'person-name:${personName.toLowerCase()}';
-    }
-
-    if (counter.personId != null) {
-      return 'person-id:${counter.personId}';
     }
 
     return 'counter:${counter.groupName.trim().toLowerCase()}|${counter.name.trim().toLowerCase()}';
@@ -362,47 +374,70 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
-  bool _counterRecordMatchesCounter(
-    ActivityRecordModel record,
-    CounterModel counter,
+  Map<String, Map<String, int>> _buildHomeCustomTypeTotalsByEntry(
+    Map<String, List<CounterModel>> groupedCounters,
   ) {
-    if (!record.isCounter) {
-      return false;
+    final entryByCounterId = <int, String>{};
+    final entryByPersonId = <int, String>{};
+    final entryKeysByPersonName = <String, Set<String>>{};
+    final entryByFallbackKey = <String, String>{};
+
+    for (final entry in groupedCounters.entries) {
+      for (final counter in entry.value) {
+        final counterId = counter.id;
+        if (counterId != null) {
+          entryByCounterId[counterId] = entry.key;
+        }
+        final personId = counter.personId;
+        if (personId != null) {
+          entryByPersonId[personId] = entry.key;
+        }
+        final personName = _normalizedLookupPart(counter.personName);
+        if (personName.isNotEmpty) {
+          entryKeysByPersonName
+              .putIfAbsent(personName, () => <String>{})
+              .add(entry.key);
+        }
+        final fallbackKey =
+            '${_normalizedLookupPart(counter.groupName)}|${_normalizedLookupPart(counter.name)}';
+        if (fallbackKey != '|') {
+          entryByFallbackKey[fallbackKey] = entry.key;
+        }
+      }
     }
 
-    if (record.counterId != null && counter.id != null) {
-      return record.counterId == counter.id;
-    }
-
-    if (record.personId != null && counter.personId != null) {
-      return record.personId == counter.personId;
-    }
-
-    final recordPersonName = _normalizedLookupPart(record.personName);
-    final counterPersonName = _normalizedLookupPart(counter.personName);
-    if (recordPersonName.isNotEmpty && counterPersonName.isNotEmpty) {
-      return recordPersonName == counterPersonName;
-    }
-
-    return _normalizedLookupPart(record.groupName) ==
-            _normalizedLookupPart(counter.groupName) &&
-        _normalizedLookupPart(record.subjectName) ==
-            _normalizedLookupPart(counter.name);
-  }
-
-  Map<String, int> _buildHomeCustomTypeTotals(List<CounterModel> counters) {
-    final totals = <String, int>{};
+    final entryByUniquePersonName = {
+      for (final entry in entryKeysByPersonName.entries)
+        if (entry.value.length == 1) entry.key: entry.value.single,
+    };
+    final totalsByEntry = <String, Map<String, int>>{};
     for (final record in _activityRecords) {
       if (!record.isCounter || record.effectiveCustomChekiCounts.isEmpty) {
         continue;
       }
-      final matchesCounter = counters.any(
-        (counter) => _counterRecordMatchesCounter(record, counter),
-      );
-      if (!matchesCounter) {
+
+      String? entryKey;
+      final counterId = record.counterId;
+      if (counterId != null) {
+        entryKey = entryByCounterId[counterId];
+      } else {
+        final personId = record.personId;
+        if (personId != null) {
+          entryKey = entryByPersonId[personId];
+        } else {
+          final personName = _normalizedLookupPart(record.personName);
+          if (personName.isNotEmpty) {
+            entryKey = entryByUniquePersonName[personName];
+          }
+          entryKey ??= entryByFallbackKey[
+              '${_normalizedLookupPart(record.groupName)}|${_normalizedLookupPart(record.subjectName)}'];
+        }
+      }
+      if (entryKey == null) {
         continue;
       }
 
+      final totals = totalsByEntry.putIfAbsent(entryKey, () => <String, int>{});
       for (final item in record.effectiveCustomChekiCounts) {
         final label = item.label.trim();
         if (label.isEmpty) {
@@ -411,7 +446,7 @@ class _MyHomePageState extends State<MyHomePage> {
         totals[label] = (totals[label] ?? 0) + item.count;
       }
     }
-    return totals;
+    return totalsByEntry;
   }
 
   List<CounterCountBadgeData> _buildHomeBreakdownEntries(
@@ -484,6 +519,11 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   List<_HomeCounterEntry> get _homeEntries {
+    final cachedEntries = _homeEntriesCache;
+    if (cachedEntries != null) {
+      return cachedEntries;
+    }
+
     final scopedCounters = _scopedCounters;
 
     final groupedCounters = <String, List<CounterModel>>{};
@@ -492,12 +532,14 @@ class _MyHomePageState extends State<MyHomePage> {
           .putIfAbsent(_homeEntryKey(counter), () => [])
           .add(counter);
     }
+    final customTypeTotalsByEntry =
+        _buildHomeCustomTypeTotalsByEntry(groupedCounters);
 
     final entries = groupedCounters.entries.map((entry) {
       final counters = entry.value;
       final primaryCounter = _selectPrimaryCounter(counters);
       final displayCounter = _buildHomeDisplayCounter(counters);
-      final customCounts = _buildHomeCustomTypeTotals(counters);
+      final customCounts = customTypeTotalsByEntry[entry.key] ?? const {};
       final totalCount = displayCounter.count +
           customCounts.values.fold<int>(0, (sum, value) => sum + value);
       return _HomeCounterEntry(
@@ -515,7 +557,9 @@ class _MyHomePageState extends State<MyHomePage> {
     }).toList();
 
     _applyHomeEntrySort(entries);
-    return List.unmodifiable(entries);
+    final immutableEntries = List<_HomeCounterEntry>.unmodifiable(entries);
+    _homeEntriesCache = immutableEntries;
+    return immutableEntries;
   }
 
   int get _memberTotal =>
@@ -931,8 +975,37 @@ class _MyHomePageState extends State<MyHomePage> {
       }
     }
 
+    if (requested.personId != null) {
+      for (final counter in _counters) {
+        if (counter.personId == requested.personId &&
+            _normalizedLookupPart(counter.groupName) ==
+                _normalizedLookupPart(requested.groupName)) {
+          return counter;
+        }
+      }
+    }
+
+    final requestedPersonName = _normalizedLookupPart(requested.personName);
+    if (requestedPersonName.isNotEmpty) {
+      for (final counter in _counters) {
+        if (counter.personId != null &&
+            requested.personId != null &&
+            counter.personId != requested.personId) {
+          continue;
+        }
+        if (_normalizedLookupPart(counter.groupName) ==
+                _normalizedLookupPart(requested.groupName) &&
+            _normalizedLookupPart(counter.personName) == requestedPersonName) {
+          return counter;
+        }
+      }
+    }
+
     for (final counter in _counters) {
-      if (_normalizedLookupPart(counter.groupName) ==
+      if ((counter.personId == null ||
+              requested.personId == null ||
+              counter.personId == requested.personId) &&
+          _normalizedLookupPart(counter.groupName) ==
               _normalizedLookupPart(requested.groupName) &&
           _normalizedLookupPart(counter.name) ==
               _normalizedLookupPart(requested.name)) {
@@ -1177,8 +1250,8 @@ class _MyHomePageState extends State<MyHomePage> {
         title: const Text('确认删除'),
         content: Text(
           entry.sourceCounters.length == 1
-              ? '确定要删除这个计数器吗？会同时删除这张卡对应的成员流水记录。'
-              : '确定删除 ${entry.displayCounter.name} 名下的 ${entry.sourceCounters.length} 张团体计数卡吗？对应的成员流水记录也会一起删除。',
+              ? '确定要删除这个计数器吗？会同时删除这张卡对应的成员流水；包含该成员的多人流水会整条删除，并同步更新其他成员计数。'
+              : '确定删除 ${entry.displayCounter.name} 名下的 ${entry.sourceCounters.length} 张团体计数卡吗？对应成员流水会一起删除；相关多人流水也会整条删除，并同步更新其他成员计数。',
         ),
         actions: [
           TextButton(
@@ -1600,6 +1673,7 @@ class _MyHomePageState extends State<MyHomePage> {
   void _toggleShowHiddenCounters() {
     setState(() {
       _showHiddenCounters = !_showHiddenCounters;
+      _homeEntriesCache = null;
     });
     SettingsService.saveShowHiddenCounters(_showHiddenCounters);
   }
@@ -1636,9 +1710,8 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void _sortCounters() {
-    setState(() {
-      _applySort(_counters);
-    });
+    _applySort(_counters);
+    _homeEntriesCache = null;
   }
 
   void _toggleSortDirection() {

@@ -65,6 +65,17 @@ class FullBackupBundle {
       throw const FormatException('备份文件格式版本无效');
     }
 
+    _validateDocumentPathRows(
+      _readTableDump(manifest['main_database']),
+      table: DatabaseService.activityRecordMediaTableName,
+      pathColumn: 'path',
+    );
+    _validateDocumentPathRows(
+      _readTableDump(manifest['image_database']),
+      table: ImageService.tableName,
+      pathColumn: 'path',
+    );
+
     return FullBackupBundle(
       formatVersion: formatVersion,
       exportedAt: (manifest['exported_at'] ?? '') as String,
@@ -102,6 +113,21 @@ class FullBackupBundle {
         (key, cellValue) => MapEntry(key.toString(), cellValue),
       );
     }).toList(growable: false);
+  }
+
+  static void _validateDocumentPathRows(
+    Map<String, List<Map<String, Object?>>> tables, {
+    required String table,
+    required String pathColumn,
+  }) {
+    final rows = tables[table] ?? const [];
+    for (final row in rows) {
+      final rawPath = (row[pathColumn] ?? '').toString().trim();
+      if (rawPath.isEmpty) {
+        continue;
+      }
+      ExportImportService.normalizeBackupRelativePath(rawPath);
+    }
   }
 }
 
@@ -491,9 +517,9 @@ class ExportImportService {
       final nextRow = Map<String, Object?>.from(row);
       final relativePath = (row[pathColumn] ?? '').toString().trim();
       if (relativePath.isNotEmpty) {
-        nextRow[pathColumn] = p.join(
-          documentsPath,
-          p.joinAll(p.posix.split(relativePath)),
+        nextRow[pathColumn] = _resolveDocumentRestorePath(
+          documentsPath: documentsPath,
+          relativePath: relativePath,
         );
       }
       return nextRow;
@@ -505,9 +531,9 @@ class ExportImportService {
     String documentsPath,
   ) async {
     for (final entry in documentFiles.entries) {
-      final targetPath = p.join(
-        documentsPath,
-        p.joinAll(p.posix.split(entry.key)),
+      final targetPath = _resolveDocumentRestorePath(
+        documentsPath: documentsPath,
+        relativePath: entry.key,
       );
       final targetFile = File(targetPath);
       await targetFile.parent.create(recursive: true);
@@ -573,12 +599,9 @@ class ExportImportService {
       if (!file.isFile || !file.name.startsWith('$_documentsArchiveRoot/')) {
         continue;
       }
-      final relativePath = p.posix.normalize(
+      final relativePath = normalizeBackupRelativePath(
         file.name.substring(_documentsArchiveRoot.length + 1),
       );
-      if (relativePath.isEmpty || relativePath == '.') {
-        continue;
-      }
       documentFiles[relativePath] = _archiveFileBytes(file);
     }
 
@@ -601,8 +624,52 @@ class ExportImportService {
   static String _archiveDocumentPath(String relativePath) {
     return p.posix.join(
       _documentsArchiveRoot,
-      p.posix.joinAll(p.posix.split(relativePath)),
+      normalizeBackupRelativePath(relativePath),
     );
+  }
+
+  static String normalizeBackupRelativePath(String rawPath) {
+    final trimmedPath = rawPath.trim();
+    if (trimmedPath.isEmpty) {
+      throw const FormatException('备份中的文件路径不能为空');
+    }
+
+    final normalizedPath = p.posix.normalize(trimmedPath);
+    if (normalizedPath.isEmpty || normalizedPath == '.') {
+      throw const FormatException('备份中的文件路径不能为空');
+    }
+    if (p.posix.isAbsolute(normalizedPath)) {
+      throw const FormatException('备份中的文件路径不能是绝对路径');
+    }
+
+    for (final segment in p.posix.split(normalizedPath)) {
+      if (segment == '..') {
+        throw const FormatException('备份中的文件路径不能包含父级目录');
+      }
+    }
+
+    return p.posix.joinAll(p.posix.split(normalizedPath));
+  }
+
+  static String _resolveDocumentRestorePath({
+    required String documentsPath,
+    required String relativePath,
+  }) {
+    final normalizedDocumentsPath = p.normalize(documentsPath);
+    final normalizedRelativePath = normalizeBackupRelativePath(relativePath);
+    final targetPath = p.normalize(
+      p.join(
+        normalizedDocumentsPath,
+        p.joinAll(p.posix.split(normalizedRelativePath)),
+      ),
+    );
+
+    if (targetPath != normalizedDocumentsPath &&
+        !p.isWithin(normalizedDocumentsPath, targetPath)) {
+      throw const FormatException('备份中的文件路径超出应用文档目录');
+    }
+
+    return targetPath;
   }
 
   static bool _looksLikeZip(List<int> bytes) {

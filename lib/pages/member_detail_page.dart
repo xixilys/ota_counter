@@ -78,12 +78,12 @@ class _MemberDetailPageState extends State<MemberDetailPage> {
   }
 
   bool _matchesCounter(CounterModel counter) {
-    if (_sourcePersonNames
-        .contains(_normalizedLookupPart(counter.personName))) {
-      return true;
+    if (counter.personId != null && _sourcePersonIds.isNotEmpty) {
+      return _sourcePersonIds.contains(counter.personId);
     }
-    if (counter.personId != null &&
-        _sourcePersonIds.contains(counter.personId)) {
+    if (_sourcePersonNames.contains(
+      _normalizedLookupPart(counter.personName),
+    )) {
       return true;
     }
     final fallbackKey =
@@ -92,13 +92,12 @@ class _MemberDetailPageState extends State<MemberDetailPage> {
   }
 
   bool _matchesParticipant(ActivityParticipant participant) {
+    if (participant.personId != null && _sourcePersonIds.isNotEmpty) {
+      return _sourcePersonIds.contains(participant.personId);
+    }
     if (_sourcePersonNames.contains(
       _normalizedLookupPart(participant.personName),
     )) {
-      return true;
-    }
-    if (participant.personId != null &&
-        _sourcePersonIds.contains(participant.personId)) {
       return true;
     }
     final fallbackKey =
@@ -114,10 +113,10 @@ class _MemberDetailPageState extends State<MemberDetailPage> {
         matchedCounterIds.contains(record.counterId)) {
       return true;
     }
-    if (_sourcePersonNames.contains(_normalizedLookupPart(record.personName))) {
-      return true;
+    if (record.personId != null && _sourcePersonIds.isNotEmpty) {
+      return _sourcePersonIds.contains(record.personId);
     }
-    if (record.personId != null && _sourcePersonIds.contains(record.personId)) {
+    if (_sourcePersonNames.contains(_normalizedLookupPart(record.personName))) {
       return true;
     }
     final fallbackKey =
@@ -328,108 +327,11 @@ class _MemberDetailPageState extends State<MemberDetailPage> {
     return record.id != null;
   }
 
-  CounterModel? _findCounterForRecordIn(
-    List<CounterModel> counters,
-    ActivityRecordModel record,
-  ) {
-    final counterId = record.counterId;
-    if (counterId != null) {
-      for (final counter in counters) {
-        if (counter.id == counterId) {
-          return counter;
-        }
-      }
-    }
-
-    final normalizedGroup = _normalizedLookupPart(record.groupName);
-    final normalizedMember = _normalizedLookupPart(record.subjectName);
-    for (final counter in counters) {
-      if (_normalizedLookupPart(counter.groupName) == normalizedGroup &&
-          _normalizedLookupPart(counter.name) == normalizedMember) {
-        return counter;
-      }
-    }
-    return null;
-  }
-
-  CounterModel? _findCounterForRecord(ActivityRecordModel record) {
-    return _findCounterForRecordIn(_allCounters, record);
-  }
-
-  Map<CounterCountField, int> _counterDeltasFromRecord(
-    ActivityRecordModel record,
-  ) {
-    return {
-      for (final field in CounterCountField.values)
-        if (record.countForField(field) != 0)
-          field: record.countForField(field),
-    };
-  }
-
   ActivityRecordDraft _draftFromRecord(ActivityRecordModel record) {
-    if (record.isCounter) {
-      return ActivityRecordDraft(
-        type: ActivityRecordType.counter,
-        counter: _findCounterForRecord(record) ??
-            CounterModel(
-              id: record.counterId,
-              name: record.subjectName,
-              groupName: record.groupName,
-              personId: record.personId,
-              personName: record.personName,
-              color: '#FFE135',
-            ),
-        occurredAt: record.occurredAt,
-        activityName: record.resolvedActivityName,
-        venueName: record.resolvedVenueName,
-        note: record.note,
-        counterDeltas: _counterDeltasFromRecord(record),
-        customChekiCounts: record.customChekiCounts,
-      );
-    }
-
-    if (record.isMulti) {
-      final multiField = record.multiCountField;
-      return ActivityRecordDraft(
-        type: ActivityRecordType.multi,
-        occurredAt: record.occurredAt,
-        activityName: record.resolvedActivityName,
-        venueName: record.resolvedVenueName,
-        note: record.note,
-        multiParticipants: record.effectiveParticipants,
-        multiField: multiField == CounterCountField.groupCut
-            ? CounterCountField.threeInch
-            : (multiField ?? CounterCountField.threeInch),
-        multiAsGroupCut: multiField == CounterCountField.groupCut,
-        multiQuantity: record.effectiveMultiQuantity,
-        multiTotalPrice: record.totalAmount,
-      );
-    }
-
-    return ActivityRecordDraft(
-      type: ActivityRecordType.ticket,
-      occurredAt: record.occurredAt,
-      activityName: record.resolvedActivityName,
-      venueName: record.resolvedVenueName,
-      note: record.note,
-      sessionLabel: record.sessionLabel,
-      ticketQuantity: record.ticketQuantity > 0 ? record.ticketQuantity : 1,
-      ticketUnitPrice: record.ticketUnitPrice,
+    return ActivityRecordDraft.fromRecord(
+      record,
+      resolvedCounter: resolveCounterForActivityRecord(_allCounters, record),
     );
-  }
-
-  GroupPricingModel? _resolvePricingByGroupName(String groupName) {
-    final normalizedGroup = groupName.trim();
-    if (normalizedGroup.isEmpty) {
-      return null;
-    }
-
-    for (final pricing in _pricings) {
-      if (pricing.groupName.trim() == normalizedGroup) {
-        return pricing;
-      }
-    }
-    return GroupPricingModel.unconfigured(normalizedGroup);
   }
 
   Future<ActivityRecordModel?> _buildRecordFromDraft(
@@ -438,72 +340,9 @@ class _MemberDetailPageState extends State<MemberDetailPage> {
     String source = 'local',
     String? sourceRecordId,
   }) async {
-    if (draft.type == ActivityRecordType.counter) {
-      final counter = draft.counter;
-      if (counter == null) {
-        return null;
-      }
-      final pricing = _resolvePricingByGroupName(counter.groupName) ??
-          GroupPricingModel.unconfigured(counter.groupName);
-      return ActivityRecordModel.counterAdjustment(
-        id: id,
-        counter: counter,
-        occurredAt: draft.occurredAt,
-        deltas: draft.counterDeltas,
-        pricing: pricing,
-        activityName: draft.activityName,
-        venueName: draft.venueName,
-        note: draft.note,
-        customChekiCounts: draft.customChekiCounts,
-      ).copyWith(
-        source: source,
-        sourceRecordId: sourceRecordId,
-      );
-    }
-
-    if (draft.type == ActivityRecordType.multi) {
-      final isGroupCut = draft.multiAsGroupCut;
-      final participantGroups = draft.multiParticipants
-          .map((participant) => participant.groupName.trim())
-          .where((groupName) => groupName.isNotEmpty)
-          .toSet();
-      final pricing = participantGroups.length == 1
-          ? _resolvePricingByGroupName(participantGroups.first)
-          : null;
-      final pricingLabel = pricing == null
-          ? (participantGroups.length > 1
-              ? (isGroupCut ? '跨团团切' : '跨团多人切')
-              : (isGroupCut ? '团切' : '多人切'))
-          : pricing.label;
-      return ActivityRecordModel.multiCut(
-        id: id,
-        participants: draft.multiParticipants,
-        field: isGroupCut
-            ? CounterCountField.groupCut
-            : (draft.multiField ?? CounterCountField.threeInch),
-        occurredAt: draft.occurredAt,
-        activityName: draft.activityName,
-        venueName: draft.venueName,
-        note: draft.note,
-        pricingLabel: pricingLabel,
-        quantity: isGroupCut ? 1 : draft.multiQuantity,
-        totalPrice: draft.multiTotalPrice,
-      ).copyWith(
-        source: source,
-        sourceRecordId: sourceRecordId,
-      );
-    }
-
-    return ActivityRecordModel.ticket(
+    return draft.toActivityRecord(
+      pricings: _pricings,
       id: id,
-      eventName: draft.activityName,
-      occurredAt: draft.occurredAt,
-      venueName: draft.venueName,
-      sessionLabel: draft.sessionLabel,
-      note: draft.note,
-      quantity: draft.ticketQuantity,
-      unitPrice: draft.ticketUnitPrice,
-    ).copyWith(
       source: source,
       sourceRecordId: sourceRecordId,
     );

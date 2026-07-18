@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -137,6 +139,66 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('修改3寸'), findsOneWidget);
+  });
+
+  testWidgets('counter sheet serializes rapid quick-count saves', (
+    WidgetTester tester,
+  ) async {
+    final counter = CounterModel(
+      id: 1,
+      name: '成员A',
+      groupName: '团体A',
+      color: '#FFE135',
+    );
+    final firstSaveGate = Completer<void>();
+    final requestedCounts = <int>[];
+    var activeSaves = 0;
+    var maxActiveSaves = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CounterCountSheet(
+            counter: counter,
+            allCounters: [counter],
+            onCounterChanged: (
+              updatedCounter,
+              occurredAt, {
+              activityName = '',
+              venueName = '',
+              sessionLabel = '',
+            }) async {
+              activeSaves += 1;
+              maxActiveSaves =
+                  activeSaves > maxActiveSaves ? activeSaves : maxActiveSaves;
+              requestedCounts.add(updatedCounter.threeInchCount);
+              if (requestedCounts.length == 1) {
+                await firstSaveGate.future;
+              }
+              activeSaves -= 1;
+              return updatedCounter;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('+1').first);
+    await tester.pump();
+    await tester.tap(find.text('+1').first);
+    await tester.pump();
+
+    expect(find.text('总计 2'), findsOneWidget);
+    expect(requestedCounts, [1]);
+    expect(maxActiveSaves, 1);
+
+    firstSaveGate.complete();
+    await tester.pumpAndSettle();
+
+    expect(requestedCounts, [1, 2]);
+    expect(maxActiveSaves, 1);
+    expect(find.text('总计 2'), findsOneWidget);
   });
 
   testWidgets('counter sheet exposes activity event picker', (

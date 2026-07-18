@@ -1,22 +1,23 @@
 {
   "appName": "OTA Counter",
-  "versionName": "1.4.3",
-  "versionCode": 15,
-  "versionLabel": "v1.4.3",
-  "title": "OTA Counter v1.4.3",
+  "versionName": "1.5.0",
+  "versionCode": 16,
+  "versionLabel": "v1.5.0",
+  "title": "OTA Counter v1.5.0",
   "notes": [
-    "修复偶活场次数据无法加载的问题",
-    "快捷计数新增选择偶活场次，可带入日期、活动名和场地",
-    "成员记录和多人切会保留所选场次标签"
+    "修复快捷计数并发点击可能丢失数量的问题",
+    "编辑历史流水保留场次、价格快照和 0 元记录语义",
+    "修复同名成员统计合并、日期边界和 OTA 数据一致性问题",
+    "增强备份路径校验和数据库初始化稳定性"
   ],
-  "publishedAt": "2026-07-07T14:55:00+08:00",
+  "publishedAt": "2026-07-19T01:02:01+08:00",
   "force": false,
-  "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.4.3.apk",
+  "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.5.0.apk",
   "downloadPageUrl": "https://ota-counter.huangxuanqi.top/ota-counter/",
   "backupUrl": "",
   "platforms": {
     "android": {
-      "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.4.3.apk",
+      "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.5.0.apk",
       "downloadPageUrl": "https://ota-counter.huangxuanqi.top/ota-counter/",
       "backupUrl": ""
     },

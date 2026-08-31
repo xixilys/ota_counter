@@ -93,12 +93,34 @@ class _MemberDetailPageState extends State<MemberDetailPage> {
 
   bool _matchesParticipant(ActivityParticipant participant) {
     if (participant.personId != null && _sourcePersonIds.isNotEmpty) {
-      return _sourcePersonIds.contains(participant.personId);
+      if (_sourcePersonIds.contains(participant.personId)) {
+        return true;
+      }
     }
-    if (_sourcePersonNames.contains(
-      _normalizedLookupPart(participant.personName),
-    )) {
-      return true;
+
+    final participantPersonName = _normalizedLookupPart(participant.personName);
+    if (participantPersonName.isNotEmpty &&
+        _sourcePersonNames.contains(
+          participantPersonName,
+        )) {
+      // A member can have duplicate historical person IDs after an idol
+      // database refresh. Keep the record visible when the name and at least
+      // one participant group still agree, while preserving same-name people
+      // in different groups.
+      final hasMatchingGroup = widget.sourceCounters.any((counter) {
+        final counterPersonName = _normalizedLookupPart(counter.personName);
+        if (counterPersonName != participantPersonName) {
+          return false;
+        }
+        final participantGroup = _normalizedLookupPart(participant.groupName);
+        final counterGroup = _normalizedLookupPart(counter.groupName);
+        return participantGroup.isEmpty ||
+            counterGroup.isEmpty ||
+            participantGroup == counterGroup;
+      });
+      if (hasMatchingGroup) {
+        return true;
+      }
     }
     final fallbackKey =
         '${_normalizedLookupPart(participant.groupName)}|${_normalizedLookupPart(participant.memberName)}';
@@ -114,10 +136,27 @@ class _MemberDetailPageState extends State<MemberDetailPage> {
       return true;
     }
     if (record.personId != null && _sourcePersonIds.isNotEmpty) {
-      return _sourcePersonIds.contains(record.personId);
+      if (_sourcePersonIds.contains(record.personId)) {
+        return true;
+      }
     }
-    if (_sourcePersonNames.contains(_normalizedLookupPart(record.personName))) {
-      return true;
+    final recordPersonName = _normalizedLookupPart(record.personName);
+    if (recordPersonName.isNotEmpty &&
+        _sourcePersonNames.contains(recordPersonName)) {
+      final hasMatchingGroup = widget.sourceCounters.any((counter) {
+        final counterPersonName = _normalizedLookupPart(counter.personName);
+        if (counterPersonName != recordPersonName) {
+          return false;
+        }
+        final recordGroup = _normalizedLookupPart(record.groupName);
+        final counterGroup = _normalizedLookupPart(counter.groupName);
+        return recordGroup.isEmpty ||
+            counterGroup.isEmpty ||
+            recordGroup == counterGroup;
+      });
+      if (hasMatchingGroup) {
+        return true;
+      }
     }
     final fallbackKey =
         '${_normalizedLookupPart(record.groupName)}|${_normalizedLookupPart(record.subjectName)}';

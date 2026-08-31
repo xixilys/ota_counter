@@ -19,7 +19,7 @@ class DatabaseService {
   static const String activityRecordTableName = 'activity_records';
   static const String activityRecordMediaTableName = 'activity_record_media';
   static const String counterSyncTableName = 'counter_sync_log';
-  static const int _version = 17;
+  static const int _version = 18;
 
   static Database? _database;
   static Future<Database>? _databaseOpening;
@@ -141,6 +141,9 @@ class DatabaseService {
     if (oldVersion < 17) {
       await _migrateToV17(db);
     }
+    if (oldVersion < 18) {
+      await _migrateToV18(db);
+    }
     await _ensureLatestSchema(db);
   }
 
@@ -247,7 +250,10 @@ class DatabaseService {
         created_at TEXT NOT NULL,
         media_type TEXT NOT NULL DEFAULT 'memory',
         processing_mode TEXT NOT NULL DEFAULT 'none',
-        is_reversed INTEGER NOT NULL DEFAULT 0
+        is_reversed INTEGER NOT NULL DEFAULT 0,
+        owner_person_id INTEGER,
+        owner_person_name TEXT NOT NULL DEFAULT '',
+        owner_group_name TEXT NOT NULL DEFAULT ''
       )
     ''');
     await db.execute('''
@@ -529,6 +535,18 @@ class DatabaseService {
     );
   }
 
+  static Future<void> _migrateToV18(Database db) async {
+    await _ensureColumns(
+      db,
+      activityRecordMediaTableName,
+      {
+        'owner_person_id': 'INTEGER',
+        'owner_person_name': "TEXT NOT NULL DEFAULT ''",
+        'owner_group_name': "TEXT NOT NULL DEFAULT ''",
+      },
+    );
+  }
+
   static Future<void> _ensureLatestSchema(DatabaseExecutor db) async {
     await _createSchema(db);
 
@@ -619,7 +637,10 @@ class DatabaseService {
         created_at TEXT NOT NULL,
         media_type TEXT NOT NULL DEFAULT 'memory',
         processing_mode TEXT NOT NULL DEFAULT 'none',
-        is_reversed INTEGER NOT NULL DEFAULT 0
+        is_reversed INTEGER NOT NULL DEFAULT 0,
+        owner_person_id INTEGER,
+        owner_person_name TEXT NOT NULL DEFAULT '',
+        owner_group_name TEXT NOT NULL DEFAULT ''
       )
     ''');
     await _ensureColumns(
@@ -629,6 +650,9 @@ class DatabaseService {
         'media_type': "TEXT NOT NULL DEFAULT 'memory'",
         'processing_mode': "TEXT NOT NULL DEFAULT 'none'",
         'is_reversed': 'INTEGER NOT NULL DEFAULT 0',
+        'owner_person_id': 'INTEGER',
+        'owner_person_name': "TEXT NOT NULL DEFAULT ''",
+        'owner_group_name': "TEXT NOT NULL DEFAULT ''",
       },
     );
     await db.execute('''
@@ -1478,6 +1502,7 @@ class DatabaseService {
     ActivityRecordMediaType mediaType = ActivityRecordMediaType.memory,
     ActivityRecordMediaProcessingMode processingMode =
         ActivityRecordMediaProcessingMode.none,
+    ActivityRecordMediaOwnerScope? owner,
   }) async {
     final originalExtension = extension(imageFile.path).trim();
     final fileExtension =
@@ -1488,6 +1513,7 @@ class DatabaseService {
       fileExtension: fileExtension,
       mediaType: mediaType,
       processingMode: processingMode,
+      owner: owner,
     );
   }
 
@@ -1498,6 +1524,7 @@ class DatabaseService {
     ActivityRecordMediaType mediaType = ActivityRecordMediaType.memory,
     ActivityRecordMediaProcessingMode processingMode =
         ActivityRecordMediaProcessingMode.none,
+    ActivityRecordMediaOwnerScope? owner,
   }) async {
     return _saveActivityRecordMediaBytes(
       recordId: recordId,
@@ -1505,6 +1532,7 @@ class DatabaseService {
       fileExtension: fileExtension,
       mediaType: mediaType,
       processingMode: processingMode,
+      owner: owner,
     );
   }
 
@@ -1514,6 +1542,7 @@ class DatabaseService {
     required String fileExtension,
     required ActivityRecordMediaType mediaType,
     required ActivityRecordMediaProcessingMode processingMode,
+    ActivityRecordMediaOwnerScope? owner,
   }) async {
     final directory = await getApplicationDocumentsDirectory();
     final mediaDirectory = Directory(
@@ -1537,6 +1566,9 @@ class DatabaseService {
       createdAt: DateTime.now(),
       mediaType: mediaType,
       processingMode: processingMode,
+      ownerPersonId: owner?.personId,
+      ownerPersonName: owner?.personName ?? '',
+      ownerGroupName: owner?.groupName ?? '',
     );
     final db = await database;
     final values = media.toMap()..remove('id');
@@ -1553,6 +1585,9 @@ class DatabaseService {
       mediaType: media.mediaType,
       processingMode: media.processingMode,
       isReversed: media.isReversed,
+      ownerPersonId: media.ownerPersonId,
+      ownerPersonName: media.ownerPersonName,
+      ownerGroupName: media.ownerGroupName,
     );
   }
 

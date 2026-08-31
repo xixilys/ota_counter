@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/activity_record_model.dart';
+import '../models/activity_record_media_scope.dart';
 import '../models/counter_model.dart';
 import '../models/group_pricing_model.dart';
 import '../services/database_service.dart';
@@ -194,8 +195,21 @@ class _MemberDetailPageState extends State<MemberDetailPage> {
     final media = recordIds.isEmpty
         ? const []
         : await DatabaseService.getActivityRecordMedia(recordIds: recordIds);
+    final recordsById = {
+      for (final record in relatedRecords)
+        if (record.id != null) record.id!: record,
+    };
+    final scopedMedia = media.where((item) {
+      final record = recordsById[item.recordId];
+      return record != null &&
+          activityRecordMediaBelongsToMember(
+            media: item,
+            record: record,
+            ownerCounters: matchedCounters,
+          );
+    });
     final recordMediaCounts = <int, int>{};
-    for (final item in media) {
+    for (final item in scopedMedia) {
       recordMediaCounts[item.recordId] =
           (recordMediaCounts[item.recordId] ?? 0) + 1;
     }
@@ -495,6 +509,7 @@ class _MemberDetailPageState extends State<MemberDetailPage> {
       MaterialPageRoute(
         builder: (context) => RecordMemoryPage.group(
           records: dayGroup.records,
+          ownerCounters: _matchedCounters,
           albumTitle: widget.displayCounter.name,
           albumDate: dayGroup.day,
         ),
@@ -521,6 +536,7 @@ class _MemberDetailPageState extends State<MemberDetailPage> {
         builder: (context) => IdolCutOverviewPage(
           idolName: widget.displayCounter.name,
           records: recordsWithId,
+          ownerCounters: _matchedCounters,
         ),
       ),
     );

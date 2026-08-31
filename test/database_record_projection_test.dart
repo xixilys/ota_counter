@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:ota_counter/models/activity_record_model.dart';
+import 'package:ota_counter/models/activity_record_media_model.dart';
 import 'package:ota_counter/models/counter_model.dart';
 import 'package:ota_counter/models/group_pricing_model.dart';
 import 'package:ota_counter/services/database_service.dart';
@@ -27,6 +28,26 @@ void main() {
   CounterModel counterById(List<CounterModel> counters, int id) {
     return counters.singleWhere((counter) => counter.id == id);
   }
+
+  test('database persists activity media owner scope', () async {
+    final db = await DatabaseService.database;
+    final media = ActivityRecordMediaModel(
+      recordId: 42,
+      path: 'missing-test-photo.jpg',
+      createdAt: DateTime(2026, 8, 29),
+      ownerPersonId: 202,
+      ownerPersonName: 'B',
+      ownerGroupName: 'G2',
+    );
+    final values = media.toMap()..remove('id');
+    await db.insert(DatabaseService.activityRecordMediaTableName, values);
+
+    final restored =
+        (await DatabaseService.getActivityRecordMedia(recordId: 42)).single;
+    expect(restored.ownerPersonId, 202);
+    expect(restored.ownerPersonName, 'B');
+    expect(restored.ownerGroupName, 'G2');
+  });
 
   test('multi record impact prefers participant personId over name fallback',
       () async {

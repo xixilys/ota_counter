@@ -6,7 +6,9 @@ import 'package:live_document_scanner/live_document_scanner.dart';
 import 'package:flutter/services.dart';
 
 import '../models/activity_record_media_model.dart';
+import '../models/activity_record_media_scope.dart';
 import '../models/activity_record_model.dart';
+import '../models/counter_model.dart';
 import 'manual_scan_crop_page.dart';
 import '../services/database_service.dart';
 import '../services/record_scan_service.dart';
@@ -15,12 +17,14 @@ class RecordMemoryPage extends StatefulWidget {
   final List<ActivityRecordModel> records;
   final String? albumTitle;
   final DateTime? albumDate;
+  final List<CounterModel> ownerCounters;
 
   RecordMemoryPage({
     super.key,
     required ActivityRecordModel record,
   })  : records = [record],
         albumTitle = null,
+        ownerCounters = const [],
         albumDate = DateTime(
           record.occurredAt.year,
           record.occurredAt.month,
@@ -30,9 +34,11 @@ class RecordMemoryPage extends StatefulWidget {
   RecordMemoryPage.group({
     super.key,
     required List<ActivityRecordModel> records,
+    required List<CounterModel> ownerCounters,
     this.albumTitle,
     this.albumDate,
-  }) : records = List<ActivityRecordModel>.unmodifiable(records);
+  })  : records = List<ActivityRecordModel>.unmodifiable(records),
+        ownerCounters = List<CounterModel>.unmodifiable(ownerCounters);
 
   @override
   State<RecordMemoryPage> createState() => _RecordMemoryPageState();
@@ -68,6 +74,12 @@ class _RecordMemoryPageState extends State<RecordMemoryPage> {
 
   int? get _targetRecordId => _primaryRecord?.id;
 
+  ActivityRecordMediaOwnerScope? get _mediaOwner =>
+      resolveActivityRecordMediaOwnerScope(
+        records: _records,
+        ownerCounters: widget.ownerCounters,
+      );
+
   bool get _isGroupedAlbum => _records.length > 1;
 
   @override
@@ -89,9 +101,22 @@ class _RecordMemoryPageState extends State<RecordMemoryPage> {
       return;
     }
 
-    final media = await DatabaseService.getActivityRecordMedia(
+    final loadedMedia = await DatabaseService.getActivityRecordMedia(
       recordIds: recordIds,
     );
+    final recordsById = {
+      for (final record in _records)
+        if (record.id != null) record.id!: record,
+    };
+    final media = loadedMedia.where((item) {
+      final record = recordsById[item.recordId];
+      return record != null &&
+          activityRecordMediaBelongsToMember(
+            media: item,
+            record: record,
+            ownerCounters: widget.ownerCounters,
+          );
+    }).toList(growable: false);
     if (!mounted) {
       return;
     }
@@ -204,6 +229,7 @@ class _RecordMemoryPageState extends State<RecordMemoryPage> {
           imageFile: File(file.path),
           mediaType: mediaType,
           processingMode: processingMode,
+          owner: _mediaOwner,
         );
       }
       await _loadMedia();
@@ -263,6 +289,7 @@ class _RecordMemoryPageState extends State<RecordMemoryPage> {
       fileExtension: output.fileExtension,
       mediaType: ActivityRecordMediaType.scan,
       processingMode: output.processingMode,
+      owner: _mediaOwner,
     );
   }
 
@@ -293,6 +320,7 @@ class _RecordMemoryPageState extends State<RecordMemoryPage> {
           imageFile: file,
           mediaType: ActivityRecordMediaType.scan,
           processingMode: ActivityRecordMediaProcessingMode.nativeScanner,
+          owner: _mediaOwner,
         );
       }
 

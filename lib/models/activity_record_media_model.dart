@@ -70,6 +70,9 @@ class ActivityRecordMediaModel {
   final ActivityRecordMediaType mediaType;
   final ActivityRecordMediaProcessingMode processingMode;
   final bool isReversed;
+  final int? ownerPersonId;
+  final String ownerPersonName;
+  final String ownerGroupName;
 
   const ActivityRecordMediaModel({
     this.id,
@@ -79,9 +82,17 @@ class ActivityRecordMediaModel {
     this.mediaType = ActivityRecordMediaType.memory,
     this.processingMode = ActivityRecordMediaProcessingMode.none,
     this.isReversed = false,
+    this.ownerPersonId,
+    this.ownerPersonName = '',
+    this.ownerGroupName = '',
   });
 
   bool get isScan => mediaType == ActivityRecordMediaType.scan;
+
+  bool get hasOwnerScope =>
+      ownerPersonId != null ||
+      ownerPersonName.trim().isNotEmpty ||
+      ownerGroupName.trim().isNotEmpty;
 
   Map<String, Object?> toMap() {
     return {
@@ -92,6 +103,9 @@ class ActivityRecordMediaModel {
       'media_type': mediaType.dbValue,
       'processing_mode': processingMode.dbValue,
       'is_reversed': isReversed ? 1 : 0,
+      'owner_person_id': ownerPersonId,
+      'owner_person_name': ownerPersonName,
+      'owner_group_name': ownerGroupName,
     };
   }
 
@@ -109,6 +123,9 @@ class ActivityRecordMediaModel {
         (map['processing_mode'] ?? 'none') as String,
       ),
       isReversed: ((map['is_reversed'] as num?)?.toInt() ?? 0) == 1,
+      ownerPersonId: (map['owner_person_id'] as num?)?.toInt(),
+      ownerPersonName: (map['owner_person_name'] ?? '') as String,
+      ownerGroupName: (map['owner_group_name'] ?? '') as String,
     );
   }
 
@@ -120,6 +137,9 @@ class ActivityRecordMediaModel {
     ActivityRecordMediaType? mediaType,
     ActivityRecordMediaProcessingMode? processingMode,
     bool? isReversed,
+    int? ownerPersonId,
+    String? ownerPersonName,
+    String? ownerGroupName,
   }) {
     return ActivityRecordMediaModel(
       id: id ?? this.id,
@@ -129,6 +149,21 @@ class ActivityRecordMediaModel {
       mediaType: mediaType ?? this.mediaType,
       processingMode: processingMode ?? this.processingMode,
       isReversed: isReversed ?? this.isReversed,
+      ownerPersonId: ownerPersonId ?? this.ownerPersonId,
+      ownerPersonName: ownerPersonName ?? this.ownerPersonName,
+      ownerGroupName: ownerGroupName ?? this.ownerGroupName,
     );
   }
+}
+
+class ActivityRecordMediaOwnerScope {
+  final int? personId;
+  final String personName;
+  final String groupName;
+
+  const ActivityRecordMediaOwnerScope({
+    this.personId,
+    required this.personName,
+    required this.groupName,
+  });
 }

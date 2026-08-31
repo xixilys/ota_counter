@@ -3,17 +3,21 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../models/activity_record_media_model.dart';
+import '../models/activity_record_media_scope.dart';
 import '../models/activity_record_model.dart';
+import '../models/counter_model.dart';
 import '../services/database_service.dart';
 
 class IdolCutOverviewPage extends StatefulWidget {
   final String idolName;
   final List<ActivityRecordModel> records;
+  final List<CounterModel> ownerCounters;
 
   const IdolCutOverviewPage({
     super.key,
     required this.idolName,
     required this.records,
+    required this.ownerCounters,
   });
 
   @override
@@ -55,8 +59,21 @@ class _IdolCutOverviewPageState extends State<IdolCutOverviewPage> {
       if (!mounted) {
         return;
       }
+      final recordsById = {
+        for (final record in widget.records)
+          if (record.id != null) record.id!: record,
+      };
       setState(() {
-        _scanMedia = media.where((item) => item.isScan).toList();
+        _scanMedia = media.where((item) {
+          final record = recordsById[item.recordId];
+          return item.isScan &&
+              record != null &&
+              activityRecordMediaBelongsToMember(
+                media: item,
+                record: record,
+                ownerCounters: widget.ownerCounters,
+              );
+        }).toList();
         _loading = false;
       });
     } catch (error) {

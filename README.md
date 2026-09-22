@@ -84,7 +84,7 @@ dart run tool/release_metadata.dart --field=apkFileName
 2. 保持同一个 Android `applicationId`
 3. 每次发版递增 `versionCode`
 
-当前 Android `applicationId` 为 `top.huangxuanqi.otacounter`。当前版本号为 `1.4.3+15`。
+当前 Android `applicationId` 为 `top.huangxuanqi.otacounter`。当前版本号为 `1.5.2+18`。
 
 更新站点发布可直接使用：
 
@@ -92,12 +92,12 @@ dart run tool/release_metadata.dart --field=apkFileName
 tool/deploy_update_site.sh
 ```
 
-这条命令会通过 SSH / SCP 把以下文件推到 `hk-ares` 的
-`/var/www/status/ota-counter`，对外更新地址是 `https://ota-counter.huangxuanqi.top/ota-counter/`：
+这条命令会通过 SSH / SCP 把以下文件推到 `bgvps` 的
+`/var/www/ota-counter`，对外更新地址是 `https://ota-counter.huangxuanqi.top/ota-counter/`：
 
 - `release/update_site/index.html`
 - `release/update_site/latest.json`
-- `build/app/outputs/flutter-apk/OTA-Counter-v1.4.3.apk`
+- `build/app/outputs/flutter-apk/OTA-Counter-v1.5.2.apk`
 
 支持的辅助参数：
 

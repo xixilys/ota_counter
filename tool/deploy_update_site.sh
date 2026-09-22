@@ -6,8 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 SSH_USER="${OTA_UPDATE_SSH_USER:-root}"
-SSH_HOST="${OTA_UPDATE_SSH_HOST:-hk-ares}"
-REMOTE_DIR="${OTA_UPDATE_REMOTE_DIR:-/var/www/status/ota-counter}"
+SSH_HOST="${OTA_UPDATE_SSH_HOST:-bgvps}"
+REMOTE_DIR="${OTA_UPDATE_REMOTE_DIR:-/var/www/ota-counter}"
 PUBLIC_BASE_URL="${OTA_UPDATE_PUBLIC_BASE_URL:-https://ota-counter.huangxuanqi.top/ota-counter}"
 
 DRY_RUN=0

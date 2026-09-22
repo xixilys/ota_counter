@@ -12,12 +12,12 @@
   "force": false,
   "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.5.2.apk",
   "downloadPageUrl": "https://ota-counter.huangxuanqi.top/ota-counter/",
-  "backupUrl": "",
+  "backupUrl": "https://github.com/xixilys/ota_counter/releases/download/v1.5.2/OTA-Counter-v1.5.2.apk",
   "platforms": {
     "android": {
       "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.5.2.apk",
       "downloadPageUrl": "https://ota-counter.huangxuanqi.top/ota-counter/",
-      "backupUrl": ""
+      "backupUrl": "https://github.com/xixilys/ota_counter/releases/download/v1.5.2/OTA-Counter-v1.5.2.apk"
     },
     "ios": {
       "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/#ios",

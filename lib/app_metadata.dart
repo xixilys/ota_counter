@@ -6,4 +6,4 @@ const String kUpdateManifestUrl =
 const String kIdolSeedUrl =
     'https://ota-counter.huangxuanqi.top/ota-counter/data/china_idols_seed.json';
 const String kIdolActivityEventsUrl =
-    'http://103.240.198.11/ota-counter/data/idol_activity_events.json';
+    'https://ota-counter.huangxuanqi.top/ota-counter/data/idol_activity_events.json';

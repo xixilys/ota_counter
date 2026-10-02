@@ -3,7 +3,7 @@
 set -euo pipefail
 
 APP_DIR="${OTA_IDOL_ACTIVITY_UPDATER_APP_DIR:-/opt/ota-counter-idol-activity-updater}"
-PUBLIC_DIR="${OTA_IDOL_PUBLIC_DIR:-/var/www/status/ota-counter}"
+PUBLIC_DIR="${OTA_IDOL_PUBLIC_DIR:-/var/www/ota-counter}"
 DATA_DIR="${OTA_IDOL_DATA_DIR:-$PUBLIC_DIR/data}"
 EVENTS_PATH="${OTA_IDOL_ACTIVITY_EVENTS_PATH:-$DATA_DIR/idol_activity_events.json}"
 GENERATOR="${OTA_IDOL_ACTIVITY_GENERATOR:-$APP_DIR/generate_idol_activity_events.py}"

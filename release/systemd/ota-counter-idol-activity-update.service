@@ -5,4 +5,6 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+Environment=OTA_IDOL_ACTIVITY_UPDATER_APP_DIR=/opt/ota-counter-idol-activity-updater
+Environment=OTA_IDOL_PUBLIC_DIR=/var/www/ota-counter
 ExecStart=/opt/ota-counter-idol-activity-updater/run_idol_activity_events_update.sh

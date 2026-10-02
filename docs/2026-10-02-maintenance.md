@@ -18,11 +18,11 @@
 已完成验证：
 - `flutter analyze --no-pub`：无问题。
 - `flutter test --no-pub --concurrency=1`：97 项通过。现有 FFI 测试共享数据库，因此全套串行执行。
-- `python3 -m unittest discover -s tool/tests -v`：10 项通过。
+- `python3 -m unittest discover -s tool/tests -v`：11 项通过。
 - 真实首页 Widget 覆盖总数、团切数量编辑、隐藏范围、无流水旧计数、重复参与者及同名不同身份。
 - SQL 失败注入验证删除事务回滚保留照片、批量成员删除不会部分成功。
 - 资料录入 Widget 覆盖两团同名未关联成员保持独立卡片；HTTP→SQLite 覆盖保留用户修改/ID、拒绝旧快照。
-- 新 HTTPS 资料渠道首次 systemd 运行成功，694 团/4336 团籍；旧 hk-ares 的 HTTP 入口继续按原目录运行新脚本以兼容旧版。
+- 新 HTTPS 资料渠道首次 systemd 运行成功，694 团/4336 团籍；偶活接口同样迁至 HTTPS，3768 条场次。旧 hk-ares 按原目录保留任务，但旧 APK 写死的 103.240.198.11 请求超时，需要更新 APK 获得新入口。
 - 新站原 page/manifest 备份：`bgvps:/root/ota-counter-backups/v1.5.3-before-update`；旧 updater/资料备份：`hk-ares:/root/ota-counter-backups/v1.5.3-before-data-update`。
 
 扫描基准：同一 1200×1600 合成图各 3 轮，basic 中位 673→488 ms，manual 1567→381 ms；manual 10ms 定时器最大延迟 800–1568→12–13 ms。桌面并行负载会影响耗时，不作为手机加速比。10 项扫描测试覆盖 EXIF 旋转、放大画布四角坐标、非法四边形、横版、无边框、互补反光。
@@ -30,3 +30,5 @@
 发布完成前：独立审阅、Flutter/Python 回归、Android 正式包签名与升级验证、备份服务器原文件，先上传 APK 再发布 manifest，验证网站及 GitHub 下载。
 
 已知历史限制：旧版团切保存时丢失的原始输入数量无法从现有记录自动恢复。
+
+补充验收：Android 正式包构建通过，applicationId 保持 top.huangxuanqi.otacounter，versionCode=19。apksigner 校验与 v1.5.2 签名一致；Android API 36 模拟器由旧版覆盖升级后，实际录入的 UpgradeCheck 5 张及 1 条流水保留。

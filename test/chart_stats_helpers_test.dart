@@ -5,6 +5,16 @@ import 'package:ota_counter/models/chart_stats_helpers.dart';
 import 'package:ota_counter/models/counter_model.dart';
 
 void main() {
+  test('negative count corrections remain negative in type totals', () {
+    final correction = ActivityRecordModel.counterAdjustment(
+      counter: CounterModel(name: 'A', color: '#ffffff'),
+      occurredAt: DateTime(2026, 3, 18),
+      deltas: const {CounterCountField.threeInch: -2},
+    );
+    expect(chartTypeFieldContribution(correction, CounterCountField.threeInch),
+        -2);
+  });
+
   test('person stats prefer stable ids over duplicate display names', () {
     final first = chartPersonStatsKey(
       personId: 101,
@@ -22,7 +32,9 @@ void main() {
     expect(first, isNot(second));
   });
 
-  test('group-cut multi records contribute one group cut in chart stats', () {
+  test(
+      'group-cut multi records contribute physical group cut quantity in chart stats',
+      () {
     final record = ActivityRecordModel.multiCut(
       participants: const [
         ActivityParticipant(memberName: 'A', groupName: 'G'),
@@ -40,9 +52,9 @@ void main() {
     expect(isGroupCutMultiRecord(record), isTrue);
     expect(
       chartTypeFieldContribution(record, CounterCountField.groupCut),
-      1,
+      5,
     );
-    expect(chartGroupSummaryGroupCutContribution(record), 1);
+    expect(chartGroupSummaryGroupCutContribution(record), 5);
     expect(
       chartGroupSummaryMultiContribution(record),
       0,
@@ -65,10 +77,10 @@ void main() {
     expect(isGroupCutMultiRecord(record), isFalse);
     expect(
       chartTypeFieldContribution(record, CounterCountField.threeInch),
-      6,
+      2,
     );
     expect(chartGroupSummaryGroupCutContribution(record), 0);
-    expect(chartGroupSummaryMultiContribution(record), 1);
+    expect(chartGroupSummaryMultiContribution(record), 2);
   });
 
   test('cross-group multi records count once for each involved group', () {
@@ -85,6 +97,6 @@ void main() {
     );
 
     expect(isGroupCutMultiRecord(record), isFalse);
-    expect(chartGroupSummaryMultiContribution(record), 1);
+    expect(chartGroupSummaryMultiContribution(record), 4);
   });
 }

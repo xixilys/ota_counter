@@ -171,7 +171,7 @@ class _ChartPageState extends State<ChartPage> {
       if (record.isTicket) {
         summary.ticketCount += record.ticketQuantity;
       } else if (record.isMulti) {
-        summary.cutCount += record.multiContributionTotal;
+        summary.cutCount += record.multiTotalCount;
       } else {
         summary.cutCount += record.counterCountTotal;
       }
@@ -853,7 +853,7 @@ class _ChartPageState extends State<ChartPage> {
             ? _memberStatKey(participant.groupName, participant.memberName)
             : _personStatKey(
                 personId: participant.personId,
-                personName: participant.resolvedPersonName,
+                personName: participant.personName,
                 groupName: participant.groupName,
                 subjectName: participant.memberName,
               );

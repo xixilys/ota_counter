@@ -803,7 +803,7 @@ class DatabaseService {
     return null;
   }
 
-  static CounterModel? _findCounterForParticipantIn(
+  static CounterModel? resolveCounterForParticipant(
     List<CounterModel> counters,
     ActivityParticipant participant,
   ) {
@@ -861,22 +861,6 @@ class DatabaseService {
     return counterPersonId == null ||
         candidatePersonId == null ||
         counterPersonId == candidatePersonId;
-  }
-
-  static bool _recordAffectsCounter(
-    ActivityRecordModel record,
-    CounterModel counter,
-  ) {
-    if (record.isCounter) {
-      return resolveCounterForActivityRecord([counter], record) != null;
-    }
-    if (!record.isMulti) {
-      return false;
-    }
-    return record.effectiveParticipants.any(
-      (participant) =>
-          _findCounterForParticipantIn([counter], participant) != null,
-    );
   }
 
   static ActivityRecordModel _recordLinkedToCounter(
@@ -971,66 +955,90 @@ class DatabaseService {
     ActivityRecordModel record, {
     required bool reverse,
   }) async {
+    return _applyRecordsCounterImpact(
+      db,
+      counters,
+      removed: reverse ? [record] : const [],
+      added: reverse ? const [] : [record],
+    );
+  }
+
+  static Future<bool> _applyRecordsCounterImpact(
+    DatabaseExecutor db,
+    List<CounterModel> counters, {
+    List<ActivityRecordModel> removed = const [],
+    List<ActivityRecordModel> added = const [],
+  }) async {
     var insertedNewCounter = false;
-    final multiplier = reverse ? -1 : 1;
-
-    if (record.isCounter) {
-      final existingCounter = resolveCounterForActivityRecord(counters, record);
-      if (existingCounter == null && reverse) {
-        return false;
-      }
-
-      var updatedCounter = existingCounter ??
-          CounterModel(
-            name: record.subjectName,
-            groupName: record.groupName,
-            personId: record.personId,
-            personName: record.personName,
-            color: _defaultImportedCounterColor,
-          );
-      for (final field in CounterCountField.values) {
-        final delta = record.countForField(field);
-        if (delta == 0) {
-          continue;
+    final deltas = <int, Map<CounterCountField, int>>{};
+    for (final reverse in [true, false]) {
+      for (final record in reverse ? removed : added) {
+        final targets = <CounterModel>[];
+        if (record.isCounter) {
+          final existing = resolveCounterForActivityRecord(counters, record);
+          if (existing != null) {
+            targets.add(existing);
+          } else if (!reverse) {
+            targets.add(await _persistCounter(
+                db,
+                counters,
+                CounterModel(
+                  name: record.subjectName,
+                  groupName: record.groupName,
+                  personId: record.personId,
+                  personName: record.personName,
+                  color: _defaultImportedCounterColor,
+                )));
+            insertedNewCounter = true;
+          }
+        } else if (record.isMulti && record.multiCountField != null) {
+          for (final participant in record.effectiveParticipants) {
+            var target = resolveCounterForParticipant(counters, participant);
+            if (target == null && !reverse) {
+              target = await _persistCounter(
+                  db,
+                  counters,
+                  CounterModel(
+                    name: participant.memberName,
+                    groupName: participant.groupName,
+                    personId: participant.personId,
+                    personName: participant.personName,
+                    color: _defaultImportedCounterColor,
+                  ));
+              insertedNewCounter = true;
+            }
+            // Repeated aliases resolving to one member represent one slot.
+            if (target != null && !targets.any((c) => c.id == target!.id)) {
+              targets.add(target);
+            }
+          }
         }
-        updatedCounter = updatedCounter.changeCount(field, delta * multiplier);
-      }
-
-      await _persistCounter(db, counters, updatedCounter);
-      insertedNewCounter = existingCounter == null && !reverse;
-    } else if (record.isMulti) {
-      final field = record.multiCountField;
-      if (field == null || record.effectiveMultiQuantity <= 0) {
-        return false;
-      }
-
-      for (final participant in record.effectiveParticipants) {
-        final existingCounter = _findCounterForParticipantIn(
-          counters,
-          participant,
-        );
-        if (existingCounter == null && reverse) {
-          continue;
+        for (final target in targets) {
+          final changes = deltas.putIfAbsent(target.id!, () => {});
+          for (final field in CounterCountField.values) {
+            final quantity = record.isMulti
+                ? (record.multiCountField == field
+                    ? record.effectiveMultiQuantity
+                    : 0)
+                : record.countForField(field);
+            changes[field] =
+                (changes[field] ?? 0) + quantity * (reverse ? -1 : 1);
+          }
         }
-
-        final baseCounter = existingCounter ??
-            CounterModel(
-              name: participant.memberName,
-              groupName: participant.groupName,
-              personId: participant.personId,
-              personName: participant.personName,
-              color: _defaultImportedCounterColor,
-            );
-        final updatedCounter = baseCounter.changeCount(
-          field,
-          record.effectiveMultiQuantity * multiplier,
-        );
-        await _persistCounter(db, counters, updatedCounter);
-        insertedNewCounter =
-            insertedNewCounter || (existingCounter == null && !reverse);
       }
     }
-
+    for (final entry in deltas.entries) {
+      var counter = counters.firstWhere((c) => c.id == entry.key);
+      for (final change in entry.value.entries) {
+        final next = counter.countForField(change.key) + change.value;
+        if (next < 0) {
+          throw StateError(
+              '${counter.name}的${change.key.label}不足，操作会使计数变为负数。请先处理相关减数修正记录，或一起删除关联记录。');
+        }
+        counter = counter.updateCount(change.key, next);
+      }
+      await _persistCounter(db, counters, counter);
+    }
     return insertedNewCounter;
   }
 
@@ -1065,42 +1073,50 @@ class DatabaseService {
     );
   }
 
-  static Future<void> deleteCounter(int id) async {
+  static Future<void> deleteCounter(int id) => deleteCounters([id]);
+
+  static Future<void> deleteCounters(Iterable<int> ids) async {
+    final scopedIds = ids.toSet().where((id) => id > 0).toList();
+    if (scopedIds.isEmpty) return;
+    final placeholders = List.filled(scopedIds.length, '?').join(', ');
+    final pendingFileDeletes = <String>[];
     final db = await database;
     await db.transaction((txn) async {
       final counterMaps = await txn.query(
         tableName,
-        where: 'id = ?',
-        whereArgs: [id],
-        limit: 1,
+        where: 'id IN ($placeholders)',
+        whereArgs: scopedIds,
       );
       if (counterMaps.isEmpty) {
         return;
       }
 
-      final counter = CounterModel.fromMap(counterMaps.first);
+      final counters = await _getCountersFrom(txn);
+      final selectedIds = counterMaps.map((map) => map['id'] as int).toSet();
       final recordMaps = await txn.query(
         activityRecordTableName,
         orderBy: 'occurred_at DESC, id DESC',
       );
-      final relatedRecords = recordMaps
-          .map(ActivityRecordModel.fromMap)
-          .where((record) => _recordAffectsCounter(record, counter))
-          .toList(growable: false);
+      final relatedRecords =
+          recordMaps.map(ActivityRecordModel.fromMap).where((record) {
+        if (record.isCounter) {
+          return selectedIds
+              .contains(resolveCounterForActivityRecord(counters, record)?.id);
+        }
+        return record.isMulti &&
+            record.effectiveParticipants.any((participant) =>
+                selectedIds.contains(
+                    resolveCounterForParticipant(counters, participant)?.id));
+      }).toList(growable: false);
       final recordIds = relatedRecords
           .map((record) => record.id)
           .whereType<int>()
           .toList(growable: false);
 
       if (recordIds.isNotEmpty) {
-        final counters = await _getCountersFrom(txn);
+        await _applyRecordsCounterImpact(txn, counters,
+            removed: relatedRecords);
         for (final record in relatedRecords) {
-          await _applyRecordCounterImpact(
-            txn,
-            counters,
-            record,
-            reverse: true,
-          );
           final sourceRecordId = record.sourceRecordId?.trim();
           if (sourceRecordId != null && sourceRecordId.isNotEmpty) {
             await txn.delete(
@@ -1111,7 +1127,8 @@ class DatabaseService {
           }
         }
 
-        await _deleteActivityRecordMediaRows(txn, recordIds: recordIds);
+        await _deleteActivityRecordMediaRows(txn,
+            pendingFileDeletes: pendingFileDeletes, recordIds: recordIds);
         final placeholders = List.filled(recordIds.length, '?').join(', ');
         await txn.delete(
           activityRecordTableName,
@@ -1122,10 +1139,11 @@ class DatabaseService {
 
       await txn.delete(
         tableName,
-        where: 'id = ?',
-        whereArgs: [id],
+        where: 'id IN ($placeholders)',
+        whereArgs: scopedIds,
       );
     });
+    await _deleteMediaFilesAfterCommit(pendingFileDeletes);
   }
 
   static Future<List<GroupPricingModel>> getGroupPricings() async {
@@ -1239,13 +1257,13 @@ class DatabaseService {
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
       final persistedRecord = prepared.record.copyWith(id: insertedId);
-      insertedNewCounter = insertedNewCounter ||
-          await _applyRecordCounterImpact(
-            txn,
-            counters,
-            persistedRecord,
-            reverse: false,
-          );
+      final createdByImpact = await _applyRecordCounterImpact(
+        txn,
+        counters,
+        persistedRecord,
+        reverse: false,
+      );
+      insertedNewCounter = insertedNewCounter || createdByImpact;
       return insertedId;
     });
 
@@ -1287,13 +1305,6 @@ class DatabaseService {
       }
 
       final counters = await _getCountersFrom(txn);
-      await _applyRecordCounterImpact(
-        txn,
-        counters,
-        existingRecord,
-        reverse: true,
-      );
-
       final prepared = await _prepareRecordForCounterImpact(
         txn,
         counters,
@@ -1311,13 +1322,13 @@ class DatabaseService {
         where: 'id = ?',
         whereArgs: [id],
       );
-      insertedNewCounter = insertedNewCounter ||
-          await _applyRecordCounterImpact(
-            txn,
-            counters,
-            prepared.record.copyWith(id: id),
-            reverse: false,
-          );
+      final createdByImpact = await _applyRecordsCounterImpact(
+        txn,
+        counters,
+        removed: [existingRecord],
+        added: [prepared.record.copyWith(id: id)],
+      );
+      insertedNewCounter = insertedNewCounter || createdByImpact;
     });
 
     if (insertedNewCounter) {
@@ -1326,15 +1337,18 @@ class DatabaseService {
   }
 
   static Future<void> deleteActivityRecord(int id) async {
+    final pendingFileDeletes = <String>[];
     final db = await database;
     await db.transaction((txn) async {
-      await _deleteActivityRecordMediaRows(txn, recordIds: [id]);
+      await _deleteActivityRecordMediaRows(txn,
+          pendingFileDeletes: pendingFileDeletes, recordIds: [id]);
       await txn.delete(
         activityRecordTableName,
         where: 'id = ?',
         whereArgs: [id],
       );
     });
+    await _deleteMediaFilesAfterCommit(pendingFileDeletes);
   }
 
   static Future<void> deleteActivityRecordWithCounterImpact(int id) async {
@@ -1349,8 +1363,9 @@ class DatabaseService {
       return 0;
     }
 
+    final pendingFileDeletes = <String>[];
     final db = await database;
-    return db.transaction<int>((txn) async {
+    final deletedCount = await db.transaction<int>((txn) async {
       final placeholders = List.filled(scopedIds.length, '?').join(', ');
       final maps = await txn.query(
         activityRecordTableName,
@@ -1364,16 +1379,10 @@ class DatabaseService {
 
       final counters = await _getCountersFrom(txn);
       final records = maps.map(ActivityRecordModel.fromMap).toList();
-      for (final record in records) {
-        await _applyRecordCounterImpact(
-          txn,
-          counters,
-          record,
-          reverse: true,
-        );
-      }
+      await _applyRecordsCounterImpact(txn, counters, removed: records);
 
-      await _deleteActivityRecordMediaRows(txn, recordIds: scopedIds);
+      await _deleteActivityRecordMediaRows(txn,
+          pendingFileDeletes: pendingFileDeletes, recordIds: scopedIds);
       await txn.delete(
         activityRecordTableName,
         where: 'id IN ($placeholders)',
@@ -1381,6 +1390,8 @@ class DatabaseService {
       );
       return records.length;
     });
+    await _deleteMediaFilesAfterCommit(pendingFileDeletes);
+    return deletedCount;
   }
 
   static Future<int> recalculateCountersFromActivityRecords() async {
@@ -1412,6 +1423,7 @@ class DatabaseService {
         activityRecordTableName,
         orderBy: 'occurred_at ASC, id ASC',
       );
+      final preparedRecords = <ActivityRecordModel>[];
       for (final map in maps) {
         final record = ActivityRecordModel.fromMap(map);
         final prepared = await _prepareRecordForCounterImpact(
@@ -1438,14 +1450,14 @@ class DatabaseService {
           );
         }
 
-        insertedNewCounter = insertedNewCounter ||
-            await _applyRecordCounterImpact(
-              txn,
-              counters,
-              prepared.record,
-              reverse: false,
-            );
+        preparedRecords.add(prepared.record);
       }
+      final createdByImpact = await _applyRecordsCounterImpact(
+        txn,
+        counters,
+        added: preparedRecords,
+      );
+      insertedNewCounter = insertedNewCounter || createdByImpact;
       return maps.length;
     });
 
@@ -1456,15 +1468,18 @@ class DatabaseService {
   }
 
   static Future<void> clearAppData() async {
+    final pendingFileDeletes = <String>[];
     final db = await database;
     await db.transaction((txn) async {
-      await _deleteActivityRecordMediaRows(txn);
+      await _deleteActivityRecordMediaRows(txn,
+          pendingFileDeletes: pendingFileDeletes);
       await txn.delete(activityRecordMediaTableName);
       await txn.delete(counterSyncTableName);
       await txn.delete(activityRecordTableName);
       await txn.delete(groupPricingTableName);
       await txn.delete(tableName);
     });
+    await _deleteMediaFilesAfterCommit(pendingFileDeletes);
   }
 
   static Future<List<ActivityRecordMediaModel>> getActivityRecordMedia({
@@ -1605,14 +1620,18 @@ class DatabaseService {
   }
 
   static Future<void> deleteActivityRecordMedia(int id) async {
+    final pendingFileDeletes = <String>[];
     final db = await database;
     await db.transaction((txn) async {
-      await _deleteActivityRecordMediaRows(txn, mediaIds: [id]);
+      await _deleteActivityRecordMediaRows(txn,
+          pendingFileDeletes: pendingFileDeletes, mediaIds: [id]);
     });
+    await _deleteMediaFilesAfterCommit(pendingFileDeletes);
   }
 
   static Future<void> _deleteActivityRecordMediaRows(
     DatabaseExecutor db, {
+    required List<String> pendingFileDeletes,
     Iterable<int>? recordIds,
     Iterable<int>? mediaIds,
   }) async {
@@ -1637,22 +1656,28 @@ class DatabaseService {
       where: where,
       whereArgs: whereArgs,
     );
-    for (final row in mediaRows) {
-      final path = (row['path'] ?? '') as String;
-      if (path.isEmpty) {
-        continue;
-      }
-      final file = File(path);
-      if (await file.exists()) {
-        await file.delete();
-      }
-    }
+    pendingFileDeletes.addAll(mediaRows
+        .map((row) => (row['path'] ?? '') as String)
+        .where((path) => path.isNotEmpty));
 
     await db.delete(
       activityRecordMediaTableName,
       where: where,
       whereArgs: whereArgs,
     );
+  }
+
+  // A rolled-back database transaction must never lose its photos.
+  static Future<void> _deleteMediaFilesAfterCommit(
+      Iterable<String> paths) async {
+    for (final path in paths.toSet()) {
+      try {
+        final file = File(path);
+        if (await file.exists()) await file.delete();
+      } on FileSystemException {
+        // Keep an orphan file if cleanup fails; the committed deletion is valid.
+      }
+    }
   }
 
   static Future<Set<String>> getActivityRecordSourceIds(String source) async {
@@ -2123,8 +2148,7 @@ class DatabaseService {
             updatedRecord = updatedRecord.copyWith(
               type: ActivityRecordType.multi,
               participants: participants,
-              multiCutQuantity:
-                  record.multiCutQuantity > 0 ? record.multiCutQuantity : 1,
+              multiCutQuantity: record.effectiveMultiQuantity,
               personId: canonicalPrimary?.personId,
               personName: canonicalPrimary?.personName ?? record.personName,
             );
@@ -2218,13 +2242,15 @@ class DatabaseService {
           lookup.byGroupAndMember['$normalizedGroup|$normalizedName'];
     }
     matchedMember ??= lookup.byUniqueMember[normalizedName];
-    if (matchedMember == null) {
+    if (matchedMember == null ||
+        (matchedMember.personId == null &&
+            matchedMember.personName.trim().isEmpty)) {
       return null;
     }
 
     return _ResolvedIdentity(
       personId: matchedMember.personId,
-      personName: matchedMember.resolvedPersonName,
+      personName: matchedMember.personName.trim(),
     );
   }
 

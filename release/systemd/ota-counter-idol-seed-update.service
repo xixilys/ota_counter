@@ -6,7 +6,7 @@ After=network-online.target
 [Service]
 Type=oneshot
 Environment=OTA_IDOL_UPDATER_APP_DIR=/opt/ota-counter-idol-updater
-Environment=OTA_IDOL_PUBLIC_DIR=/var/www/status/ota-counter
+Environment=OTA_IDOL_PUBLIC_DIR=/var/www/ota-counter
 ExecStart=/opt/ota-counter-idol-updater/run_idol_seed_update.sh
 Nice=10
 IOSchedulingClass=best-effort

@@ -215,7 +215,7 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
                 IdolGroup(
                   id: initialGroup?.id,
                   name: name,
-                  source: initialGroup?.source ?? 'manual',
+                  source: 'manual',
                   isBuiltIn: false,
                 ),
               );
@@ -238,7 +238,7 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
     final nameController =
         TextEditingController(text: initialMember?.name ?? '');
     final personController = TextEditingController(
-      text: initialMember?.resolvedPersonName ?? '',
+      text: initialMember?.personName ?? '',
     );
     final statusController = TextEditingController(
       text: initialMember?.status ?? '',
@@ -333,7 +333,7 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
                     personName: personController.text.trim(),
                     name: name,
                     status: statusController.text.trim(),
-                    source: initialMember?.source ?? 'manual',
+                    source: 'manual',
                     isBuiltIn: false,
                   ),
                 );
@@ -498,7 +498,7 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '共 ${_groups.length} 个团体 / $totalMembers 条团籍 / ${_people.length} 位真人',
+                          '共 ${_groups.length} 个团体 / $totalMembers 条团籍 / ${_people.length} 位已关联真人',
                           style:
                               Theme.of(context).textTheme.titleMedium?.copyWith(
                                     fontWeight: FontWeight.bold,
@@ -510,6 +510,9 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
                               ? '当前使用本地可编辑偶像库'
                               : '当前内置源：$sourceLabel',
                         ),
+                        const SizedBox(height: 2),
+                        const Text(
+                            '团体/成员来自社区 Wiki 与人工补充，可能不完整；状态以团体官方公告为准。同步保留本地编辑，不会因来源缺失删除团籍。'),
                         if ((generatedAt ?? '').isNotEmpty) ...[
                           const SizedBox(height: 2),
                           Text('快照时间：$generatedAt'),

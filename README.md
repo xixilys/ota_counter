@@ -2,8 +2,8 @@
 
 面向 OTA / 切奇记录的 Flutter 计数器应用。
 
-当前版本：`v1.4.3`
-Android build：`1.4.3+15`
+当前版本：`v1.5.3`
+Android build：`1.5.3+19`
 
 ## 主要功能
 
@@ -12,12 +12,12 @@ Android build：`1.4.3+15`
 - 支持手动绑定或解绑真人主档，不再只靠名字猜测；填同一个真人主档名，或并入已有真人卡片后，就能把跨团时期接到一起
 - 快捷计数支持切换“记录到团体”，同一个真人在不同团的切可以分别落到对应团籍，默认仍用当前团
 - 支持“团体是否启用无签”开关；录入时可区分有签 / 无签，首页仍按 `3寸`、`5寸` 聚合展示
-- 支持多人切，成员可来自不同团体；录入总价后会按总价保存流水，并给每个参与成员同步加数
+- 支持多人切和多张团切，成员可来自不同团体；总览按照片张数计数，每位参与成员各计入对应张数，费用按每条流水总价保存
 - 统计与流水支持日 / 周 / 月 / 年 / 全部范围查看
 - 统计页会保存价格快照；旧的 0 价记录会按当前团价补算显示金额
 - 支持门票记录，支持同一天多场次
 - 支持从 MineCool 偶活行程缓存中选择场次，自动填入活动名 / 场地 / 日期
-- 内置中国偶像数据库，可搜索、编辑、补充团体 / 团籍 / 真人主档
+- 内置中国偶像数据库，可搜索、编辑、补充团体 / 团籍 / 真人主档；通过 HTTPS 更新社区 Wiki 与人工补充资料，保留用户编辑和真人绑定，不凭跨团同名自动合并
 - 自动从偶像资料里识别担当色，并同步到成员卡片配色
 - 支持导入旧版计数器备份，以及 OTA 后台导出的历史 bundle
 - 支持导出当前数据
@@ -38,9 +38,9 @@ flutter run
 
 ## 开发约定
 
-- 日常开发默认在 `codex/v1.3-prep` 分支进行，不直接在 `main` 上开发
-- 需要发版或推 GitHub Release 时，默认先把 `codex/v1.3-prep` 合并到 `main`，除非明确说明“不要合并”
-- release 完成后默认切回 `codex/v1.3-prep`，后续继续在开发分支推进
+- 日常开发默认在 `codex/v1.5-prep` 分支进行，不直接在 `main` 上开发
+- 需要发版或推 GitHub Release 时，默认先把 `codex/v1.5-prep` 合并到 `main`，除非明确说明“不要合并”
+- release 完成后默认切回 `codex/v1.5-prep`，后续继续在开发分支推进
 - Android 发版时同步递增 `pubspec.yaml` 里的版本号，并保持 GitHub release 标题、tag、APK 文件名三者一致
 - 可运行 `dart run tool/release_metadata.dart` 获取当前统一的 release 元信息，避免手写出错
 
@@ -55,13 +55,13 @@ flutter build apk --release
 构建完成后，`build/app/outputs/flutter-apk/` 目录下会同时看到：
 
 - Flutter 默认产物：`app-release.apk`
-- `build/app/outputs/flutter-apk/OTA-Counter-v1.4.3.apk`
+- `build/app/outputs/flutter-apk/OTA-Counter-v1.5.3.apk`
 
 GitHub Release 建议继续保持：
 
-- release 标题：`OTA Counter v1.4.3`
-- tag：`v1.4.3`
-- APK 资产：`OTA-Counter-v1.4.3.apk`
+- release 标题：`OTA Counter v1.5.3`
+- tag：`v1.5.3`
+- APK 资产：`OTA-Counter-v1.5.3.apk`
 
 也可以直接用脚本读取：
 
@@ -84,7 +84,7 @@ dart run tool/release_metadata.dart --field=apkFileName
 2. 保持同一个 Android `applicationId`
 3. 每次发版递增 `versionCode`
 
-当前 Android `applicationId` 为 `top.huangxuanqi.otacounter`。当前版本号为 `1.5.2+18`。
+当前 Android `applicationId` 为 `top.huangxuanqi.otacounter`。当前版本号为 `1.5.3+19`。
 
 更新站点发布可直接使用：
 
@@ -97,7 +97,7 @@ tool/deploy_update_site.sh
 
 - `release/update_site/index.html`
 - `release/update_site/latest.json`
-- `build/app/outputs/flutter-apk/OTA-Counter-v1.5.2.apk`
+- `build/app/outputs/flutter-apk/OTA-Counter-v1.5.3.apk`
 
 支持的辅助参数：
 
@@ -123,13 +123,13 @@ tool/deploy_update_site.sh
 python3 tool/generate_china_idols_seed.py
 ```
 
-把偶像数据库自动更新任务部署到 `hk-ares`：
+把偶像数据库自动更新任务部署到 `bgvps`：
 
 ```bash
 tool/deploy_idol_seed_updater.sh
 ```
 
-部署后，服务器会通过 systemd timer 每天运行 2 次爬虫。`hk-ares` 使用 UTC 时区，
+部署后，服务器会通过 systemd timer 每天运行 2 次爬虫。`bgvps` 使用 UTC 时区，
 当前计划时间是 `00:20` 和 `12:20`，折合北京时间 `08:20` 和 `20:20`，并带
 `RandomizedDelaySec=30m` 的随机延迟。生成结果会发布到：
 

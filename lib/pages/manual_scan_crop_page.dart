@@ -1,6 +1,3 @@
-import 'dart:math' as math;
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 
 import '../services/record_scan_service.dart';
@@ -75,42 +72,7 @@ class _ManualScanCropPageState extends State<ManualScanCropPage> {
     });
   }
 
-  bool get _isUsableQuad {
-    final topWidth = _distance(
-      _quad.topLeftX,
-      _quad.topLeftY,
-      _quad.topRightX,
-      _quad.topRightY,
-    );
-    final bottomWidth = _distance(
-      _quad.bottomLeftX,
-      _quad.bottomLeftY,
-      _quad.bottomRightX,
-      _quad.bottomRightY,
-    );
-    final leftHeight = _distance(
-      _quad.topLeftX,
-      _quad.topLeftY,
-      _quad.bottomLeftX,
-      _quad.bottomLeftY,
-    );
-    final rightHeight = _distance(
-      _quad.topRightX,
-      _quad.topRightY,
-      _quad.bottomRightX,
-      _quad.bottomRightY,
-    );
-    return topWidth >= 60 &&
-        bottomWidth >= 60 &&
-        leftHeight >= 60 &&
-        rightHeight >= 60;
-  }
-
-  double _distance(double ax, double ay, double bx, double by) {
-    final dx = ax - bx;
-    final dy = ay - by;
-    return math.sqrt((dx * dx) + (dy * dy));
-  }
+  bool get _isUsableQuad => _quad.isUsable(minimumEdge: 60);
 
   @override
   Widget build(BuildContext context) {
@@ -160,7 +122,7 @@ class _ManualScanCropPageState extends State<ManualScanCropPage> {
                             fit: StackFit.expand,
                             children: [
                               Image.memory(
-                                Uint8List.fromList(widget.draft.sourceBytes),
+                                widget.draft.sourceBytes,
                                 fit: BoxFit.fill,
                                 gaplessPlayback: true,
                               ),

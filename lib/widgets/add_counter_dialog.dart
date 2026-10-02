@@ -490,8 +490,8 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
       _nameController.text = member.displayName;
       _groupController.text = member.groupName;
       _selectedPersonId = member.personId;
-      _selectedPersonName = member.resolvedPersonName;
-      _personController.text = member.resolvedPersonName;
+      _selectedPersonName = member.personName.trim();
+      _personController.text = member.personName.trim();
       if (themeColor != null) {
         _selectedColor = themeColor;
       }

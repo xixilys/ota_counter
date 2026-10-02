@@ -3,7 +3,7 @@
 set -euo pipefail
 
 APP_DIR="${OTA_IDOL_UPDATER_APP_DIR:-/opt/ota-counter-idol-updater}"
-PUBLIC_DIR="${OTA_IDOL_PUBLIC_DIR:-/var/www/status/ota-counter}"
+PUBLIC_DIR="${OTA_IDOL_PUBLIC_DIR:-/var/www/ota-counter}"
 DATA_DIR="${OTA_IDOL_DATA_DIR:-$PUBLIC_DIR/data}"
 SEED_PATH="${OTA_IDOL_SEED_PATH:-$DATA_DIR/china_idols_seed.json}"
 GENERATOR="${OTA_IDOL_GENERATOR:-$APP_DIR/generate_china_idols_seed.py}"

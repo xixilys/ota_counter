@@ -29,6 +29,154 @@ void main() {
     return counters.singleWhere((counter) => counter.id == id);
   }
 
+  test('new member insert, edit and replay always apply record impact',
+      () async {
+    final first = ActivityRecordModel.counterAdjustment(
+      counter: CounterModel(name: 'A', groupName: 'G', color: '#ffffff'),
+      occurredAt: DateTime(2026, 3, 18),
+      deltas: const {CounterCountField.threeInch: 2},
+    );
+    final id =
+        await DatabaseService.insertActivityRecordWithCounterImpact(first);
+    expect((await DatabaseService.getCounters()).single.count, 2);
+    final edited = ActivityRecordModel.counterAdjustment(
+      counter: CounterModel(name: 'B', groupName: 'G', color: '#ffffff'),
+      occurredAt: first.occurredAt,
+      deltas: const {CounterCountField.threeInch: 3},
+    );
+    await DatabaseService.updateActivityRecordWithCounterImpact(id, edited);
+    expect(
+        (await DatabaseService.getCounters())
+            .singleWhere((c) => c.name == 'B')
+            .count,
+        3);
+    await DatabaseService.clearAppData();
+    await DatabaseService.insertActivityRecord(first);
+    await DatabaseService.insertActivityRecord(first);
+    await DatabaseService.insertActivityRecord(edited);
+    await DatabaseService.recalculateCountersFromActivityRecords();
+    final counters = await DatabaseService.getCounters();
+    expect(counters.singleWhere((c) => c.name == 'A').count, 4);
+    expect(counters.singleWhere((c) => c.name == 'B').count, 3);
+  });
+
+  test(
+      'negative corrections reject unsafe deletion but batch deletion nets deltas',
+      () async {
+    final counter = CounterModel(name: 'A', groupName: 'G', color: '#ffffff');
+    ActivityRecordModel adjustment(int delta) =>
+        ActivityRecordModel.counterAdjustment(
+          counter: counter,
+          occurredAt: DateTime(2026, 3, 18),
+          deltas: {CounterCountField.threeInch: delta},
+        );
+    final addId = await DatabaseService.insertActivityRecordWithCounterImpact(
+        adjustment(2));
+    final reduceId =
+        await DatabaseService.insertActivityRecordWithCounterImpact(
+            adjustment(-1));
+    await expectLater(
+        DatabaseService.deleteActivityRecordWithCounterImpact(addId),
+        throwsStateError);
+    expect((await DatabaseService.getCounters()).single.count, 1);
+    expect(await DatabaseService.getActivityRecords(), hasLength(2));
+    await DatabaseService.deleteActivityRecordsWithCounterImpact(
+        [addId, reduceId]);
+    expect((await DatabaseService.getCounters()).single.count, 0);
+    expect(await DatabaseService.getActivityRecords(), isEmpty);
+    await expectLater(
+        DatabaseService.insertActivityRecordWithCounterImpact(adjustment(-1)),
+        throwsStateError);
+    expect(await DatabaseService.getActivityRecords(), isEmpty);
+  });
+
+  test('edit combines old and new deltas before checking underflow', () async {
+    final counter = CounterModel(name: 'A', groupName: 'G', color: '#ffffff');
+    ActivityRecordModel adjustment(int delta) =>
+        ActivityRecordModel.counterAdjustment(
+          counter: counter,
+          occurredAt: DateTime(2026, 3, 18),
+          deltas: {CounterCountField.threeInch: delta},
+        );
+    final id = await DatabaseService.insertActivityRecordWithCounterImpact(
+        adjustment(2));
+    await DatabaseService.insertActivityRecordWithCounterImpact(adjustment(-1));
+    await DatabaseService.updateActivityRecordWithCounterImpact(
+        id, adjustment(3));
+    expect((await DatabaseService.getCounters()).single.count, 2);
+    await expectLater(
+        DatabaseService.updateActivityRecordWithCounterImpact(
+            id, adjustment(0)),
+        throwsStateError);
+    expect((await DatabaseService.getCounters()).single.count, 2);
+    await DatabaseService.recalculateCountersFromActivityRecords();
+    expect((await DatabaseService.getCounters()).single.count, 2);
+  });
+
+  test('group cut quantity edit and delete keeps each participant in sync',
+      () async {
+    final record = ActivityRecordModel.multiCut(
+      participants: const [
+        ActivityParticipant(memberName: 'A', groupName: 'G'),
+        ActivityParticipant(memberName: 'B', groupName: 'G'),
+        ActivityParticipant(memberName: 'C', groupName: 'G'),
+      ],
+      field: CounterCountField.groupCut,
+      occurredAt: DateTime(2026, 3, 18),
+      quantity: 3,
+    );
+    final id =
+        await DatabaseService.insertActivityRecordWithCounterImpact(record);
+    expect((await DatabaseService.getCounters()).map((c) => c.groupCutCount),
+        everyElement(3));
+    final edited = ActivityRecordModel.multiCut(
+      id: id,
+      participants: record.effectiveParticipants,
+      field: CounterCountField.groupCut,
+      occurredAt: record.occurredAt,
+      quantity: 2,
+    );
+    await DatabaseService.updateActivityRecordWithCounterImpact(id, edited);
+    expect((await DatabaseService.getCounters()).map((c) => c.groupCutCount),
+        everyElement(2));
+    await DatabaseService.recalculateCountersFromActivityRecords();
+    expect((await DatabaseService.getCounters()).map((c) => c.groupCutCount),
+        everyElement(2));
+    await DatabaseService.deleteActivityRecordWithCounterImpact(id);
+    expect((await DatabaseService.getCounters()).map((c) => c.count),
+        everyElement(0));
+  });
+
+  test('deleting anonymous homonym preserves records resolved to explicit IDs',
+      () async {
+    final anonymous = await DatabaseService.insertCounter(CounterModel(
+      name: '同名',
+      groupName: 'G',
+      color: '#ffffff',
+    ));
+    for (final personId in [1, 2]) {
+      await DatabaseService.insertCounter(CounterModel(
+        name: '同名',
+        groupName: 'G',
+        personId: personId,
+        color: '#ffffff',
+      ));
+    }
+    await DatabaseService.insertActivityRecordWithCounterImpact(
+        ActivityRecordModel.multiCut(
+      participants: const [
+        ActivityParticipant(memberName: '同名', groupName: 'G', personId: 1),
+        ActivityParticipant(memberName: '同名', groupName: 'G', personId: 2),
+      ],
+      field: CounterCountField.groupCut,
+      occurredAt: DateTime(2026, 3, 18),
+    ));
+    await DatabaseService.deleteCounter(anonymous);
+    expect(await DatabaseService.getActivityRecords(), hasLength(1));
+    expect((await DatabaseService.getCounters()).map((c) => c.groupCutCount),
+        everyElement(1));
+  });
+
   test('database persists activity media owner scope', () async {
     final db = await DatabaseService.database;
     final media = ActivityRecordMediaModel(

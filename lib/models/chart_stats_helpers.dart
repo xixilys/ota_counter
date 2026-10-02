@@ -27,17 +27,11 @@ int chartTypeFieldContribution(
   ActivityRecordModel record,
   CounterCountField field,
 ) {
-  final count = record.countForField(field);
-  if (count <= 0) {
-    return 0;
-  }
   if (!record.isMulti) {
-    return count;
+    // Corrections can be negative and must cancel their original counts.
+    return record.countForField(field);
   }
-  if (field == CounterCountField.groupCut) {
-    return count;
-  }
-  return count * record.multiParticipantCount;
+  return record.multiCountField == field ? record.effectiveMultiQuantity : 0;
 }
 
 int chartGroupSummaryGroupCutContribution(ActivityRecordModel record) {
@@ -50,11 +44,11 @@ int chartGroupSummaryGroupCutContribution(ActivityRecordModel record) {
 int chartGroupSummaryMultiContribution(
   ActivityRecordModel record,
 ) {
-  // Group summaries count one multi-cut record per involved group.
+  // Each involved group receives the physical photo quantity.
   if (!record.isMulti || isGroupCutMultiRecord(record)) {
     return 0;
   }
-  return 1;
+  return record.effectiveMultiQuantity;
 }
 
 String _normalizeLookupPart(String value) {

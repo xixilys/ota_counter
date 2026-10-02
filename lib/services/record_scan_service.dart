@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -74,6 +75,29 @@ class RecordScanQuad {
     );
   }
 
+  /// A clockwise, convex selection in screen coordinates. Reject crossed,
+  /// collapsed and non-finite handles before passing them to copyRectify.
+  bool isUsable({double minimumEdge = 1}) {
+    final points = [
+      math.Point(topLeftX, topLeftY),
+      math.Point(topRightX, topRightY),
+      math.Point(bottomRightX, bottomRightY),
+      math.Point(bottomLeftX, bottomLeftY),
+    ];
+    for (var i = 0; i < points.length; i++) {
+      final a = points[i];
+      final b = points[(i + 1) % 4];
+      final c = points[(i + 2) % 4];
+      if (!a.x.isFinite ||
+          !a.y.isFinite ||
+          a.distanceTo(b) < minimumEdge ||
+          (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x) <= 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   RecordScanQuad clampToBounds({
     required int imageWidth,
     required int imageHeight,
@@ -116,7 +140,29 @@ class RecordScanService {
   static const int _targetLongSide = 1360;
   static const int _fusionFrameLimit = 4;
 
-  static Future<RecordScanOutput> createBasicScan({
+  // Decode, resize, detect and JPEG encode are CPU-heavy. An async method
+  // alone does not move these loops off Flutter's UI isolate.
+  static Future<RecordScanOutput> createBasicScan({required File sourceFile}) =>
+      Isolate.run(() => _createBasicScan(sourceFile: sourceFile));
+
+  static Future<RecordScanManualDraft> prepareManualDraft({
+    required File sourceFile,
+  }) =>
+      Isolate.run(() => _prepareManualDraft(sourceFile: sourceFile));
+
+  static Future<RecordScanOutput> createManualScan({
+    required Uint8List sourceBytes,
+    required RecordScanQuad quad,
+  }) =>
+      Isolate.run(
+          () => _createManualScan(sourceBytes: sourceBytes, quad: quad));
+
+  static Future<RecordScanOutput> createFusionScan({
+    required List<File> sourceFiles,
+  }) =>
+      Isolate.run(() => _createFusionScan(sourceFiles: sourceFiles));
+
+  static Future<RecordScanOutput> _createBasicScan({
     required File sourceFile,
   }) async {
     final prepared = await _prepareWorkingSource(sourceFile);
@@ -131,7 +177,7 @@ class RecordScanService {
     );
   }
 
-  static Future<RecordScanManualDraft> prepareManualDraft({
+  static Future<RecordScanManualDraft> _prepareManualDraft({
     required File sourceFile,
   }) async {
     final prepared = await _prepareWorkingSource(sourceFile);
@@ -147,17 +193,26 @@ class RecordScanService {
     );
   }
 
-  static Future<RecordScanOutput> createManualScan({
+  static Future<RecordScanOutput> _createManualScan({
     required Uint8List sourceBytes,
     required RecordScanQuad quad,
   }) async {
-    final working = _decodeAndNormalize(sourceBytes);
+    if (!quad.isUsable()) {
+      throw const FormatException('请按顺序框选四个角，避免交叉或重叠');
+    }
+    // Manual handles refer to the pixels displayed by the draft. Deskewing
+    // may have expanded that canvas beyond 1800; resizing it again here
+    // would shift every selected corner.
+    final working = _decodeAndNormalize(sourceBytes, resize: false);
     final clampedQuad = quad.clampToBounds(
       imageWidth: working.width,
       imageHeight: working.height,
     );
-    final targetWidth = math.max(
-      1,
+    if (!clampedQuad.isUsable()) {
+      throw const FormatException('框选范围过小或超出图片');
+    }
+    var targetWidth = math.max(
+      2,
       ((_distance(
                     clampedQuad.topLeftX,
                     clampedQuad.topLeftY,
@@ -173,8 +228,8 @@ class RecordScanService {
               2)
           .round(),
     );
-    final targetHeight = math.max(
-      1,
+    var targetHeight = math.max(
+      2,
       ((_distance(
                     clampedQuad.topLeftX,
                     clampedQuad.topLeftY,
@@ -190,6 +245,15 @@ class RecordScanService {
               2)
           .round(),
     );
+
+    // Bound the rectified intermediate even for callers passing original
+    // camera bytes. Keep source coordinates untouched while limiting output.
+    final longestTargetSide = math.max(targetWidth, targetHeight);
+    if (longestTargetSide > _maxInputDimension) {
+      final scale = _maxInputDimension / longestTargetSide;
+      targetWidth = math.max(2, (targetWidth * scale).round());
+      targetHeight = math.max(2, (targetHeight * scale).round());
+    }
 
     final rectified = img.copyRectify(
       working,
@@ -221,7 +285,7 @@ class RecordScanService {
     );
   }
 
-  static Future<RecordScanOutput> createFusionScan({
+  static Future<RecordScanOutput> _createFusionScan({
     required List<File> sourceFiles,
   }) async {
     final usableFiles = sourceFiles
@@ -238,7 +302,8 @@ class RecordScanService {
     }
     if (candidates.length == 1) {
       return RecordScanOutput(
-        bytes: img.encodeJpg(candidates.first.image, quality: 94),
+        bytes: img.encodeJpg(_applyLegacyFusionPolish(candidates.first.image),
+            quality: 94),
         fileExtension: '.jpg',
         processingMode: ActivityRecordMediaProcessingMode.antiGlareFusion,
       );
@@ -266,7 +331,7 @@ class RecordScanService {
 
     final fused = alignments.length >= 2
         ? _fuseAlignedCandidates(alignments)
-        : img.Image.from(base.image);
+        : _applyLegacyFusionPolish(base.image);
 
     return RecordScanOutput(
       bytes: img.encodeJpg(fused, quality: 94),
@@ -318,7 +383,8 @@ class RecordScanService {
     );
 
     final normalized = _resizeToTargetFrame(cropped);
-    return _applyLegacyFusionPolish(normalized);
+    _applyGrayWorldWhiteBalance(normalized);
+    return normalized;
   }
 
   static Future<_PreparedScanSource> _prepareWorkingSource(
@@ -335,8 +401,9 @@ class RecordScanService {
         angle: detection.rotationDegrees,
         interpolation: img.Interpolation.linear,
       );
-      detection =
-          _detectPolaroid(working) ?? detection.copyWith(rotationDegrees: 0);
+      // A rectangle from before rotation refers to a different coordinate
+      // system. Use the fallback if detection fails on the rotated image.
+      detection = _detectPolaroid(working);
     }
 
     final cropRect = detection != null
@@ -355,15 +422,24 @@ class RecordScanService {
     );
   }
 
-  static img.Image _decodeAndNormalize(List<int> bytes) {
-    final decoded = img.decodeImage(Uint8List.fromList(bytes));
+  static img.Image _decodeAndNormalize(List<int> bytes, {bool resize = true}) {
+    img.Image? decoded;
+    try {
+      decoded = img.decodeImage(
+        bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
+      );
+    } on RangeError {
+      throw const FormatException('图片数据不完整或无法识别');
+    } on FormatException {
+      throw const FormatException('图片数据不完整或无法识别');
+    }
     if (decoded == null) {
       throw const FormatException('图片无法识别');
     }
 
     var normalized = img.bakeOrientation(decoded);
     final longestSide = math.max(normalized.width, normalized.height);
-    if (longestSide > _maxInputDimension) {
+    if (resize && longestSide > _maxInputDimension) {
       final scale = _maxInputDimension / longestSide;
       normalized = img.copyResize(
         normalized,
@@ -710,7 +786,6 @@ class RecordScanService {
 
   static img.Image _applyLegacyFusionPolish(img.Image source) {
     final working = img.Image.from(source);
-    _applyGrayWorldWhiteBalance(working);
     _softenHighlights(working);
     _normalizePolaroidBorder(working);
     _applyContrastCurve(working);
@@ -860,15 +935,16 @@ class RecordScanService {
   }
 
   static void _applyContrastCurve(img.Image image) {
+    final curve = List<int>.generate(256, _curveChannel);
     for (var y = 0; y < image.height; y++) {
       for (var x = 0; x < image.width; x++) {
         final pixel = image.getPixel(x, y);
         image.setPixelRgba(
           x,
           y,
-          _curveChannel(pixel.r.toInt()),
-          _curveChannel(pixel.g.toInt()),
-          _curveChannel(pixel.b.toInt()),
+          curve[pixel.r.toInt()],
+          curve[pixel.g.toInt()],
+          curve[pixel.b.toInt()],
           pixel.a.toInt(),
         );
       }
@@ -909,6 +985,19 @@ class RecordScanService {
       interpolation: img.Interpolation.linear,
     );
 
+    final baseLuma = Float64List(thumbWidth * thumbHeight);
+    final otherLuma = Float64List(thumbWidth * thumbHeight);
+    for (var y = 0; y < thumbHeight; y++) {
+      for (var x = 0; x < thumbWidth; x++) {
+        final a = baseThumb.getPixel(x, y);
+        final b = otherThumb.getPixel(x, y);
+        baseLuma[y * thumbWidth + x] =
+            _luminance(a.r.toInt(), a.g.toInt(), a.b.toInt());
+        otherLuma[y * thumbWidth + x] =
+            _luminance(b.r.toInt(), b.g.toInt(), b.b.toInt());
+      }
+    }
+
     var bestDiff = double.infinity;
     var bestShiftX = 0;
     var bestShiftY = 0;
@@ -931,29 +1020,26 @@ class RecordScanService {
               continue;
             }
 
-            final basePixel = baseThumb.getPixel(x, y);
-            final otherPixel = otherThumb.getPixel(otherX, otherY);
-            diff += (_luminance(
-                      basePixel.r.toInt(),
-                      basePixel.g.toInt(),
-                      basePixel.b.toInt(),
-                    ) -
-                    _luminance(
-                      otherPixel.r.toInt(),
-                      otherPixel.g.toInt(),
-                      otherPixel.b.toInt(),
-                    ))
-                .abs();
+            final baseValue = baseLuma[y * thumbWidth + x];
+            final otherValue = otherLuma[otherY * thumbWidth + otherX];
+            // Moving glare is precisely why multiple frames were captured;
+            // it must not count as a mismatch in the underlying photograph.
+            if (baseValue >= 218 || otherValue >= 218) continue;
+            diff += (baseValue - otherValue).abs();
             compared += 1;
           }
         }
 
-        if (compared == 0) {
+        if (compared <
+            (thumbWidth - margin * 2) * (thumbHeight - margin * 2) * 0.25) {
           continue;
         }
 
         final averageDiff = diff / compared;
-        if (averageDiff < bestDiff) {
+        if (averageDiff < bestDiff ||
+            (averageDiff == bestDiff &&
+                shiftX * shiftX + shiftY * shiftY <
+                    bestShiftX * bestShiftX + bestShiftY * bestShiftY)) {
           bestDiff = averageDiff;
           bestShiftX = shiftX;
           bestShiftY = shiftY;

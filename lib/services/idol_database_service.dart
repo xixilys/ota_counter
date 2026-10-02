@@ -166,48 +166,8 @@ class IdolDatabaseService {
       'CREATE INDEX IF NOT EXISTS idx_idol_members_person_id ON idol_members(person_id)',
     );
 
-    final memberRows = await db.query(
-      'idol_members',
-      columns: ['id', 'name', 'source', 'is_builtin'],
-    );
-    final peopleByKey = <String, int>{};
-
-    await db.transaction((txn) async {
-      for (final row in memberRows) {
-        final memberId = (row['id'] as num?)?.toInt();
-        if (memberId == null) {
-          continue;
-        }
-
-        final personName = _defaultPersonNameForName(
-          (row['name'] ?? '') as String,
-        );
-        if (personName.isEmpty) {
-          continue;
-        }
-
-        final normalized = _normalizeLookupValue(personName);
-        if (normalized.isEmpty) {
-          continue;
-        }
-
-        final personId = peopleByKey[normalized] ??
-            await _ensurePerson(
-              txn,
-              name: personName,
-              source: (row['source'] ?? 'manual') as String,
-              isBuiltIn: ((row['is_builtin'] ?? 0) as num).toInt() == 1,
-            );
-        peopleByKey[normalized] = personId;
-
-        await txn.update(
-          'idol_members',
-          {'person_id': personId},
-          where: 'id = ?',
-          whereArgs: [memberId],
-        );
-      }
-    });
+    // Old versions had no explicit person identity. Keep migrated links null
+    // until the user chooses a shared identity; names alone are insufficient.
   }
 
   static Future<void> initializeBuiltInDataIfNeeded() async {
@@ -227,13 +187,18 @@ class IdolDatabaseService {
       final isLatestBundle = meta['source_label'] == bundle.sourceLabel &&
           meta['generated_at'] == bundle.generatedAt;
 
-      if (!isLatestBundle) {
+      final currentTime = DateTime.tryParse(meta['generated_at'] ?? '');
+      final assetTime = DateTime.tryParse(bundle.generatedAt);
+      if (!isLatestBundle &&
+          (currentTime == null ||
+              (assetTime != null && assetTime.isAfter(currentTime)))) {
         await syncBuiltInData();
       }
       return;
     }
 
-    await restoreBuiltInData();
+    // Initialization must not erase standalone people or manually edited data.
+    await syncBuiltInData();
   }
 
   static Future<void> syncBuiltInData() async {
@@ -245,12 +210,30 @@ class IdolDatabaseService {
     final db = await database;
 
     await db.transaction((txn) async {
+      final timeRows = await txn.query('idol_meta',
+          columns: ['value'], where: 'key = ?', whereArgs: ['generated_at']);
+      final currentTime = timeRows.isEmpty
+          ? null
+          : DateTime.tryParse(timeRows.first['value'] as String);
+      final incomingTime = DateTime.tryParse(bundle.generatedAt);
+      if (currentTime != null &&
+          incomingTime != null &&
+          incomingTime.isBefore(currentTime)) {
+        throw const FormatException('下载的偶像资料比本地快照旧，已保留本地资料');
+      }
       final existingGroups = await txn.query('idol_groups');
       final groupsByName = <String, Map<String, Object?>>{
         for (final row in existingGroups) (row['name'] ?? '') as String: row,
       };
 
       for (final group in bundle.groups) {
+        final groupSource =
+            group.sourceLabel.isEmpty ? bundle.sourceLabel : group.sourceLabel;
+        final memberSources = <String, String>{
+          for (final member in group.members)
+            member.name.trim():
+                member.sourceLabel.isEmpty ? groupSource : member.sourceLabel,
+        };
         final normalizedGroupName = group.name.trim();
         if (normalizedGroupName.isEmpty) {
           continue;
@@ -262,13 +245,13 @@ class IdolDatabaseService {
         if (existingGroup == null) {
           groupId = await txn.insert('idol_groups', {
             'name': normalizedGroupName,
-            'source': bundle.sourceLabel,
+            'source': groupSource,
             'is_builtin': 1,
           });
           groupsByName[normalizedGroupName] = {
             'id': groupId,
             'name': normalizedGroupName,
-            'source': bundle.sourceLabel,
+            'source': groupSource,
             'is_builtin': 1,
           };
         } else {
@@ -280,7 +263,7 @@ class IdolDatabaseService {
             await txn.update(
               'idol_groups',
               {
-                'source': bundle.sourceLabel,
+                'source': groupSource,
                 'is_builtin': 1,
               },
               where: 'id = ?',
@@ -291,7 +274,7 @@ class IdolDatabaseService {
 
         final memberRows = await txn.query(
           'idol_members',
-          columns: ['id', 'name', 'is_builtin'],
+          columns: ['id', 'name', 'person_id', 'is_builtin'],
           where: 'group_id = ?',
           whereArgs: [groupId],
         );
@@ -299,28 +282,20 @@ class IdolDatabaseService {
           for (final row in memberRows) (row['name'] ?? '') as String: row,
         };
         final mergedMembers = _mergeSeedMembers(group.members);
-        final seedNames = <String>{};
 
         for (final entry in mergedMembers.entries) {
           final memberName = entry.key;
           final mergedStatus = entry.value;
-          seedNames.add(memberName);
-
-          final personId = await _ensurePerson(
-            txn,
-            name: _defaultPersonNameForName(memberName),
-            source: bundle.sourceLabel,
-            isBuiltIn: true,
-          );
 
           final existingMember = membersByName[memberName];
           if (existingMember == null) {
             await txn.insert('idol_members', {
               'group_id': groupId,
-              'person_id': personId,
+              // A matching display name does not establish a person's identity.
+              'person_id': null,
               'name': memberName,
               'status': mergedStatus,
-              'source': bundle.sourceLabel,
+              'source': memberSources[memberName] ?? groupSource,
               'is_builtin': 1,
             });
             continue;
@@ -335,9 +310,9 @@ class IdolDatabaseService {
           await txn.update(
             'idol_members',
             {
-              'person_id': personId,
+              // Preserve existing and explicitly chosen identity associations.
               'status': mergedStatus,
-              'source': bundle.sourceLabel,
+              'source': memberSources[memberName] ?? groupSource,
               'is_builtin': 1,
             },
             where: 'id = ?',
@@ -345,22 +320,11 @@ class IdolDatabaseService {
           );
         }
 
-        final deleteWhere = StringBuffer('group_id = ? AND is_builtin = 1');
-        final deleteArgs = <Object?>[groupId];
-        if (seedNames.isNotEmpty) {
-          final placeholders = List.filled(seedNames.length, '?').join(', ');
-          deleteWhere.write(' AND name NOT IN ($placeholders)');
-          deleteArgs.addAll(seedNames);
-        }
-
-        await txn.delete(
-          'idol_members',
-          where: deleteWhere.toString(),
-          whereArgs: deleteArgs,
-        );
+        // Wiki snapshots can omit members because a page/template changed.
+        // Absence is not reliable evidence of departure or deletion. Explicit
+        // statuses (including former members) still update above.
       }
 
-      await _cleanupUnusedPeople(txn);
       await _writeMeta(txn, bundle);
     });
   }
@@ -368,7 +332,9 @@ class IdolDatabaseService {
   static Future<void> syncFromRemote({String? url}) async {
     final seedUrl = url ?? kIdolSeedUrl;
     final uri = Uri.tryParse(seedUrl);
-    if (uri == null) {
+    if (uri == null ||
+        !['http', 'https'].contains(uri.scheme) ||
+        uri.host.isEmpty) {
       throw const FormatException('偶像数据地址无效');
     }
 
@@ -387,7 +353,9 @@ class IdolDatabaseService {
         );
       }
 
-      final body = await utf8.decodeStream(response);
+      final body = await utf8
+          .decodeStream(response)
+          .timeout(const Duration(seconds: 30));
       final decoded = jsonDecode(body);
       if (decoded is! Map<String, Object?>) {
         throw const FormatException('偶像数据格式不正确');
@@ -559,8 +527,14 @@ class IdolDatabaseService {
       await txn.delete('idol_people');
       await txn.delete('idol_meta');
 
-      final peopleByKey = <String, int>{};
       for (final group in bundle.groups) {
+        final groupSource =
+            group.sourceLabel.isEmpty ? bundle.sourceLabel : group.sourceLabel;
+        final memberSources = <String, String>{
+          for (final member in group.members)
+            member.name.trim():
+                member.sourceLabel.isEmpty ? groupSource : member.sourceLabel,
+        };
         final normalizedGroupName = group.name.trim();
         if (normalizedGroupName.isEmpty) {
           continue;
@@ -568,7 +542,7 @@ class IdolDatabaseService {
 
         final groupId = await txn.insert('idol_groups', {
           'name': normalizedGroupName,
-          'source': bundle.sourceLabel,
+          'source': groupSource,
           'is_builtin': 1,
         });
 
@@ -576,29 +550,15 @@ class IdolDatabaseService {
         for (final entry in mergedMembers.entries) {
           final memberName = entry.key;
           final mergedStatus = entry.value;
-          final personName = _defaultPersonNameForName(memberName);
-          final normalizedPerson = _normalizeLookupValue(personName);
-          if (normalizedPerson.isEmpty) {
-            continue;
-          }
-
-          final personId = peopleByKey[normalizedPerson] ??
-              await _ensurePerson(
-                txn,
-                name: personName,
-                source: bundle.sourceLabel,
-                isBuiltIn: true,
-              );
-          peopleByKey[normalizedPerson] = personId;
 
           await txn.insert(
             'idol_members',
             {
               'group_id': groupId,
-              'person_id': personId,
+              'person_id': null,
               'name': memberName,
               'status': mergedStatus,
-              'source': bundle.sourceLabel,
+              'source': memberSources[memberName] ?? groupSource,
               'is_builtin': 1,
             },
             conflictAlgorithm: ConflictAlgorithm.replace,
@@ -744,11 +704,17 @@ class IdolDatabaseService {
     };
 
     if (group.id == null) {
-      return db.insert(
-        'idol_groups',
-        payload,
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      return db.transaction((txn) async {
+        final existing = await txn.query('idol_groups',
+            columns: ['id'], where: 'name = ?', whereArgs: [group.name.trim()]);
+        if (existing.isEmpty) {
+          return txn.insert('idol_groups', payload);
+        }
+        final id = existing.first['id'] as int;
+        await txn
+            .update('idol_groups', payload, where: 'id = ?', whereArgs: [id]);
+        return id;
+      });
     }
 
     await db.update(
@@ -773,20 +739,22 @@ class IdolDatabaseService {
         where: 'id = ?',
         whereArgs: [id],
       );
-      await _cleanupUnusedPeople(txn);
     });
   }
 
   static Future<int> upsertMember(IdolMember member) async {
     final db = await database;
     return db.transaction((txn) async {
-      final personId = await _ensurePerson(
-        txn,
-        name: member.resolvedPersonName,
-        source: member.source,
-        isBuiltIn: member.isBuiltIn,
-        preferredId: member.personId,
-      );
+      final explicitName = member.personName.trim();
+      final personId = explicitName.isEmpty
+          ? member.personId
+          : await _ensurePerson(
+              txn,
+              name: explicitName,
+              source: member.source,
+              isBuiltIn: member.isBuiltIn,
+              preferredId: member.personId,
+            );
 
       final payload = {
         'group_id': member.groupId,
@@ -798,11 +766,17 @@ class IdolDatabaseService {
       };
 
       if (member.id == null) {
-        return txn.insert(
-          'idol_members',
-          payload,
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
+        final existing = await txn.query('idol_members',
+            columns: ['id'],
+            where: 'group_id = ? AND name = ?',
+            whereArgs: [member.groupId, member.name.trim()]);
+        if (existing.isEmpty) {
+          return txn.insert('idol_members', payload);
+        }
+        final id = existing.first['id'] as int;
+        await txn
+            .update('idol_members', payload, where: 'id = ?', whereArgs: [id]);
+        return id;
       }
 
       await txn.update(
@@ -811,7 +785,6 @@ class IdolDatabaseService {
         where: 'id = ?',
         whereArgs: [member.id],
       );
-      await _cleanupUnusedPeople(txn);
       return member.id!;
     });
   }
@@ -824,7 +797,6 @@ class IdolDatabaseService {
         where: 'id = ?',
         whereArgs: [id],
       );
-      await _cleanupUnusedPeople(txn);
     });
   }
 
@@ -890,17 +862,6 @@ class IdolDatabaseService {
     );
   }
 
-  static Future<void> _cleanupUnusedPeople(DatabaseExecutor db) async {
-    await db.execute('''
-      DELETE FROM idol_people
-      WHERE id NOT IN (
-        SELECT DISTINCT person_id
-        FROM idol_members
-        WHERE person_id IS NOT NULL
-      )
-    ''');
-  }
-
   static Map<String, String> _mergeSeedMembers(List<IdolSeedMember> members) {
     final membersByName = <String, Set<String>>{};
     for (final member in members) {
@@ -919,29 +880,6 @@ class IdolDatabaseService {
       merged[entry.key] = statuses.join(' / ');
     }
     return merged;
-  }
-
-  static String _defaultPersonNameForName(String rawName) {
-    final displayName = IdolMember(
-      groupId: 0,
-      groupName: '',
-      name: rawName,
-    ).displayName.trim();
-    if (displayName.isNotEmpty) {
-      return displayName;
-    }
-    return rawName.trim();
-  }
-
-  static String _normalizeLookupValue(String value) {
-    final trimmed = value.trim().toLowerCase();
-    if (trimmed.isEmpty) {
-      return '';
-    }
-    return trimmed.replaceAll(
-      RegExp(r'[\s·•・_\-~/\\\(\)\[\]\{\}]+'),
-      '',
-    );
   }
 
   static String _formatDate(DateTime value) {

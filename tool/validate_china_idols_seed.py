@@ -6,6 +6,8 @@ import argparse
 import json
 import sys
 from dataclasses import dataclass
+from datetime import datetime
+from urllib.parse import urlparse
 from pathlib import Path
 from typing import Any, Optional
 
@@ -33,9 +35,17 @@ def validate_payload(
     min_groups: int = 100,
     min_members: int = 100,
 ) -> SeedSummary:
-    _require_non_empty_string(payload, "sourceUrl")
+    source_url = urlparse(_require_non_empty_string(payload, "sourceUrl"))
+    if source_url.scheme not in ("http", "https") or not source_url.netloc:
+        raise SeedValidationError("Invalid sourceUrl")
     _require_non_empty_string(payload, "sourceLabel")
-    _require_non_empty_string(payload, "generatedAt")
+    timestamp = _require_non_empty_string(payload, "generatedAt")
+    try:
+        generated_at = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        if generated_at.tzinfo is None:
+            raise ValueError("Missing timezone")
+    except ValueError as error:
+        raise SeedValidationError("Invalid generatedAt timestamp") from error
 
     groups = payload.get("groups")
     if not isinstance(groups, list):
@@ -47,6 +57,7 @@ def validate_payload(
         )
 
     member_count = 0
+    group_names = set()
     for index, group in enumerate(groups):
         if not isinstance(group, dict):
             raise SeedValidationError(f"Group #{index + 1} must be an object")
@@ -55,10 +66,14 @@ def validate_payload(
         if not isinstance(name, str) or not name.strip():
             raise SeedValidationError(f"Group #{index + 1} is missing a name")
 
+        if name.strip() in group_names:
+            raise SeedValidationError(f"Duplicate group name: {name}")
+        group_names.add(name.strip())
         members = group.get("members")
         if not isinstance(members, list):
             raise SeedValidationError(f"Group {name} members must be a list")
 
+        member_entries = set()
         for member_index, member in enumerate(members):
             if not isinstance(member, dict):
                 raise SeedValidationError(
@@ -69,6 +84,14 @@ def validate_payload(
                 raise SeedValidationError(
                     f"Member #{member_index + 1} in group {name} is missing a name"
                 )
+
+            status = member.get("status")
+            if not isinstance(status, str):
+                raise SeedValidationError(f"Member {member_name} status must be a string")
+            entry = (member_name.strip(), status.strip())
+            if entry in member_entries:
+                raise SeedValidationError(f"Duplicate member entry in group {name}: {member_name}")
+            member_entries.add(entry)
 
         member_count += len(members)
 

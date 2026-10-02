@@ -89,8 +89,6 @@ scp "${upload_files[@]}" "$ssh_target:$remote_stage_dir/"
 
 remote_commands=(
   "set -e"
-  "mv '$remote_stage_dir/index.html' '$REMOTE_DIR/index.html'"
-  "mv '$remote_stage_dir/latest.json' '$REMOTE_DIR/latest.json'"
 )
 
 if [[ "$SKIP_APK" -eq 0 ]]; then
@@ -101,6 +99,8 @@ if [[ -f "$ipa_path" ]]; then
 fi
 
 remote_commands+=(
+  "mv '$remote_stage_dir/index.html' '$REMOTE_DIR/index.html'"
+  "mv '$remote_stage_dir/latest.json' '$REMOTE_DIR/latest.json'"
   "rmdir '$remote_stage_dir'"
   "ls -lah '$REMOTE_DIR'"
 )

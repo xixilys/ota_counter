@@ -245,43 +245,22 @@ class _MyHomePageState extends State<MyHomePage> {
         : _counters.where((counter) => !counter.isHidden).toList();
   }
 
-  bool _participantMatchesCounter(
-    ActivityParticipant participant,
-    CounterModel counter,
-  ) {
-    final participantGroup = _normalizedLookupPart(participant.groupName);
-    final counterGroup = _normalizedLookupPart(counter.groupName);
-    if (participantGroup.isNotEmpty &&
-        counterGroup.isNotEmpty &&
-        participantGroup != counterGroup) {
-      return false;
-    }
-
-    if (participant.personId != null && counter.personId != null) {
-      return participant.personId == counter.personId;
-    }
-
-    final participantPersonName = _normalizedLookupPart(participant.personName);
-    final counterPersonName = _normalizedLookupPart(counter.personName);
-    if (participantPersonName.isNotEmpty && counterPersonName.isNotEmpty) {
-      return participantPersonName == counterPersonName;
-    }
-
-    return _normalizedLookupPart(participant.memberName) ==
-        _normalizedLookupPart(counter.name);
-  }
-
   int _visibleParticipantCountForMultiRecord(ActivityRecordModel record) {
     final scopedCounters = _scopedCounters;
     if (scopedCounters.isEmpty) {
       return 0;
     }
 
-    return record.effectiveParticipants.where((participant) {
-      return scopedCounters.any(
-        (counter) => _participantMatchesCounter(participant, counter),
-      );
-    }).length;
+    final visibleIds = scopedCounters.map((counter) => counter.id).toSet();
+    final matchedIds = <int>{};
+    for (final participant in record.effectiveParticipants) {
+      final counter =
+          DatabaseService.resolveCounterForParticipant(_counters, participant);
+      if (counter?.id != null && visibleIds.contains(counter!.id)) {
+        matchedIds.add(counter.id!);
+      }
+    }
+    return matchedIds.length;
   }
 
   String _homeEntryKey(CounterModel counter) {
@@ -1270,10 +1249,19 @@ class _MyHomePageState extends State<MyHomePage> {
       return;
     }
 
-    for (final counter in deletableCounters) {
-      await DatabaseService.deleteCounter(counter.id!);
+    try {
+      await DatabaseService.deleteCounters(
+        deletableCounters.map((counter) => counter.id!),
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('删除失败：$error')),
+        );
+      }
+    } finally {
+      if (mounted) await _loadCounters();
     }
-    await _loadCounters();
   }
 
   Future<void> _toggleHomeEntryHidden(_HomeCounterEntry entry) async {

@@ -151,11 +151,7 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
   }
 
   String _resolvedMemberPersonName(IdolMember member) {
-    final personName = member.resolvedPersonName.trim();
-    if (personName.isNotEmpty) {
-      return personName;
-    }
-    return member.displayName.trim();
+    return member.personName.trim();
   }
 
   String _buildTargetLabel(
@@ -215,10 +211,8 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
 
     final currentPersonId = widget.counter.personId;
     final candidatePersonId = counter.personId;
-    if (currentPersonId != null &&
-        candidatePersonId != null &&
-        currentPersonId == candidatePersonId) {
-      return true;
+    if (currentPersonId != null && candidatePersonId != null) {
+      return currentPersonId == candidatePersonId;
     }
 
     final currentPersonName = _explicitCounterPersonName(widget.counter);
@@ -272,9 +266,9 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
           : member.displayName,
       groupName: member.groupName.trim(),
       personId: member.personId ?? widget.counter.personId,
-      personName: member.resolvedPersonName.trim().isEmpty
+      personName: member.personName.trim().isEmpty
           ? _explicitCounterPersonName(widget.counter)
-          : member.resolvedPersonName.trim(),
+          : member.personName.trim(),
       color: widget.counter.color,
     );
   }

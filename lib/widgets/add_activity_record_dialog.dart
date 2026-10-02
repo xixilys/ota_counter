@@ -281,7 +281,7 @@ class ActivityRecordDraft {
         sessionLabel: sessionLabel,
         note: note,
         pricingLabel: effectivePricingLabel,
-        quantity: isGroupCut ? 1 : multiQuantity,
+        quantity: multiQuantity,
         totalPrice: multiTotalPrice,
       ).copyWith(
         source: source,
@@ -946,7 +946,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
         memberName: selected.displayName,
         groupName: selected.groupName,
         personId: selected.personId,
-        personName: selected.resolvedPersonName,
+        personName: selected.personName.trim(),
       ),
     ];
     final nextGroupNames = nextParticipants
@@ -1026,7 +1026,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
 
     if (_type == ActivityRecordType.multi) {
       if (_selectedParticipants.length < 2 ||
-          (!_multiAsGroupCut && _multiQuantity <= 0) ||
+          _multiQuantity <= 0 ||
           (!_multiAsGroupCut &&
               !_multiVisibleFields.contains(_selectedMultiField)) ||
           _multiTotalPrice < 0) {
@@ -1044,7 +1044,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
           multiParticipants: _selectedParticipants,
           multiField: _effectiveMultiField,
           multiAsGroupCut: _multiAsGroupCut,
-          multiQuantity: _multiAsGroupCut ? 1 : _multiQuantity,
+          multiQuantity: _multiQuantity,
           multiTotalPrice: _multiTotalPrice,
           pricingLabel: widget.initialDraft?.pricingLabel ?? '',
         ),
@@ -1388,7 +1388,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
                 title: const Text('按团切计算'),
                 subtitle: Text(
                   _multiAsGroupCut
-                      ? '开启后每位参与成员会增加 1 个团切，切奇总览只记 1 个团切。'
+                      ? '每张团切计入所有参与成员，切奇总览每张只计一次。'
                       : '关闭后按原来的多人切规格处理。',
                 ),
                 value: _multiAsGroupCut,
@@ -1404,15 +1404,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
                 },
               ),
               const SizedBox(height: 8),
-              if (_multiAsGroupCut)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Text(
-                    '团切模式下固定按每人 1 个团切处理。',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                )
-              else ...[
+              if (!_multiAsGroupCut) ...[
                 Text(
                   '规格',
                   style: Theme.of(context).textTheme.titleSmall,
@@ -1435,17 +1427,17 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
                   }).toList(),
                 ),
                 const SizedBox(height: 12),
-                NoAutofillTextField(
-                  controller: _multiQuantityController,
-                  decoration: const InputDecoration(
-                    labelText: '每人成交数量',
-                    hintText: '1',
-                  ),
-                  keyboardType: TextInputType.number,
-                  onChanged: (_) => setState(() {}),
-                ),
-                const SizedBox(height: 12),
               ],
+              NoAutofillTextField(
+                controller: _multiQuantityController,
+                decoration: const InputDecoration(
+                  labelText: '照片张数（每位成员计入相同数量）',
+                  hintText: '1',
+                ),
+                keyboardType: TextInputType.number,
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: 12),
               NoAutofillTextField(
                 controller: _multiPriceController,
                 decoration: InputDecoration(

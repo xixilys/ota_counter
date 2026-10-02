@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from time import sleep
 from typing import Optional
+from urllib.parse import quote
 
 import requests
 
@@ -18,7 +19,7 @@ SOURCE_URL = (
     "https://chinaidols.fandom.com/zh/wiki/"
     "%E4%B8%AD%E5%9B%BD%E5%81%B6%E5%83%8F_Wiki"
 )
-SOURCE_LABEL = "中国偶像 Wiki"
+SOURCE_LABEL = "中国偶像 Wiki（社区）+ 人工补充"
 OUTPUT = (
     Path(__file__).resolve().parents[1]
     / "assets"
@@ -166,9 +167,13 @@ def fetch_all_group_titles(session: requests.Session) -> list[str]:
         response = session.get(API, params=params, timeout=30)
         response.raise_for_status()
         payload = response.json()
+        if "error" in payload or not isinstance(
+            payload.get("query", {}).get("categorymembers"), list
+        ):
+            raise ValueError(f"Invalid category response: {payload.get('error')}")
         titles.extend(
             item["title"]
-            for item in payload.get("query", {}).get("categorymembers", [])
+            for item in payload["query"]["categorymembers"]
             if item.get("ns") == 0
         )
 
@@ -177,7 +182,9 @@ def fetch_all_group_titles(session: requests.Session) -> list[str]:
 
         continuation = payload["continue"]
 
-    return titles
+    if not titles:
+        raise ValueError("The Wiki returned no idol groups; refusing to publish")
+    return list(dict.fromkeys(titles))
 
 
 def batched(values: list[str], size: int) -> list[list[str]]:
@@ -201,18 +208,29 @@ def fetch_pages(session: requests.Session, titles: list[str]) -> dict[str, str]:
         response.raise_for_status()
         payload = response.json()
 
-        for page in payload.get("query", {}).get("pages", []):
+        returned_pages = payload.get("query", {}).get("pages")
+        if "error" in payload or not isinstance(returned_pages, list):
+            raise ValueError(f"Invalid revisions response: {payload.get('error')}")
+        chunk_pages = {}
+        for page in returned_pages:
             revisions = page.get("revisions") or []
-            content = ""
-            if revisions:
-                content = (
-                    revisions[0]
-                    .get("slots", {})
-                    .get("main", {})
-                    .get("content", "")
-                    or ""
-                )
-            pages[page["title"]] = content
+            if page.get("missing") is not None or not revisions:
+                raise ValueError(f"Missing Wiki revision for {page.get('title')}")
+            content = revisions[0].get("slots", {}).get("main", {}).get("content")
+            if not isinstance(content, str) or not content.strip():
+                raise ValueError(f"Empty Wiki content for {page.get('title')}")
+            chunk_pages[page["title"]] = content
+        # MediaWiki can normalize spaces/underscores in titles. Map the title
+        # back to its request so that normalization is not treated as data loss.
+        normalized = {
+            item["from"]: item["to"]
+            for item in payload.get("query", {}).get("normalized", [])
+        }
+        for title in chunk:
+            canonical_title = normalized.get(title, title)
+            if canonical_title not in chunk_pages:
+                raise ValueError(f"Wiki response omitted requested page: {title}")
+            pages[title] = chunk_pages[canonical_title]
 
         sleep(0.05)
 
@@ -480,15 +498,19 @@ def should_keep_group(title: str, members: list[dict[str, str]]) -> bool:
 
 def load_manual_additions(path: Path) -> list[dict]:
     """Load manual idol additions from a JSON file."""
-    if not path.is_file():
-        print(f"Manual additions file not found: {path}, skipping.")
-        return []
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return data.get("groups", [])
-    except (json.JSONDecodeError, OSError) as exc:
-        print(f"Failed to load manual additions from {path}: {exc}")
-        return []
+    data = json.loads(path.read_text(encoding="utf-8"))
+    groups = data.get("groups") if isinstance(data, dict) else None
+    if not isinstance(groups, list):
+        raise ValueError("Manual additions must contain a groups list")
+    for group in groups:
+        if not isinstance(group, dict) or not isinstance(group.get("name"), str) or not group["name"].strip():
+            raise ValueError("Invalid manual group name")
+        if not isinstance(group.get("members"), list):
+            raise ValueError(f"Invalid manual members for {group['name']}")
+        for member in group["members"]:
+            if not isinstance(member, dict) or not isinstance(member.get("name"), str) or not member["name"].strip() or not isinstance(member.get("status"), str):
+                raise ValueError(f"Invalid manual member for {group['name']}")
+    return groups
 
 
 def merge_manual_additions(
@@ -503,26 +525,19 @@ def merge_manual_additions(
     if not manual_groups:
         return list(wiki_groups)
 
-    result = list(wiki_groups)
+    # Copy nested records: callers may retain the original Wiki snapshot.
+    result = [dict(g, members=[dict(m) for m in g.get("members", [])]) for g in wiki_groups]
     wiki_index = {g["name"]: g for g in result}
-
     for manual_group in manual_groups:
-        group_name = manual_group.get("name", "").strip()
-        if not group_name:
-            continue
-
-        manual_members = manual_group.get("members", [])
-
-        if group_name in wiki_index:
-            existing = wiki_index[group_name]
-            existing_names = {m["name"] for m in existing.get("members", [])}
-            for member in manual_members:
-                if member.get("name", "").strip() not in existing_names:
-                    existing.setdefault("members", []).append(member)
-        else:
-            result.append(
-                {"name": group_name, "members": list(manual_members)}
-            )
+        group_name = manual_group["name"].strip()
+        existing = wiki_index.get(group_name)
+        if existing is None:
+            existing = {"name": group_name, "members": [], "sourceLabel": "人工补充"}
+            result.append(existing)
+            wiki_index[group_name] = existing
+        manual_members = [dict(m, name=m["name"].strip(), sourceLabel="人工补充") for m in manual_group["members"]]
+        manual_names = {m["name"] for m in manual_members}
+        existing["members"] = [m for m in existing["members"] if m["name"].strip() not in manual_names] + manual_members
 
     return result
 
@@ -568,6 +583,8 @@ def main(argv: Optional[list[str]] = None) -> None:
             {
                 "name": title,
                 "members": members,
+                "sourceLabel": "中国偶像 Wiki（社区）",
+                "sourceUrl": "https://chinaidols.fandom.com/zh/wiki/" + quote(title, safe=""),
             }
         )
 

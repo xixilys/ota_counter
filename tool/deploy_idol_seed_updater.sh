@@ -6,9 +6,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 SSH_USER="${OTA_UPDATE_SSH_USER:-root}"
-SSH_HOST="${OTA_UPDATE_SSH_HOST:-hk-ares}"
+SSH_HOST="${OTA_UPDATE_SSH_HOST:-bgvps}"
 REMOTE_APP_DIR="${OTA_IDOL_UPDATER_APP_DIR:-/opt/ota-counter-idol-updater}"
-REMOTE_PUBLIC_DIR="${OTA_UPDATE_REMOTE_DIR:-/var/www/status/ota-counter}"
+REMOTE_PUBLIC_DIR="${OTA_UPDATE_REMOTE_DIR:-/var/www/ota-counter}"
 PUBLIC_BASE_URL="${OTA_UPDATE_PUBLIC_BASE_URL:-https://ota-counter.huangxuanqi.top/ota-counter}"
 
 DRY_RUN=0
@@ -69,6 +69,27 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
 fi
 
 ssh "$ssh_target" "rm -rf '$remote_stage_dir' && mkdir -p '$remote_stage_dir'"
+service_dir="$(mktemp -d)"
+trap 'rm -rf "$service_dir"' EXIT
+python3 - "$REPO_ROOT/release/systemd/ota-counter-idol-seed-update.service" "$service_dir/ota-counter-idol-seed-update.service" "$REMOTE_APP_DIR" "$REMOTE_PUBLIC_DIR" <<'PY_SERVICE'
+import sys
+from pathlib import Path
+source, output, app_dir, public_dir = sys.argv[1:]
+def unit_quote(value):
+    if "\n" in value or "\r" in value:
+        raise ValueError("Deployment paths must not contain newlines")
+    return '"' + value.replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%') + '"'
+lines = Path(source).read_text().splitlines()
+for index, line in enumerate(lines):
+    if line.startswith("Environment=OTA_IDOL_UPDATER_APP_DIR="):
+        lines[index] = "Environment=" + unit_quote("OTA_IDOL_UPDATER_APP_DIR=" + app_dir)
+    elif line.startswith("Environment=OTA_IDOL_PUBLIC_DIR="):
+        lines[index] = "Environment=" + unit_quote("OTA_IDOL_PUBLIC_DIR=" + public_dir)
+    elif line.startswith("ExecStart="):
+        lines[index] = "ExecStart=" + unit_quote(app_dir + "/run_idol_seed_update.sh")
+Path(output).write_text("\n".join(lines) + "\n")
+PY_SERVICE
+files[4]="$service_dir/ota-counter-idol-seed-update.service"
 scp "${files[@]}" "$ssh_target:$remote_stage_dir/"
 
 remote_commands=(

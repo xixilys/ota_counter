@@ -247,6 +247,26 @@ void main() {
     expect(rebuilt.note, '新备注');
   });
 
+  test('group cut edit round-trip preserves multiple physical photos', () {
+    final original = ActivityRecordModel.multiCut(
+      participants: const [
+        ActivityParticipant(memberName: 'A', groupName: 'G'),
+        ActivityParticipant(memberName: 'B', groupName: 'G'),
+      ],
+      field: CounterCountField.groupCut,
+      occurredAt: DateTime(2026, 7, 1),
+      quantity: 3,
+      totalPrice: 300,
+    );
+    final rebuilt = ActivityRecordDraft.fromRecord(original)
+        .toActivityRecord(pricings: const [])!;
+    expect(rebuilt.effectiveMultiQuantity, 3);
+    expect(rebuilt.groupCutCount, 3);
+    expect(rebuilt.multiTotalCount, 3);
+    expect(rebuilt.multiContributionTotal, 6);
+    expect(rebuilt.totalAmount, 300);
+  });
+
   test('ticket edit round-trip preserves imported pricing label', () {
     final original = ActivityRecordModel.ticket(
       eventName: '测试活动',

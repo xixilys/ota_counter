@@ -310,6 +310,7 @@ class _RecordMemoryPageState extends State<RecordMemoryPage> {
         return;
       }
 
+      var savedCount = 0;
       for (final path in imagePaths) {
         final file = File(path);
         if (!await file.exists()) {
@@ -322,6 +323,10 @@ class _RecordMemoryPageState extends State<RecordMemoryPage> {
           processingMode: ActivityRecordMediaProcessingMode.nativeScanner,
           owner: _mediaOwner,
         );
+        savedCount += 1;
+      }
+      if (savedCount == 0) {
+        throw const FileSystemException('扫描结果文件不可读取，请重新扫描');
       }
 
       await _loadMedia();
@@ -359,131 +364,68 @@ class _RecordMemoryPageState extends State<RecordMemoryPage> {
   }
 
   Future<void> _startScan() async {
-    if (_targetRecordId == null || _saving) {
-      return;
-    }
-
-    final source = await _pickScanSource();
-    if (!mounted || source == null) {
-      return;
-    }
-
-    final sourceFile = await _pickSingleScanFile(source);
-    if (!mounted || sourceFile == null) {
-      return;
-    }
-
-    setState(() {
-      _saving = true;
-    });
-
+    if (_targetRecordId == null || _saving) return;
+    setState(() => _saving = true);
     try {
-      final output = await RecordScanService.createBasicScan(
-        sourceFile: sourceFile,
-      );
+      final source = await _pickScanSource();
+      if (!mounted || source == null) return;
+      final sourceFile = await _pickSingleScanFile(source);
+      if (!mounted || sourceFile == null) return;
+      final output =
+          await RecordScanService.createBasicScan(sourceFile: sourceFile);
       await _saveScanOutput(output);
       await _loadMedia();
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已生成简单防反光切图')),
-      );
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('扫描失败: $error')),
-      );
-    } finally {
       if (mounted) {
-        setState(() {
-          _saving = false;
-        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('已生成简单防反光切图')),
+        );
       }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('扫描失败: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 
   Future<void> _startManualAssistScan() async {
-    if (_targetRecordId == null || _saving) {
-      return;
-    }
-
-    final source = await _pickManualScanSource();
-    if (!mounted || source == null) {
-      return;
-    }
-
-    final file = await _pickSingleScanFile(source);
-    if (!mounted || file == null) {
-      return;
-    }
-
-    RecordScanManualDraft draft;
-    setState(() {
-      _saving = true;
-    });
+    if (_targetRecordId == null || _saving) return;
+    setState(() => _saving = true);
     try {
-      draft = await RecordScanService.prepareManualDraft(sourceFile: file);
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('准备手动框选失败: $error')),
+      final source = await _pickManualScanSource();
+      if (!mounted || source == null) return;
+      final file = await _pickSingleScanFile(source);
+      if (!mounted || file == null) return;
+      final draft =
+          await RecordScanService.prepareManualDraft(sourceFile: file);
+      if (!mounted) return;
+      final quad = await Navigator.of(context).push<RecordScanQuad>(
+        MaterialPageRoute(
+            builder: (context) => ManualScanCropPage(draft: draft)),
       );
-      return;
-    } finally {
-      if (mounted) {
-        setState(() {
-          _saving = false;
-        });
-      }
-    }
-
-    if (!mounted) {
-      return;
-    }
-
-    final quad = await Navigator.of(context).push<RecordScanQuad>(
-      MaterialPageRoute(
-        builder: (context) => ManualScanCropPage(draft: draft),
-      ),
-    );
-    if (!mounted || quad == null) {
-      return;
-    }
-
-    setState(() {
-      _saving = true;
-    });
-    try {
+      if (!mounted || quad == null) return;
       final output = await RecordScanService.createManualScan(
         sourceBytes: draft.sourceBytes,
         quad: quad,
       );
       await _saveScanOutput(output);
       await _loadMedia();
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已生成手动框选切图')),
-      );
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('手动框选失败: $error')),
-      );
-    } finally {
       if (mounted) {
-        setState(() {
-          _saving = false;
-        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('已生成手动框选切图')),
+        );
       }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('手动框选失败: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 
@@ -908,6 +850,7 @@ class _RecordMemoryPageState extends State<RecordMemoryPage> {
                                 Image.file(
                                   File(media.path),
                                   fit: BoxFit.cover,
+                                  cacheWidth: 640,
                                   errorBuilder: (context, error, stackTrace) {
                                     return const Center(
                                       child: Icon(Icons.broken_image_outlined),

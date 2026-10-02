@@ -275,11 +275,8 @@ class ActivityRecordModel {
     int quantity = 1,
     double totalPrice = 0,
   }) {
-    final normalizedQuantity =
-        field == CounterCountField.groupCut ? 1 : quantity;
-    final normalizedParticipants = participants
-        .where((participant) => participant.memberName.trim().isNotEmpty)
-        .toList(growable: false);
+    final normalizedQuantity = quantity > 0 ? quantity : 1;
+    final normalizedParticipants = _uniqueParticipants(participants);
     final participantGroups = normalizedParticipants
         .map((participant) => participant.groupName.trim())
         .where((groupName) => groupName.isNotEmpty)
@@ -427,22 +424,27 @@ class ActivityRecordModel {
 
   List<ActivityParticipant> get effectiveParticipants {
     if (participants.isNotEmpty) {
-      return participants;
+      return _uniqueParticipants(participants);
     }
     if (!isMulti) {
       return const <ActivityParticipant>[];
     }
-    return _buildLegacyParticipants(
+    return _uniqueParticipants(_buildLegacyParticipants(
       subjectName: subjectName,
       secondarySubjectName: secondarySubjectName,
       groupName: groupName,
       personId: personId,
       personName: personName,
-    );
+    ));
   }
 
-  int get effectiveMultiQuantity =>
-      isMulti ? (multiCutQuantity > 0 ? multiCutQuantity : 1) : 0;
+  int get effectiveMultiQuantity {
+    if (!isMulti) return 0;
+    if (multiCutQuantity > 0) return multiCutQuantity;
+    // Older records may only store the quantity in their selected count field.
+    final field = multiCountField;
+    return field == null ? 1 : countForField(field);
+  }
 
   int get multiParticipantCount => effectiveParticipants.length;
 
@@ -728,7 +730,9 @@ class ActivityRecordModel {
       threeInchShukudaiCount: _readInt(map['three_inch_shukudai_count']),
       fiveInchShukudaiCount: _readInt(map['five_inch_shukudai_count']),
       multiCutQuantity: _readInt(
-        map['multi_cut_quantity'] ?? map['double_cut_quantity'],
+        _readInt(map['multi_cut_quantity']) > 0
+            ? map['multi_cut_quantity']
+            : map['double_cut_quantity'],
       ),
       ticketQuantity: _readInt(map['ticket_quantity']),
       threeInchPrice: _readDouble(map['three_inch_price']),
@@ -852,6 +856,37 @@ class ActivityRecordModel {
     }
     return null;
   }
+}
+
+List<ActivityParticipant> _uniqueParticipants(
+    Iterable<ActivityParticipant> participants) {
+  final unique = <ActivityParticipant>[];
+  for (final participant in participants) {
+    if (participant.memberName.trim().isEmpty) continue;
+    final duplicateIndex = unique.indexWhere((existing) {
+      if (_normalizeActivityRecordIdentityPart(existing.groupName) !=
+          _normalizeActivityRecordIdentityPart(participant.groupName)) {
+        return false;
+      }
+      if (existing.personId != null && participant.personId != null) {
+        return existing.personId == participant.personId;
+      }
+      return _normalizeActivityRecordIdentityPart(
+                  existing.resolvedPersonName) ==
+              _normalizeActivityRecordIdentityPart(
+                  participant.resolvedPersonName) ||
+          _normalizeActivityRecordIdentityPart(existing.memberName) ==
+              _normalizeActivityRecordIdentityPart(participant.memberName);
+    });
+    if (duplicateIndex < 0) {
+      unique.add(participant);
+    } else if (unique[duplicateIndex].personId == null &&
+        participant.personId != null) {
+      // Prefer the stable identity when an old name-only entry describes it.
+      unique[duplicateIndex] = participant;
+    }
+  }
+  return List<ActivityParticipant>.unmodifiable(unique);
 }
 
 CounterModel? resolveCounterForActivityRecord(

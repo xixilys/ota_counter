@@ -1,23 +1,25 @@
 {
   "appName": "OTA Counter",
-  "versionName": "1.5.2",
-  "versionCode": 18,
-  "versionLabel": "v1.5.2",
-  "title": "OTA Counter v1.5.2",
+  "versionName": "1.5.3",
+  "versionCode": 19,
+  "versionLabel": "v1.5.3",
+  "title": "OTA Counter v1.5.3",
   "notes": [
-    "修复历史身份 ID 变化后多人切记录只显示在一位成员目录的问题",
-    "修复双人切或团切导致同日存图跨成员显示的问题"
+    "修复多张团切、多人切总数和首次新增成员漏计数，增改删保持事务一致",
+    "资料更新改用 HTTPS，保留本地编辑和真人绑定，避免同名误合并与旧快照覆盖",
+    "拍立得扫描移到后台处理，修复手动四角、旋转裁剪与反光融合问题",
+    "修复删除流水失败时照片丢失，优化相册缩略图内存使用"
   ],
-  "publishedAt": "2026-08-31T16:08:18+08:00",
+  "publishedAt": "2026-10-02T19:13:49+08:00",
   "force": false,
-  "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.5.2.apk",
+  "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.5.3.apk",
   "downloadPageUrl": "https://ota-counter.huangxuanqi.top/ota-counter/",
-  "backupUrl": "https://github.com/xixilys/ota_counter/releases/download/v1.5.2/OTA-Counter-v1.5.2.apk",
+  "backupUrl": "https://github.com/xixilys/ota_counter/releases/download/v1.5.3/OTA-Counter-v1.5.3.apk",
   "platforms": {
     "android": {
-      "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.5.2.apk",
+      "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.5.3.apk",
       "downloadPageUrl": "https://ota-counter.huangxuanqi.top/ota-counter/",
-      "backupUrl": "https://github.com/xixilys/ota_counter/releases/download/v1.5.2/OTA-Counter-v1.5.2.apk"
+      "backupUrl": "https://github.com/xixilys/ota_counter/releases/download/v1.5.3/OTA-Counter-v1.5.3.apk"
     },
     "ios": {
       "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/#ios",

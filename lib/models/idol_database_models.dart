@@ -232,25 +232,56 @@ class IdolSeedBundle {
   });
 
   factory IdolSeedBundle.fromJson(Map<String, Object?> json) {
-    final rawGroups =
-        (json['groups'] as List<dynamic>? ?? []).cast<Map<String, Object?>>();
+    final rawGroups = json['groups'];
+    if (rawGroups is! List ||
+        rawGroups.isEmpty ||
+        json['sourceLabel'] is! String ||
+        (json['sourceLabel'] as String).trim().isEmpty ||
+        json['sourceUrl'] is! String ||
+        json['generatedAt'] is! String ||
+        DateTime.tryParse(json['generatedAt'] as String) == null) {
+      throw const FormatException('偶像数据缺少有效来源、时间或团体列表');
+    }
+    final names = <String>{};
+    for (final group in rawGroups) {
+      if (group is! Map<String, Object?> ||
+          group['name'] is! String ||
+          (group['name'] as String).trim().isEmpty ||
+          !names.add((group['name'] as String).trim()) ||
+          group['members'] is! List) {
+        throw const FormatException('偶像数据包含无效或重复的团体');
+      }
+      for (final member in group['members'] as List) {
+        if (member is! Map<String, Object?> ||
+            member['name'] is! String ||
+            (member['name'] as String).trim().isEmpty ||
+            member['status'] is! String) {
+          throw const FormatException('偶像数据包含无效成员');
+        }
+      }
+    }
 
     return IdolSeedBundle(
       sourceUrl: (json['sourceUrl'] ?? '') as String,
       sourceLabel: (json['sourceLabel'] ?? '') as String,
       generatedAt: (json['generatedAt'] ?? '') as String,
-      groups: rawGroups.map(IdolSeedGroup.fromJson).toList(),
+      groups: rawGroups
+          .cast<Map<String, Object?>>()
+          .map(IdolSeedGroup.fromJson)
+          .toList(),
     );
   }
 }
 
 class IdolSeedGroup {
   final String name;
+  final String sourceLabel;
   final List<IdolSeedMember> members;
 
   const IdolSeedGroup({
     required this.name,
     required this.members,
+    this.sourceLabel = '',
   });
 
   factory IdolSeedGroup.fromJson(Map<String, Object?> json) {
@@ -260,6 +291,7 @@ class IdolSeedGroup {
     return IdolSeedGroup(
       name: (json['name'] ?? '') as String,
       members: rawMembers.map(IdolSeedMember.fromJson).toList(),
+      sourceLabel: (json['sourceLabel'] ?? '') as String,
     );
   }
 }
@@ -267,16 +299,19 @@ class IdolSeedGroup {
 class IdolSeedMember {
   final String name;
   final String status;
+  final String sourceLabel;
 
   const IdolSeedMember({
     required this.name,
     required this.status,
+    this.sourceLabel = '',
   });
 
   factory IdolSeedMember.fromJson(Map<String, Object?> json) {
     return IdolSeedMember(
       name: (json['name'] ?? '') as String,
       status: (json['status'] ?? '') as String,
+      sourceLabel: (json['sourceLabel'] ?? '') as String,
     );
   }
 }

@@ -13,7 +13,7 @@
 
 已确认：线上 APK/站点在 `bgvps:/var/www/ota-counter`，资料 updater 仍在 hk-ares 旧目录，公开资料 URL 返回 404。需要恢复公开资料更新，并保留原配置备份。
 
-当前阶段：修复与独立定向复审完成；Android v1.5.3+19 构建/覆盖安装与发布验证进行中。
+当前阶段：已完成。修复、独立复审、构建、覆盖安装、扫描交互及发布均通过；更新站与 GitHub 的完整 APK 下载均与本地正式包 SHA-256 一致，线上 page/manifest 与发布文件一致。
 
 已完成验证：
 - `flutter analyze --no-pub`：无问题。
@@ -32,3 +32,9 @@
 已知历史限制：旧版团切保存时丢失的原始输入数量无法从现有记录自动恢复。
 
 补充验收：Android 正式包构建通过，applicationId 保持 top.huangxuanqi.otacounter，versionCode=19。apksigner 校验与 v1.5.2 签名一致；Android API 36 模拟器由旧版覆盖升级后，实际录入的 UpgradeCheck 5 张及 1 条流水保留。
+
+Android 实际交互：API 36 模拟器从相册选择合成拍立得图片，进入手动框选，拖动角点、生成并保存成功，存图页显示“扫描切图 1”。正式包再次安装后原卡片与 5 张计数保留。App 内点击服务器同步，快照时间从打包的 11:06 更新为线上 11:15，验证实际 HTTPS 同步路径。
+
+发布：`fe8a45b` 实现修复，`4025b77` 补齐偶活来源；已合入并推送 `main`、`codex/v1.5-prep` 和本任务分支。GitHub Release `v1.5.3` 的 APK 为 65,595,284 bytes，原签名一致，旧 APK 文件保留在站点。原始验证日志与模拟器截图保留在本工作树 `.buildlog/2026-10-02/`（未提交）。
+
+原工作树 `/Volumes/remote/project/ota_counter` 未变更，原有 `.omo/` 保留；当前任务工作树保留修复分支。测试专用模拟器已停止并删除。

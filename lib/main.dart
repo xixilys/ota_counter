@@ -219,6 +219,13 @@ class _MyHomePageState extends State<MyHomePage> {
         _applySort(_counters);
         _homeEntriesCache = null;
       });
+      if (reconcileImportedRecords) {
+        // Identity repair can scan the whole idol database. Let the first
+        // frame render the stored cards, then repair and refresh if needed.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _reconcileIdentitiesAfterLoad();
+        });
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -226,6 +233,18 @@ class _MyHomePageState extends State<MyHomePage> {
         );
       }
     }
+  }
+
+  Future<void> _reconcileIdentitiesAfterLoad() async {
+    try {
+      await DatabaseService.reconcileCounterIdentities();
+    } catch (_) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+    await _loadCounters();
   }
 
   String _normalizedLookupPart(String value) {
@@ -428,38 +447,6 @@ class _MyHomePageState extends State<MyHomePage> {
     return totalsByEntry;
   }
 
-  List<CounterCountBadgeData> _buildHomeBreakdownEntries(
-    CounterModel counter,
-    Map<String, int> customCounts,
-  ) {
-    final sortedCustomEntries = customCounts.entries.toList()
-      ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
-    return [
-      CounterCountBadgeData(
-        label: CounterCountField.threeInch.shortLabel,
-        value: counter.aggregatedThreeInchCount,
-      ),
-      CounterCountBadgeData(
-        label: CounterCountField.fiveInch.shortLabel,
-        value: counter.aggregatedFiveInchCount,
-      ),
-      CounterCountBadgeData(
-        label: CounterCountField.threeInchShukudai.shortLabel,
-        value: counter.threeInchShukudaiCount,
-      ),
-      CounterCountBadgeData(
-        label: CounterCountField.fiveInchShukudai.shortLabel,
-        value: counter.fiveInchShukudaiCount,
-      ),
-      ...sortedCustomEntries.map((entry) {
-        return CounterCountBadgeData(
-          label: entry.key,
-          value: entry.value,
-        );
-      }),
-    ];
-  }
-
   void _applyHomeEntrySort(List<_HomeCounterEntry> entries) {
     int compareByDirection(int value) => _sortAscending ? value : -value;
 
@@ -528,7 +515,7 @@ class _MyHomePageState extends State<MyHomePage> {
         sourceCounters: counters,
         customCounts: customCounts,
         totalCount: totalCount,
-        breakdownEntries: _buildHomeBreakdownEntries(
+        breakdownEntries: buildHomeBreakdownEntries(
           displayCounter,
           customCounts,
         ),
@@ -1823,6 +1810,7 @@ class _MyHomePageState extends State<MyHomePage> {
         );
 
         if (confirmed != true || !mounted || payload.fullBackup == null) {
+          await ExportImportService.disposeImportPayload(payload);
           return;
         }
 
@@ -2541,4 +2529,48 @@ class _OverviewMetricConfigResult {
     required this.visibleIds,
     required this.columns,
   });
+}
+
+/// Builds the count tiles shown on a home card.
+///
+/// Kept as a top-level function so tests can assert that the tiles add up to
+/// the card's total (including group cuts and custom cheki types).
+List<CounterCountBadgeData> buildHomeBreakdownEntries(
+  CounterModel counter,
+  Map<String, int> customCounts,
+) {
+  final sortedCustomEntries = customCounts.entries.toList()
+    ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
+  return [
+    CounterCountBadgeData(
+      label: CounterCountField.threeInch.shortLabel,
+      value: counter.aggregatedThreeInchCount,
+    ),
+    CounterCountBadgeData(
+      label: CounterCountField.fiveInch.shortLabel,
+      value: counter.aggregatedFiveInchCount,
+    ),
+    CounterCountBadgeData(
+      label: CounterCountField.threeInchShukudai.shortLabel,
+      value: counter.threeInchShukudaiCount,
+    ),
+    CounterCountBadgeData(
+      label: CounterCountField.fiveInchShukudai.shortLabel,
+      value: counter.fiveInchShukudaiCount,
+    ),
+    // Group cuts are part of the counter total, so keep them visible in the
+    // breakdown too; otherwise a card can show 301 while its tiles add up to
+    // 297 and the missing count looks lost.
+    if (counter.groupCutCount > 0)
+      CounterCountBadgeData(
+        label: CounterCountField.groupCut.shortLabel,
+        value: counter.groupCutCount,
+      ),
+    ...sortedCustomEntries.map((entry) {
+      return CounterCountBadgeData(
+        label: entry.key,
+        value: entry.value,
+      );
+    }),
+  ];
 }

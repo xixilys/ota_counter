@@ -2450,6 +2450,7 @@ class _CalendarDayDetailCard extends StatelessWidget {
                                           child: Image.file(
                                             File(item.path),
                                             fit: BoxFit.cover,
+                                            cacheWidth: 200,
                                             errorBuilder:
                                                 (context, error, stackTrace) {
                                               return Container(

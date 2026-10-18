@@ -28,7 +28,21 @@ class FullBackupBundle {
   final Map<String, List<Map<String, Object?>>> mainDatabase;
   final Map<String, List<Map<String, Object?>>> idolDatabase;
   final Map<String, List<Map<String, Object?>>> imageDatabase;
+
+  /// Document bytes for in-memory backups (small tests / legacy paths).
   final Map<String, List<int>> documentFiles;
+
+  /// Zip entries kept compressed in memory, used by file based imports so a
+  /// 200 MB photo backup is not decompressed in one go.
+  final Map<String, ArchiveFile> documentEntries;
+
+  /// Source paths for export; archive relative path -> absolute file path.
+  /// Keeping paths instead of bytes avoids loading the whole photo library.
+  final Map<String, String> documentPaths;
+
+  /// Open file stream backing [documentEntries] for file based imports.
+  /// It must stay open until the documents have been restored.
+  final InputFileStream? documentSource;
 
   const FullBackupBundle({
     required this.formatVersion,
@@ -37,6 +51,9 @@ class FullBackupBundle {
     required this.idolDatabase,
     required this.imageDatabase,
     required this.documentFiles,
+    this.documentEntries = const {},
+    this.documentPaths = const {},
+    this.documentSource,
   });
 
   Map<String, Object?> toManifest() {
@@ -53,6 +70,8 @@ class FullBackupBundle {
   factory FullBackupBundle.fromManifest({
     required Map<String, Object?> manifest,
     required Map<String, List<int>> documentFiles,
+    Map<String, ArchiveFile> documentEntries = const {},
+    InputFileStream? documentSource,
   }) {
     final type = (manifest['type'] ?? '') as String;
     if (type != backupType) {
@@ -83,6 +102,8 @@ class FullBackupBundle {
       idolDatabase: _readTableDump(manifest['idol_database']),
       imageDatabase: _readTableDump(manifest['image_database']),
       documentFiles: documentFiles,
+      documentEntries: documentEntries,
+      documentSource: documentSource,
     );
   }
 
@@ -167,22 +188,33 @@ class ExportImportService {
       ),
     );
 
-    for (final entry in backup.documentFiles.entries) {
+    // Stream each photo from disk instead of keeping the whole library in
+    // memory. Photos are already compressed, so storing them is both faster
+    // and much lighter than deflating ~200 MB of JPEG data.
+    for (final entry in backup.documentPaths.entries) {
+      final sourceFile = File(entry.value);
+      if (!await sourceFile.exists()) {
+        continue;
+      }
+      final length = await sourceFile.length();
       archive.addFile(
-        ArchiveFile(
+        ArchiveFile.file(
           _archiveDocumentPath(entry.key),
-          entry.value.length,
-          entry.value,
-        ),
+          length,
+          FileContentStream(InputFileStream(sourceFile.path)),
+        )..compression = CompressionType.none,
       );
     }
-
-    final zipBytes = ZipEncoder().encode(archive);
 
     final tempDir = await getTemporaryDirectory();
     final fileName = 'ota_counter_backup_${_timestampForFileName()}.zip';
     final tempFile = File(p.join(tempDir.path, fileName));
-    await tempFile.writeAsBytes(zipBytes, flush: true);
+    final output = OutputFileStream(tempFile.path);
+    try {
+      ZipEncoder().encodeStream(archive, output, autoClose: true);
+    } finally {
+      await output.close();
+    }
 
     await Share.shareXFiles(
       [XFile(tempFile.path)],
@@ -195,7 +227,7 @@ class ExportImportService {
       type: FileType.custom,
       allowedExtensions: const ['txt', 'json', 'zip'],
       dialogTitle: '选择要导入的文件',
-      withData: true,
+      withData: false,
     );
 
     if (result == null || result.files.isEmpty) {
@@ -204,13 +236,56 @@ class ExportImportService {
 
     final file = result.files.first;
     final path = file.path;
-    final rawBytes = file.bytes ??
-        (path != null ? await File(path).readAsBytes() : const <int>[]);
+    if (path != null && path.isNotEmpty) {
+      return parseImportPayloadFile(
+        fileName: file.name,
+        path: path,
+      );
+    }
 
+    final rawBytes = file.bytes ?? const <int>[];
     return parseImportPayload(
       fileName: file.name,
       rawBytes: rawBytes,
     );
+  }
+
+  static Future<ImportPayload> parseImportPayloadFile({
+    required String fileName,
+    required String path,
+  }) async {
+    final file = File(path);
+    if (!await file.exists()) {
+      throw const FormatException('导入文件不存在');
+    }
+
+    final headerHandle = await file.open();
+    List<int> header;
+    try {
+      header = await headerHandle.read(4);
+    } finally {
+      await headerHandle.close();
+    }
+
+    if (_looksLikeZip(header)) {
+      final fullBackup = await _parseFullBackupFile(path);
+      return ImportPayload(
+        kind: ImportPayloadKind.fullBackup,
+        fileName: fileName,
+        rawJson: '',
+        fullBackup: fullBackup,
+      );
+    }
+
+    return parseImportPayload(
+      fileName: fileName,
+      rawBytes: await file.readAsBytes(),
+    );
+  }
+
+  /// Releases the lazily opened backup file when the user cancels an import.
+  static Future<void> disposeImportPayload(ImportPayload payload) async {
+    await payload.fullBackup?.documentSource?.close();
   }
 
   static ImportPayload parseImportPayload({
@@ -263,11 +338,25 @@ class ExportImportService {
 
   static Future<void> restoreFullBackup(FullBackupBundle backup) async {
     final documentsDirectory = await getApplicationDocumentsDirectory();
-    await DatabaseService.clearAppData();
-    await _clearImageLibrary();
-    await _clearIdolDatabase();
-    await _clearManagedImportDirectories(documentsDirectory.path);
-    await _restoreDocumentFiles(backup.documentFiles, documentsDirectory.path);
+    try {
+      await DatabaseService.clearAppData();
+      await _clearImageLibrary();
+      await _clearIdolDatabase();
+      await _clearManagedImportDirectories(documentsDirectory.path);
+      if (backup.documentEntries.isNotEmpty) {
+        await _restoreDocumentEntries(
+          backup.documentEntries,
+          documentsDirectory.path,
+        );
+      } else {
+        await _restoreDocumentFiles(
+          backup.documentFiles,
+          documentsDirectory.path,
+        );
+      }
+    } finally {
+      await backup.documentSource?.close();
+    }
     await _restoreMainDatabase(
       backup.mainDatabase,
       documentsDirectory.path,
@@ -277,6 +366,9 @@ class ExportImportService {
       backup.imageDatabase,
       documentsDirectory.path,
     );
+    // The restored idol database may use different person ids than the
+    // restored counters / records. Repair before the home page reads them.
+    await DatabaseService.reconcileCounterIdentities();
   }
 
   static Future<FullBackupBundle> _buildFullBackupBundle() async {
@@ -307,9 +399,9 @@ class ExportImportService {
 
     final idolDb = await IdolDatabaseService.database;
 
-    final documentFiles = <String, List<int>>{
-      ...activityRecordMedia.documentFiles,
-      ...images.documentFiles,
+    final documentPaths = <String, String>{
+      ...activityRecordMedia.documentPaths,
+      ...images.documentPaths,
     };
 
     return FullBackupBundle(
@@ -343,7 +435,8 @@ class ExportImportService {
       imageDatabase: {
         ImageService.tableName: images.rows,
       },
-      documentFiles: documentFiles,
+      documentFiles: const {},
+      documentPaths: documentPaths,
     );
   }
 
@@ -363,7 +456,7 @@ class ExportImportService {
     required _DocumentPathMapper pathMapper,
   }) async {
     final normalizedRows = <Map<String, Object?>>[];
-    final documentFiles = <String, List<int>>{};
+    final documentPaths = <String, String>{};
 
     for (final row in rows) {
       final nextRow = Map<String, Object?>.from(row);
@@ -372,11 +465,9 @@ class ExportImportService {
         final relativePath = pathMapper.relativePathFor(rawPath);
         if (relativePath != null) {
           nextRow[pathColumn] = relativePath;
-          if (!documentFiles.containsKey(relativePath)) {
-            final sourceFile = File(rawPath);
-            if (await sourceFile.exists()) {
-              documentFiles[relativePath] = await sourceFile.readAsBytes();
-            }
+          if (!documentPaths.containsKey(relativePath) &&
+              await File(rawPath).exists()) {
+            documentPaths[relativePath] = rawPath;
           }
         }
       }
@@ -385,7 +476,7 @@ class ExportImportService {
 
     return _NormalizedDocumentRows(
       rows: normalizedRows,
-      documentFiles: documentFiles,
+      documentPaths: documentPaths,
     );
   }
 
@@ -479,10 +570,11 @@ class ExportImportService {
     required List<Map<String, Object?>> rows,
   }) async {
     final columns = await _tableColumns(db, table);
-    if (columns.isEmpty) {
+    if (columns.isEmpty || rows.isEmpty) {
       return;
     }
 
+    final batch = db.batch();
     for (final row in rows) {
       final filtered = <String, Object?>{};
       row.forEach((key, value) {
@@ -493,8 +585,9 @@ class ExportImportService {
       if (filtered['id'] == null) {
         filtered.remove('id');
       }
-      await db.insert(table, filtered);
+      batch.insert(table, filtered);
     }
+    await batch.commit(noResult: true);
   }
 
   static Future<Set<String>> _tableColumns(
@@ -524,6 +617,30 @@ class ExportImportService {
       }
       return nextRow;
     }).toList(growable: false);
+  }
+
+  static Future<void> _restoreDocumentEntries(
+    Map<String, ArchiveFile> documentEntries,
+    String documentsPath,
+  ) async {
+    for (final entry in documentEntries.entries) {
+      final targetPath = _resolveDocumentRestorePath(
+        documentsPath: documentsPath,
+        relativePath: entry.key,
+      );
+      final targetFile = File(targetPath);
+      await targetFile.parent.create(recursive: true);
+      final output = OutputFileStream(targetPath);
+      try {
+        entry.value.writeContent(output);
+      } finally {
+        await output.close();
+        // Drop the zip view so the compressed read buffer can be released.
+        entry.value.clear();
+      }
+      // writeContent is synchronous; yield so the restore spinner can paint.
+      await Future<void>.delayed(Duration.zero);
+    }
   }
 
   static Future<void> _restoreDocumentFiles(
@@ -578,6 +695,48 @@ class ExportImportService {
       if (await directory.exists()) {
         await directory.delete(recursive: true);
       }
+    }
+  }
+
+  static Future<FullBackupBundle> _parseFullBackupFile(String path) async {
+    final input = InputFileStream(path);
+    try {
+      final archive = ZipDecoder().decodeStream(input);
+      final manifestFile = archive.findFile(_manifestArchivePath);
+      if (manifestFile == null) {
+        throw const FormatException('未找到完整备份清单');
+      }
+
+      final manifestJson = utf8.decode(_archiveFileBytes(manifestFile));
+      final decoded = jsonDecode(manifestJson);
+      if (decoded is! Map) {
+        throw const FormatException('完整备份清单格式错误');
+      }
+
+      // Keep zip views instead of decompressing every photo up front. The
+      // input stream stays open in the bundle and is closed after restore.
+      final documentEntries = <String, ArchiveFile>{};
+      for (final file in archive.files) {
+        if (!file.isFile || !file.name.startsWith('$_documentsArchiveRoot/')) {
+          continue;
+        }
+        final relativePath = normalizeBackupRelativePath(
+          file.name.substring(_documentsArchiveRoot.length + 1),
+        );
+        documentEntries[relativePath] = file;
+      }
+
+      return FullBackupBundle.fromManifest(
+        manifest: decoded.map(
+          (key, value) => MapEntry(key.toString(), value),
+        ),
+        documentFiles: const {},
+        documentEntries: documentEntries,
+        documentSource: input,
+      );
+    } catch (_) {
+      await input.close();
+      rethrow;
     }
   }
 
@@ -755,11 +914,11 @@ class ExportImportService {
 
 class _NormalizedDocumentRows {
   final List<Map<String, Object?>> rows;
-  final Map<String, List<int>> documentFiles;
+  final Map<String, String> documentPaths;
 
   const _NormalizedDocumentRows({
     required this.rows,
-    required this.documentFiles,
+    required this.documentPaths,
   });
 }
 

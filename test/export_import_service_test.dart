@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -133,6 +134,75 @@ void main() {
       payload.fullBackup?.documentFiles['activity_record_media/example.jpg'],
       [1, 2, 3],
     );
+  });
+
+  test('full backup zip can be parsed from a file without loading bytes',
+      () async {
+    final zipBytes = buildFullBackupZip(
+      manifest: buildManifest(),
+      documentFiles: {
+        'activity_record_media/example.jpg': [1, 2, 3, 4],
+      },
+    );
+    final tempDir = await Directory.systemTemp.createTemp('ota_backup_test');
+    final backupFile = File('${tempDir.path}/backup.zip');
+    await backupFile.writeAsBytes(zipBytes, flush: true);
+    ImportPayload? payload;
+
+    try {
+      payload = await ExportImportService.parseImportPayloadFile(
+        fileName: 'backup.zip',
+        path: backupFile.path,
+      );
+
+      expect(payload.isFullBackup, isTrue);
+      expect(
+        payload.fullBackup?.documentEntries.keys,
+        contains('activity_record_media/example.jpg'),
+      );
+      expect(payload.fullBackup?.documentFiles, isEmpty);
+      expect(payload.fullBackup?.documentSource, isNotNull);
+    } finally {
+      await payload?.fullBackup?.documentSource?.close();
+      await backupFile.delete();
+      await tempDir.delete(recursive: true);
+    }
+  });
+
+  test('file backed archive entries survive a streaming zip round trip',
+      () async {
+    final tempDir = await Directory.systemTemp.createTemp('ota_zip_stream');
+    final source = File('${tempDir.path}/photo.bin');
+    final bytes = List<int>.generate(64 * 1024, (index) => index % 251);
+    await source.writeAsBytes(bytes, flush: true);
+
+    try {
+      final archive = Archive()
+        ..addFile(
+          ArchiveFile.file(
+            'documents/photo.bin',
+            bytes.length,
+            FileContentStream(InputFileStream(source.path)),
+          )..compression = CompressionType.none,
+        );
+      final zipFile = File('${tempDir.path}/out.zip');
+      final output = OutputFileStream(zipFile.path);
+      try {
+        ZipEncoder().encodeStream(archive, output, autoClose: true);
+      } finally {
+        await output.close();
+      }
+
+      final decoded = ZipDecoder().decodeBytes(
+        await zipFile.readAsBytes(),
+      );
+      expect(
+        decoded.findFile('documents/photo.bin')!.readBytes(),
+        bytes,
+      );
+    } finally {
+      await tempDir.delete(recursive: true);
+    }
   });
 
   test('full backup rejects parent traversal zip entry', () {

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'package:ota_counter/main.dart';
 import 'package:ota_counter/models/counter_model.dart';
 import 'package:ota_counter/widgets/counter_card.dart';
 import 'package:ota_counter/widgets/counter_count_sheet.dart';
@@ -16,7 +17,7 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
-  testWidgets('counter card breakdown hides group cut', (
+  testWidgets('counter card breakdown keeps group cut in the totals', (
     WidgetTester tester,
   ) async {
     final counter = CounterModel(
@@ -35,11 +36,18 @@ void main() {
         home: Scaffold(
           body: Center(
             child: SizedBox(
-              width: 220,
-              height: 260,
+              width: 160,
+              height: 230,
               child: CounterCard(
                 counter: counter,
                 totalCount: counter.count,
+                breakdownEntries: const [
+                  CounterCountBadgeData(label: '3寸', value: 2),
+                  CounterCountBadgeData(label: '5寸', value: 1),
+                  CounterCountBadgeData(label: '3寸宿', value: 4),
+                  CounterCountBadgeData(label: '5寸宿', value: 5),
+                  CounterCountBadgeData(label: '团切', value: 3),
+                ],
                 percentage: 0.5,
                 onTap: () {},
                 onDelete: () {},
@@ -56,7 +64,30 @@ void main() {
     expect(find.text('5寸'), findsOneWidget);
     expect(find.text('3寸宿'), findsOneWidget);
     expect(find.text('5寸宿'), findsOneWidget);
-    expect(find.text('团切'), findsNothing);
+    expect(find.text('团切'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  test('home card breakdown adds up to the card total', () {
+    final counter = CounterModel(
+      name: '成员A',
+      groupName: '团体A',
+      color: '#FFE135',
+      threeInchCount: 7,
+      fiveInchCount: 2,
+      unsignedThreeInchCount: 3,
+      threeInchShukudaiCount: 1,
+      groupCutCount: 4,
+    );
+
+    final entries = buildHomeBreakdownEntries(counter, const {'拍立得': 2});
+    final tileTotal = entries.fold<int>(0, (sum, entry) => sum + entry.value);
+
+    expect(tileTotal, counter.count + 2);
+    expect(
+      entries.map((entry) => entry.label),
+      containsAll(<String>['3寸', '5寸', '3寸宿', '5寸宿', '团切', '拍立得']),
+    );
   });
 
   testWidgets('counter sheet shows group cut as read only', (

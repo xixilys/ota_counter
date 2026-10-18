@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart';
@@ -19,7 +20,7 @@ class DatabaseService {
   static const String activityRecordTableName = 'activity_records';
   static const String activityRecordMediaTableName = 'activity_record_media';
   static const String counterSyncTableName = 'counter_sync_log';
-  static const int _version = 18;
+  static const int _version = 19;
 
   static Database? _database;
   static Future<Database>? _databaseOpening;
@@ -143,6 +144,9 @@ class DatabaseService {
     }
     if (oldVersion < 18) {
       await _migrateToV18(db);
+    }
+    if (oldVersion < 19) {
+      await _migrateToV19(db);
     }
     await _ensureLatestSchema(db);
   }
@@ -545,6 +549,22 @@ class DatabaseService {
         'owner_group_name': "TEXT NOT NULL DEFAULT ''",
       },
     );
+  }
+
+  static Future<void> _migrateToV19(Database db) async {
+    // The idol database refresh can replace person rows and leave counters /
+    // records pointing at stale person ids. Re-resolve every identity so the
+    // home page does not show the same member as several cards.
+    await _backfillIdentityAndMultiData(db);
+  }
+
+  /// Repairs counter / record person ids against the current idol database.
+  ///
+  /// Safe to call repeatedly: rows that already match are left untouched.
+  /// Should run after the built-in idol seed has been initialized.
+  static Future<void> reconcileCounterIdentities() async {
+    final db = await database;
+    await _backfillIdentityAndMultiData(db);
   }
 
   static Future<void> _ensureLatestSchema(DatabaseExecutor db) async {
@@ -1696,6 +1716,26 @@ class DatabaseService {
 
   static Future<int> syncActivityRecordsToCounters(String source) async {
     final db = await database;
+    // Building the idol identity / theme lookups scans the whole member table,
+    // so do not pay for it on every launch when there is nothing to sync.
+    final pendingRows = await db.rawQuery(
+      '''
+      SELECT COUNT(*) AS pending_count
+      FROM $activityRecordTableName
+      WHERE source = ? AND record_type = ? AND source_record_id IS NOT NULL
+        AND source_record_id NOT IN (
+          SELECT source_record_id
+          FROM $counterSyncTableName
+          WHERE source = ?
+        )
+      ''',
+      [source, ActivityRecordType.counter.dbValue, source],
+    );
+    final pendingCount =
+        (pendingRows.first['pending_count'] as num?)?.toInt() ?? 0;
+    if (pendingCount == 0) {
+      return 0;
+    }
     final themeLookup = await _buildCounterThemeLookup();
     final identityLookup = await _buildIdolIdentityLookup();
 
@@ -1887,6 +1927,15 @@ class DatabaseService {
       return 0;
     }
 
+    final candidates = overwriteExisting
+        ? counters
+        : counters
+            .where((counter) => _shouldApplyAutoThemeColor(counter.color))
+            .toList(growable: false);
+    if (candidates.isEmpty) {
+      return 0;
+    }
+
     final themeLookup = await _buildCounterThemeLookup();
     if (themeLookup.byGroupAndMember.isEmpty &&
         themeLookup.byUniqueMember.isEmpty) {
@@ -1895,11 +1944,8 @@ class DatabaseService {
 
     var updatedCount = 0;
     await db.transaction((txn) async {
-      for (final counter in counters) {
+      for (final counter in candidates) {
         if (counter.id == null) {
-          continue;
-        }
-        if (!overwriteExisting && !_shouldApplyAutoThemeColor(counter.color)) {
           continue;
         }
 
@@ -2046,7 +2092,86 @@ class DatabaseService {
     return normalized == null || normalized == _defaultImportedCounterColor;
   }
 
+  static Future<bool> _hasStalePersonReferences(Database db) async {
+    final knownPersonIds = await IdolDatabaseService.getPersonIds();
+
+    final counterRows = await db.query(tableName, columns: ['person_id']);
+    for (final row in counterRows) {
+      final personId = (row['person_id'] as num?)?.toInt();
+      if (personId != null && !knownPersonIds.contains(personId)) {
+        return true;
+      }
+    }
+
+    final recordRows = await db.query(
+      activityRecordTableName,
+      columns: ['record_type', 'person_id', 'multi_participants_json'],
+    );
+    for (final row in recordRows) {
+      final personId = (row['person_id'] as num?)?.toInt();
+      if (personId != null && !knownPersonIds.contains(personId)) {
+        return true;
+      }
+      if (row['record_type'] != ActivityRecordType.multi.dbValue) {
+        continue;
+      }
+      final rawParticipants =
+          (row['multi_participants_json'] as String?)?.trim() ?? '';
+      if (rawParticipants.isEmpty || rawParticipants == '[]') {
+        continue;
+      }
+      try {
+        final decoded = jsonDecode(rawParticipants);
+        if (decoded is! List) {
+          continue;
+        }
+        for (final item in decoded) {
+          if (item is! Map) {
+            continue;
+          }
+          final rawPersonId = item['personId'] ?? item['person_id'];
+          final participantPersonId = rawPersonId is num
+              ? rawPersonId.toInt()
+              : int.tryParse('$rawPersonId');
+          if (participantPersonId != null &&
+              !knownPersonIds.contains(participantPersonId)) {
+            return true;
+          }
+        }
+      } on FormatException {
+        // Ignore malformed participant json; identity repair does not need it.
+      }
+    }
+
+    return false;
+  }
+
   static Future<void> _backfillIdentityAndMultiData(Database db) async {
+    // Building the idol lookup is the expensive part; skip it entirely on a
+    // fresh install where there is nothing to repair.
+    final hasData = await db.rawQuery(
+      '''
+      SELECT 1 FROM $tableName
+      UNION ALL
+      SELECT 1 FROM $activityRecordTableName
+      LIMIT 1
+      ''',
+    );
+    if (hasData.isEmpty) {
+      return;
+    }
+
+    // The expensive part is building the full member alias lookup (thousands
+    // of idol rows). If every stored person id still exists, only duplicate
+    // counter rows need merging.
+    final hasStaleReferences = await _hasStalePersonReferences(db);
+    if (!hasStaleReferences) {
+      await db.transaction((txn) async {
+        await _mergeDuplicateCounters(txn);
+      });
+      return;
+    }
+
     final identityLookup = await _buildIdolIdentityLookup();
 
     await db.transaction((txn) async {
@@ -2171,7 +2296,82 @@ class DatabaseService {
           whereArgs: [record.id],
         );
       }
+
+      await _mergeDuplicateCounters(txn);
     });
+  }
+
+  static Future<void> _mergeDuplicateCounters(DatabaseExecutor db) async {
+    // After identity repair two counter rows can describe the same member in
+    // the same group (for example one row kept the old person id and another
+    // was created after the refresh). Keeping both makes the edit sheet list
+    // the same group twice while quick count only sees one of them.
+    final rows = await db.query(tableName, orderBy: 'id ASC');
+    final groups = <String, List<CounterModel>>{};
+    for (final row in rows) {
+      final counter = CounterModel.fromMap(row);
+      final counterKey = _normalizeCounterKey(counter.name, counter.groupName);
+      if (counterKey.isEmpty) {
+        continue;
+      }
+      final key = counter.personId == null
+          ? counterKey
+          : 'person:${counter.personId}|$counterKey';
+      groups.putIfAbsent(key, () => <CounterModel>[]).add(counter);
+    }
+
+    for (final group in groups.values) {
+      if (group.length <= 1) {
+        continue;
+      }
+      group.sort((a, b) => (a.id ?? 0).compareTo(b.id ?? 0));
+      final survivor = group.first;
+      if (survivor.id == null) {
+        continue;
+      }
+      var merged = survivor;
+      for (final duplicate in group.skip(1)) {
+        merged = merged.copyWith(
+          isHidden: merged.isHidden && duplicate.isHidden,
+          threeInchCount: merged.threeInchCount + duplicate.threeInchCount,
+          fiveInchCount: merged.fiveInchCount + duplicate.fiveInchCount,
+          unsignedThreeInchCount:
+              merged.unsignedThreeInchCount + duplicate.unsignedThreeInchCount,
+          unsignedFiveInchCount:
+              merged.unsignedFiveInchCount + duplicate.unsignedFiveInchCount,
+          groupCutCount: merged.groupCutCount + duplicate.groupCutCount,
+          threeInchShukudaiCount:
+              merged.threeInchShukudaiCount + duplicate.threeInchShukudaiCount,
+          fiveInchShukudaiCount:
+              merged.fiveInchShukudaiCount + duplicate.fiveInchShukudaiCount,
+        );
+        final duplicateId = duplicate.id;
+        if (duplicateId == null) {
+          continue;
+        }
+        await db.update(
+          activityRecordTableName,
+          {'counter_id': survivor.id},
+          where: 'counter_id = ?',
+          whereArgs: [duplicateId],
+        );
+        await db.delete(
+          tableName,
+          where: 'id = ?',
+          whereArgs: [duplicateId],
+        );
+      }
+      final survivorId = survivor.id;
+      if (survivorId == null) {
+        continue;
+      }
+      await db.update(
+        tableName,
+        await _filterValuesForTable(db, tableName, _toDatabaseMap(merged)),
+        where: 'id = ?',
+        whereArgs: [survivorId],
+      );
+    }
   }
 
   static Future<_IdolIdentityLookup> _buildIdolIdentityLookup() async {
@@ -2180,8 +2380,14 @@ class DatabaseService {
 
     final byGroupAndMember = <String, IdolMember>{};
     final membersByName = <String, List<IdolMember>>{};
+    final personNamesById = <int, String>{};
 
     for (final member in members) {
+      final personId = member.personId;
+      if (personId != null) {
+        personNamesById.putIfAbsent(personId, () => member.resolvedPersonName);
+      }
+
       for (final candidateName in _buildMemberNameAliases(member)) {
         final normalizedMember = _normalizeLookupPart(candidateName);
         if (normalizedMember.isEmpty) {
@@ -2213,7 +2419,43 @@ class DatabaseService {
     return _IdolIdentityLookup(
       byGroupAndMember: byGroupAndMember,
       byUniqueMember: byUniqueMember,
+      personNamesById: personNamesById,
     );
+  }
+
+  static IdolMember? _matchIdentityMember(
+    _IdolIdentityLookup lookup, {
+    required String groupName,
+    required List<String> normalizedNames,
+  }) {
+    final normalizedGroup = _normalizeLookupPart(groupName);
+    if (normalizedGroup.isNotEmpty) {
+      // When a group is known, only accept a member from that group. Falling
+      // back to a globally unique name would merge same-name idols from
+      // different groups after an identity id becomes stale.
+      for (final normalizedName in normalizedNames) {
+        if (normalizedName.isEmpty) {
+          continue;
+        }
+        final matched =
+            lookup.byGroupAndMember['$normalizedGroup|$normalizedName'];
+        if (matched != null) {
+          return matched;
+        }
+      }
+      return null;
+    }
+
+    for (final normalizedName in normalizedNames) {
+      if (normalizedName.isEmpty) {
+        continue;
+      }
+      final matched = lookup.byUniqueMember[normalizedName];
+      if (matched != null) {
+        return matched;
+      }
+    }
+    return null;
   }
 
   static _ResolvedIdentity? _resolveIdentity({
@@ -2223,35 +2465,60 @@ class DatabaseService {
     required String personName,
     required _IdolIdentityLookup lookup,
   }) {
-    if (personId != null || personName.trim().isNotEmpty) {
+    final trimmedPersonName = personName.trim();
+    final normalizedPersonName = _normalizeLookupPart(trimmedPersonName);
+    final normalizedCounterName = _normalizeLookupPart(name);
+
+    // Only trust an existing person id while it still points at a person in
+    // the current idol database. After an idol database refresh the old id may
+    // be gone while the counter keeps it; trusting it splits one member into
+    // several home cards and breaks multi-record participant matching.
+    if (personId != null) {
+      final canonicalName = lookup.personNamesById[personId];
+      if (canonicalName != null) {
+        final normalizedCanonical = _normalizeLookupPart(canonicalName);
+        final nameAgrees = normalizedCanonical.isEmpty ||
+            normalizedPersonName.isEmpty ||
+            normalizedPersonName == normalizedCanonical ||
+            normalizedCounterName == normalizedCanonical;
+        if (nameAgrees) {
+          return _ResolvedIdentity(
+            personId: personId,
+            personName: trimmedPersonName.isNotEmpty
+                ? trimmedPersonName
+                : canonicalName,
+          );
+        }
+      }
+    }
+
+    final matchedMember = _matchIdentityMember(
+      lookup,
+      groupName: groupName,
+      normalizedNames: [normalizedPersonName, normalizedCounterName],
+    );
+    if (matchedMember != null) {
+      final matchedPersonName = matchedMember.personName.trim();
+      // A member without a verified person id and without an explicit person
+      // name must not invent one: filling personName would make the home page
+      // group same-name idols from different groups into one card.
+      if (matchedMember.personId != null || matchedPersonName.isNotEmpty) {
+        return _ResolvedIdentity(
+          personId: matchedMember.personId,
+          personName: matchedPersonName.isNotEmpty
+              ? matchedPersonName
+              : matchedMember.resolvedPersonName,
+        );
+      }
+    }
+
+    if (personId != null || trimmedPersonName.isNotEmpty) {
       return _ResolvedIdentity(
         personId: personId,
-        personName: personName.trim(),
+        personName: trimmedPersonName,
       );
     }
-
-    final normalizedName = _normalizeLookupPart(name);
-    if (normalizedName.isEmpty) {
-      return null;
-    }
-
-    final normalizedGroup = _normalizeLookupPart(groupName);
-    IdolMember? matchedMember;
-    if (normalizedGroup.isNotEmpty) {
-      matchedMember =
-          lookup.byGroupAndMember['$normalizedGroup|$normalizedName'];
-    }
-    matchedMember ??= lookup.byUniqueMember[normalizedName];
-    if (matchedMember == null ||
-        (matchedMember.personId == null &&
-            matchedMember.personName.trim().isEmpty)) {
-      return null;
-    }
-
-    return _ResolvedIdentity(
-      personId: matchedMember.personId,
-      personName: matchedMember.personName.trim(),
-    );
+    return null;
   }
 
   static String? _normalizeHexColor(String? color) {
@@ -2308,10 +2575,12 @@ class _CounterThemeLookup {
 class _IdolIdentityLookup {
   final Map<String, IdolMember> byGroupAndMember;
   final Map<String, IdolMember> byUniqueMember;
+  final Map<int, String> personNamesById;
 
   const _IdolIdentityLookup({
     required this.byGroupAndMember,
     required this.byUniqueMember,
+    required this.personNamesById,
   });
 }
 

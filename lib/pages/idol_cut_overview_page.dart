@@ -315,6 +315,7 @@ class _IdolCutOverviewPageState extends State<IdolCutOverviewPage> {
                                   Image.file(
                                     File(media.path),
                                     fit: BoxFit.cover,
+                                    cacheWidth: 600,
                                     errorBuilder: (context, error, stackTrace) {
                                       return const Center(
                                         child:

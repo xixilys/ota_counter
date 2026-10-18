@@ -32,7 +32,8 @@ class ImageService {
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
-          await db.execute('ALTER TABLE $tableName ADD COLUMN is_used INTEGER DEFAULT 0');
+          await db.execute(
+              'ALTER TABLE $tableName ADD COLUMN is_used INTEGER DEFAULT 0');
         }
       },
     );
@@ -41,7 +42,7 @@ class ImageService {
   static Future<String> saveImage(File imageFile) async {
     // 复制图片到应用目录
     final directory = await getApplicationDocumentsDirectory();
-    final fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
+    final fileName = '${DateTime.now().microsecondsSinceEpoch}.jpg';
     final savedPath = join(directory.path, fileName);
     await imageFile.copy(savedPath);
 
@@ -50,7 +51,7 @@ class ImageService {
     await db.insert(tableName, {
       'path': savedPath,
       'created_at': DateTime.now().millisecondsSinceEpoch,
-      'is_used': 0,  // 确保新图片默认未使用
+      'is_used': 0, // 确保新图片默认未使用
     });
 
     return savedPath;
@@ -89,9 +90,9 @@ class ImageService {
   static Future<String?> getRandomImage() async {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query(tableName);
-    
+
     if (maps.isEmpty) return null;
-    
+
     final random = Random();
     final randomIndex = random.nextInt(maps.length);
     return maps[randomIndex]['path'] as String;
@@ -120,6 +121,19 @@ class ImageService {
     );
   }
 
+  // 获取所有图片的使用状态，避免列表逐项查询
+  static Future<Map<String, bool>> getImageUsageByPath() async {
+    final db = await database;
+    final maps = await db.query(
+      tableName,
+      columns: ['path', 'is_used'],
+    );
+    return {
+      for (final row in maps)
+        (row['path'] ?? '') as String: (row['is_used'] ?? 0) == 1,
+    };
+  }
+
   // 获取图片使用状态
   static Future<bool> isImageUsed(String path) async {
     final db = await database;
@@ -131,4 +145,4 @@ class ImageService {
     );
     return result.isNotEmpty && result.first['is_used'] == 1;
   }
-} 
+}

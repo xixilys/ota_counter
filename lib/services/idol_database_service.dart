@@ -623,6 +623,17 @@ class IdolDatabaseService {
     return maps.map(IdolPerson.fromMap).toList();
   }
 
+  /// Lightweight id set used to detect stale references without building the
+  /// full name / alias lookup.
+  static Future<Set<int>> getPersonIds() async {
+    final db = await database;
+    final maps = await db.query('idol_people', columns: ['id']);
+    return {
+      for (final row in maps)
+        if ((row['id'] as num?) != null) (row['id'] as num).toInt(),
+    };
+  }
+
   static Future<List<IdolGroup>> getGroups() async {
     final db = await database;
     final maps = await db.rawQuery('''

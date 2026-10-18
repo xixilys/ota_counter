@@ -11,6 +11,7 @@ class ImageListPage extends StatefulWidget {
 
 class _ImageListPageState extends State<ImageListPage> {
   List<String> _imagePaths = [];
+  Map<String, bool> _imageUsage = const {};
   bool _isLoading = true;
 
   @override
@@ -23,8 +24,10 @@ class _ImageListPageState extends State<ImageListPage> {
     setState(() => _isLoading = true);
     try {
       final paths = await ImageService.getAllImages();
+      final usage = await ImageService.getImageUsageByPath();
       setState(() {
         _imagePaths = paths;
+        _imageUsage = usage;
         _isLoading = false;
       });
     } catch (e) {
@@ -57,14 +60,17 @@ class _ImageListPageState extends State<ImageListPage> {
 
   Future<void> _toggleUsedStatus(String path) async {
     try {
-      final isUsed = await ImageService.isImageUsed(path);
+      final isUsed = _imageUsage[path] ?? false;
       await ImageService.markAsUsed(path, used: !isUsed);
-      await _loadImages();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(isUsed ? '已取消标记' : '已标记为使用过')),
-        );
+      if (!mounted) {
+        return;
       }
+      setState(() {
+        _imageUsage = {..._imageUsage, path: !isUsed};
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(isUsed ? '已取消标记' : '已标记为使用过')),
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -85,7 +91,8 @@ class _ImageListPageState extends State<ImageListPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('图片列表'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary.withAlpha(204),
+        backgroundColor:
+            Theme.of(context).colorScheme.inversePrimary.withAlpha(204),
       ),
       body: _imagePaths.isEmpty
           ? const Center(child: Text('暂无图片'))
@@ -100,6 +107,7 @@ class _ImageListPageState extends State<ImageListPage> {
               itemCount: _imagePaths.length,
               itemBuilder: (context, index) {
                 final path = _imagePaths[index];
+                final isUsed = _imageUsage[path] ?? false;
                 return Card(
                   clipBehavior: Clip.antiAlias,
                   child: Stack(
@@ -108,6 +116,7 @@ class _ImageListPageState extends State<ImageListPage> {
                       Image.file(
                         File(path),
                         fit: BoxFit.cover,
+                        cacheWidth: 600,
                       ),
                       Positioned(
                         right: 4,
@@ -115,60 +124,53 @@ class _ImageListPageState extends State<ImageListPage> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            FutureBuilder<bool>(
-                              future: ImageService.isImageUsed(path),
-                              builder: (context, snapshot) {
-                                final isUsed = snapshot.data ?? false;
-                                return Row(
+                            IconButton(
+                              icon: Icon(isUsed
+                                  ? Icons.check_circle
+                                  : Icons.radio_button_unchecked),
+                              onPressed: () => _toggleUsedStatus(path),
+                              style: IconButton.styleFrom(
+                                backgroundColor: Colors.black54,
+                                foregroundColor:
+                                    isUsed ? Colors.green : Colors.white,
+                              ),
+                              tooltip: isUsed ? '取消标记' : '标记为已使用',
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete),
+                              onPressed: () => _showDeleteDialog(path),
+                              style: IconButton.styleFrom(
+                                backgroundColor: Colors.black54,
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                            if (isUsed)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.black54,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    IconButton(
-                                      icon: Icon(isUsed ? Icons.check_circle : Icons.radio_button_unchecked),
-                                      onPressed: () => _toggleUsedStatus(path),
-                                      style: IconButton.styleFrom(
-                                        backgroundColor: Colors.black54,
-                                        foregroundColor: isUsed ? Colors.green : Colors.white,
-                                      ),
-                                      tooltip: isUsed ? '取消标记' : '标记为已使用',
+                                    Icon(
+                                      Icons.check_circle,
+                                      color: Colors.green,
+                                      size: 16,
                                     ),
-                                    IconButton(
-                                      icon: const Icon(Icons.delete),
-                                      onPressed: () => _showDeleteDialog(path),
-                                      style: IconButton.styleFrom(
-                                        backgroundColor: Colors.black54,
-                                        foregroundColor: Colors.white,
+                                    SizedBox(width: 4),
+                                    Text(
+                                      '已使用',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
                                       ),
                                     ),
-                                    if (isUsed)  // 使用 isUsed 而不是 snapshot
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: Colors.black54,
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                        child: const Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              Icons.check_circle,
-                                              color: Colors.green,
-                                              size: 16,
-                                            ),
-                                            SizedBox(width: 4),
-                                            Text(
-                                              '已使用',
-                                              style: TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 12,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
                                   ],
-                                );
-                              },
-                            ),
+                                ),
+                              ),
                           ],
                         ),
                       ),
@@ -203,4 +205,4 @@ class _ImageListPageState extends State<ImageListPage> {
       await _deleteImage(path);
     }
   }
-} 
+}

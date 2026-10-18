@@ -426,7 +426,9 @@ class _CountGrid extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final columns = constraints.maxWidth >= 300 ? 3 : 2;
+        final columns = constraints.maxWidth >= 300
+            ? 3
+            : (visibleEntries.length > 4 ? 3 : 2);
         final itemWidth = math.max(
           0.0,
           (constraints.maxWidth - ((columns - 1) * 6)) / columns,

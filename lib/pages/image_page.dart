@@ -342,6 +342,9 @@ class _ImagePageState extends State<ImagePage> {
                 fit: BoxFit.contain,
                 width: screenSize.width,
                 height: screenSize.height,
+                cacheWidth:
+                    (screenSize.width * MediaQuery.devicePixelRatioOf(context))
+                        .round(),
               ),
             if (_currentImagePath != null && _showText)
               Container(

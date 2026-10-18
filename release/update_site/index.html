@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>OTA Counter v1.5.3</title>
+    <title>OTA Counter v1.5.4</title>
     <style>
       :root {
         color-scheme: light dark;
@@ -170,28 +170,28 @@
   <body>
     <main class="card">
       <div class="eyebrow">OTA Counter 更新页</div>
-      <h1>OTA Counter v1.5.3</h1>
+      <h1>OTA Counter v1.5.4</h1>
       <p>这里提供当前稳定版本下载，也可以作为 App 内检查更新时跳转的下载页。</p>
 
       <div class="meta">
-        <span>版本号：v1.5.3</span>
-        <span>构建号：19</span>
-        <span>发布时间：2026-10-02</span>
+        <span>版本号：v1.5.4</span>
+        <span>构建号：20</span>
+        <span>发布时间：2026-10-18</span>
       </div>
 
       <section class="section">
         <h2>本次更新</h2>
         <ul>
-          <li>修复多张团切、多人切总数和首次新增成员漏计数，增改删保持事务一致</li>
-          <li>资料更新改用 HTTPS，保留本地编辑和真人绑定，避免同名误合并与旧快照覆盖</li>
-          <li>拍立得扫描移到后台处理，修复手动四角、旋转裁剪与反光融合问题</li>
-          <li>修复删除流水失败时照片丢失，优化相册缩略图内存使用</li>
+          <li>修复偶像资料刷新后同一成员被拆成多张卡的问题，自动合并重复成员与计数卡</li>
+          <li>修复卡片总数包含团切、但分项里看不到团切导致 301 与 297 对不上的问题</li>
+          <li>大型完整备份改为流式导入导出，200MB 级照片备份不再一次性占用大量内存</li>
+          <li>相册与缩略图按显示尺寸解码，减少图片列表内存占用和重复数据库查询</li>
         </ul>
       </section>
 
       <div class="actions">
-        <a class="button primary" href="./OTA-Counter-v1.5.3.apk">下载 APK</a>
-        <a class="button secondary" href="https://github.com/xixilys/ota_counter/releases/download/v1.5.3/OTA-Counter-v1.5.3.apk" target="_blank" rel="noopener noreferrer">GitHub 备用下载</a>
+        <a class="button primary" href="./OTA-Counter-v1.5.4.apk">下载 APK</a>
+        <a class="button secondary" href="https://github.com/xixilys/ota_counter/releases/download/v1.5.4/OTA-Counter-v1.5.4.apk" target="_blank" rel="noopener noreferrer">GitHub 备用下载</a>
         <a class="button secondary" href="./latest.json">查看 latest.json</a>
       </div>
 

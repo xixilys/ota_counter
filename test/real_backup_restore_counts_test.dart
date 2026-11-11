@@ -54,11 +54,74 @@ String _homeEntryKey(Map<String, Object?> row) {
   return 'counter:$group|$name';
 }
 
+/// Old builds stored one multi-person photo as one ledger row per member,
+/// linked by a shared `multi:` group record id. Each row added the photo to
+/// that member's card, but it is one physical photo, so the home total counts
+/// it once. Returns the per-field amount to subtract from the card sum for
+/// the persons that are still visible.
+Map<String, int> _linkedSplitMultiDuplicates(
+  Iterable<Map<String, Object?>> records,
+  Set<String> visibleKeys,
+) {
+  final byGroup = <String, List<Map<String, Object?>>>{};
+  for (final record in records) {
+    final id = '${record['group_record_id'] ?? ''}';
+    if (record['record_type'] == 'multi' && id.startsWith('multi:')) {
+      byGroup.putIfAbsent(id, () => []).add(record);
+    }
+  }
+  final duplicates = {for (final field in _countFields) field: 0};
+  for (final rows in byGroup.values) {
+    // A ledger row may carry a person id the card lacks (or the reverse), so
+    // match on either identity.
+    final visible = rows.where((row) {
+      final name = '${row['person_name'] ?? ''}'.trim().toLowerCase();
+      final group = '${row['group_name'] ?? ''}'.trim().toLowerCase();
+      final subject = '${row['subject_name'] ?? ''}'.trim().toLowerCase();
+      return visibleKeys.contains(_homeEntryKey(row)) ||
+          visibleKeys.contains('counter:$group|$subject') ||
+          (name.isNotEmpty && visibleKeys.contains('name:$name'));
+    });
+    if (visible.length < 2) {
+      continue;
+    }
+    final row = visible.first;
+    final field = _countFields
+        .skip(1)
+        .firstWhere((f) => _int(row[f]) > 0, orElse: () => '');
+    if (field.isEmpty) {
+      continue;
+    }
+    final extra = _int(row[field]) * (visible.length - 1);
+    duplicates[field] = duplicates[field]! + extra;
+    duplicates['count'] = duplicates['count']! + extra;
+  }
+  return duplicates;
+}
+
 class _ExpectedOverview {
-  _ExpectedOverview(Iterable<Map<String, Object?>> rows)
-      : totals = {
+  _ExpectedOverview(
+    Iterable<Map<String, Object?>> rows, [
+    Iterable<Map<String, Object?>> records = const [],
+  ]) : this._(
+            rows,
+            _linkedSplitMultiDuplicates(
+              records,
+              {
+                for (final row in rows) ...[
+                  _homeEntryKey(row),
+                  'name:${'${row['person_name'] ?? ''}'.trim().toLowerCase()}',
+                ],
+              },
+            ));
+
+  _ExpectedOverview._(
+    Iterable<Map<String, Object?>> rows,
+    Map<String, int> duplicates,
+  )   : totals = {
           for (final field in _countFields)
-            field: rows.fold<int>(0, (sum, row) => sum + _int(row[field])),
+            field: rows.fold<int>(0, (sum, row) => sum + _int(row[field])) -
+                duplicates[field]!,
         },
         members = rows.map(_homeEntryKey).toSet().length;
 
@@ -103,6 +166,8 @@ void main() {
 
   tearDown(() async => DatabaseService.clearAppData());
 
+  var backupRecords = <Map<String, Object?>>[];
+
   Future<List<Map<String, Object?>>> restoreRealBackup() async {
     final payload = await ExportImportService.parseImportPayloadFile(
       fileName: backupPath!.split(Platform.pathSeparator).last,
@@ -110,6 +175,9 @@ void main() {
     );
     final backup = payload.fullBackup!;
     final rows = (backup.mainDatabase['counters'] ?? const [])
+        .map((row) => Map<String, Object?>.from(row))
+        .toList();
+    backupRecords = (backup.mainDatabase['activity_records'] ?? const [])
         .map((row) => Map<String, Object?>.from(row))
         .toList();
     await ExportImportService.restoreFullBackup(backup);
@@ -184,7 +252,7 @@ void main() {
       SharedPreferences.setMockInitialValues({});
       final rows = (await tester.runAsync(restoreRealBackup))!;
       await openHome(tester);
-      await expectHomeMatches(tester, _ExpectedOverview(rows));
+      await expectHomeMatches(tester, _ExpectedOverview(rows, backupRecords));
     },
     skip: skip != null,
   );
@@ -201,7 +269,8 @@ void main() {
       await tester.pumpAndSettle();
 
       final visible = rows.where((row) => _int(row['is_hidden']) == 0);
-      await expectHomeMatches(tester, _ExpectedOverview(visible));
+      await expectHomeMatches(
+          tester, _ExpectedOverview(visible, backupRecords));
       final visibleKeys = visible.map(_homeEntryKey).toSet();
       final hiddenMembers = rows
           .where((row) => _int(row['is_hidden']) != 0)

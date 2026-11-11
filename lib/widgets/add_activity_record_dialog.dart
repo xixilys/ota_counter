@@ -13,6 +13,7 @@ import 'no_autofill_text_field.dart';
 
 class ActivityRecordDraft {
   final ActivityRecordType type;
+  final String? groupRecordId;
   final CounterModel? counter;
   final DateTime occurredAt;
   final String note;
@@ -21,6 +22,15 @@ class ActivityRecordDraft {
   final List<ActivityParticipant> multiParticipants;
   final CounterCountField? multiField;
   final bool multiAsGroupCut;
+  final bool preserveUnspecifiedMultiField;
+  // Only seeded from an existing group cut whose members are still unknown.
+  // Such a record has no participants from which to reconstruct its group.
+  // Null means this is not an existing unassigned group cut; '' is a valid
+  // original group name for records created by ActivityRecordModel.multiCut.
+  final String? preservedGroupCutGroupName;
+  // Keep linked multi metadata independently of the single-person edit
+  // exemption, so later edits still preserve it after participants change.
+  final ActivityRecordModel? _existingMultiRecord;
   final int multiQuantity;
   final double multiTotalPrice;
   final String activityName;
@@ -37,6 +47,7 @@ class ActivityRecordDraft {
 
   const ActivityRecordDraft({
     required this.type,
+    this.groupRecordId,
     required this.occurredAt,
     this.counter,
     this.note = '',
@@ -45,6 +56,9 @@ class ActivityRecordDraft {
     this.multiParticipants = const [],
     this.multiField,
     this.multiAsGroupCut = false,
+    this.preserveUnspecifiedMultiField = false,
+    this.preservedGroupCutGroupName,
+    ActivityRecordModel? existingMultiRecord,
     this.multiQuantity = 1,
     this.multiTotalPrice = 0,
     this.activityName = '',
@@ -58,7 +72,7 @@ class ActivityRecordDraft {
     this.ticketUnitPrice = 0,
     this.ticketType = '',
     this.ticketIsFree = false,
-  });
+  }) : _existingMultiRecord = existingMultiRecord;
 
   ActivityRecordDraft copyWith({
     ActivityRecordType? type,
@@ -86,6 +100,7 @@ class ActivityRecordDraft {
   }) {
     return ActivityRecordDraft(
       type: type ?? this.type,
+      groupRecordId: groupRecordId,
       counter: counter ?? this.counter,
       occurredAt: occurredAt ?? this.occurredAt,
       note: note ?? this.note,
@@ -94,6 +109,10 @@ class ActivityRecordDraft {
       multiParticipants: multiParticipants ?? this.multiParticipants,
       multiField: multiField ?? this.multiField,
       multiAsGroupCut: multiAsGroupCut ?? this.multiAsGroupCut,
+      preserveUnspecifiedMultiField:
+          multiField == null && preserveUnspecifiedMultiField,
+      preservedGroupCutGroupName: preservedGroupCutGroupName,
+      existingMultiRecord: _existingMultiRecord,
       multiQuantity: multiQuantity ?? this.multiQuantity,
       multiTotalPrice: multiTotalPrice ?? this.multiTotalPrice,
       activityName: activityName ?? this.activityName,
@@ -119,6 +138,7 @@ class ActivityRecordDraft {
     if (record.isCounter) {
       return ActivityRecordDraft(
         type: ActivityRecordType.counter,
+        groupRecordId: record.groupRecordId,
         counter: resolvedCounter ??
             CounterModel(
               id: record.counterId,
@@ -153,6 +173,10 @@ class ActivityRecordDraft {
       final multiField = record.multiCountField;
       return ActivityRecordDraft(
         type: ActivityRecordType.multi,
+        groupRecordId: record.groupRecordId,
+        preserveUnspecifiedMultiField:
+            (record.groupRecordId?.trim().isNotEmpty ?? false) &&
+                multiField == null,
         occurredAt: record.occurredAt,
         activityName: record.resolvedActivityName,
         venueName: record.resolvedVenueName,
@@ -164,6 +188,11 @@ class ActivityRecordDraft {
             ? CounterCountField.threeInch
             : (multiField ?? CounterCountField.threeInch),
         multiAsGroupCut: multiField == CounterCountField.groupCut,
+        preservedGroupCutGroupName: multiField == CounterCountField.groupCut &&
+                record.effectiveParticipants.isEmpty
+            ? record.groupName
+            : null,
+        existingMultiRecord: record,
         multiQuantity: record.effectiveMultiQuantity,
         multiTotalPrice: record.totalAmount,
       );
@@ -171,6 +200,7 @@ class ActivityRecordDraft {
 
     return ActivityRecordDraft(
       type: ActivityRecordType.ticket,
+      groupRecordId: record.groupRecordId,
       occurredAt: record.occurredAt,
       activityName: record.resolvedActivityName,
       venueName: record.resolvedVenueName,
@@ -183,6 +213,25 @@ class ActivityRecordDraft {
       ticketIsFree: record.resolvedTicketIsFree,
     );
   }
+
+  bool get _preservesUnassignedGroupCut =>
+      type == ActivityRecordType.multi &&
+      multiAsGroupCut &&
+      multiParticipants.isEmpty &&
+      preservedGroupCutGroupName != null;
+
+  bool get _preservesLinkedMultiMetadata {
+    final record = _existingMultiRecord;
+    return type == ActivityRecordType.multi &&
+        record != null &&
+        record.isMulti &&
+        (record.id ?? 0) > 0 &&
+        (record.groupRecordId?.trim().isNotEmpty ?? false);
+  }
+
+  bool get _preservesSplitMulti =>
+      _preservesLinkedMultiMetadata &&
+      _existingMultiRecord!.effectiveParticipants.length == 1;
 
   ActivityRecordModel? toActivityRecord({
     required List<GroupPricingModel> pricings,
@@ -226,6 +275,7 @@ class ActivityRecordDraft {
       if (!preserveCounterPricing) {
         return builtRecord.copyWith(
           source: source,
+          groupRecordId: groupRecordId,
           sourceRecordId: sourceRecordId,
           usesCurrentPricing: followCurrentCounterPricing
               ? true
@@ -245,6 +295,7 @@ class ActivityRecordDraft {
 
       return builtRecord.copyWith(
         source: source,
+        groupRecordId: groupRecordId,
         sourceRecordId: sourceRecordId,
         usesCurrentPricing: false,
         pricingLabel: pricingLabel.trim().isEmpty
@@ -281,7 +332,7 @@ class ActivityRecordDraft {
                   ? (isGroupCut ? '跨团团切' : '跨团多人切')
                   : (isGroupCut ? '团切' : '多人切'))
               : currentPricing.label;
-      return ActivityRecordModel.multiCut(
+      final builtRecord = ActivityRecordModel.multiCut(
         id: id,
         participants: multiParticipants,
         field: isGroupCut
@@ -297,7 +348,51 @@ class ActivityRecordDraft {
         totalPrice: multiTotalPrice,
       ).copyWith(
         source: source,
+        groupRecordId: groupRecordId,
         sourceRecordId: sourceRecordId,
+        groupName:
+            _preservesUnassignedGroupCut ? preservedGroupCutGroupName : null,
+      );
+      if (!_preservesLinkedMultiMetadata) return builtRecord;
+      final existingMultiRecord = _existingMultiRecord!;
+      final preserveCounts = preserveUnspecifiedMultiField && !multiAsGroupCut;
+
+      // Edit just this persisted row, keeping its legacy identity, linkage and
+      // price metadata. Other rows with the same groupRecordId are untouched.
+      return existingMultiRecord.copyWith(
+        id: id,
+        source: source,
+        groupRecordId: groupRecordId,
+        sourceRecordId: sourceRecordId,
+        occurredAt: builtRecord.occurredAt,
+        activityName: builtRecord.activityName,
+        venueName: builtRecord.venueName,
+        sessionLabel: builtRecord.sessionLabel,
+        note: builtRecord.note,
+        pricingLabel: pricingLabel,
+        subjectName: builtRecord.subjectName,
+        secondarySubjectName: builtRecord.secondarySubjectName,
+        participants: builtRecord.participants,
+        threeInchCount: preserveCounts
+            ? existingMultiRecord.threeInchCount
+            : builtRecord.threeInchCount,
+        fiveInchCount: preserveCounts
+            ? existingMultiRecord.fiveInchCount
+            : builtRecord.fiveInchCount,
+        unsignedThreeInchCount: preserveCounts
+            ? existingMultiRecord.unsignedThreeInchCount
+            : builtRecord.unsignedThreeInchCount,
+        unsignedFiveInchCount: preserveCounts
+            ? existingMultiRecord.unsignedFiveInchCount
+            : builtRecord.unsignedFiveInchCount,
+        groupCutCount: preserveCounts
+            ? existingMultiRecord.groupCutCount
+            : builtRecord.groupCutCount,
+        multiCutQuantity:
+            multiQuantity == existingMultiRecord.effectiveMultiQuantity
+                ? existingMultiRecord.multiCutQuantity
+                : builtRecord.multiCutQuantity,
+        totalAmount: builtRecord.totalAmount,
       );
     }
 
@@ -315,6 +410,7 @@ class ActivityRecordDraft {
     );
     return ticketRecord.copyWith(
       source: source,
+      groupRecordId: groupRecordId,
       sourceRecordId: sourceRecordId,
       pricingLabel: pricingLabel.trim().isEmpty
           ? ticketRecord.pricingLabel
@@ -377,6 +473,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
   List<ActivityParticipant> _selectedParticipants = [];
   CounterCountField _selectedMultiField = CounterCountField.threeInch;
   bool _multiAsGroupCut = false;
+  bool _multiFieldEdited = false;
   bool _preserveCounterPricing = false;
   bool _multiPriceEditedInSession = false;
   bool _isApplyingSuggestedMultiPrice = false;
@@ -894,6 +991,11 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     );
   }
 
+  bool get _preservesUnspecifiedMultiField =>
+      widget.initialDraft?.preserveUnspecifiedMultiField == true &&
+      !_multiFieldEdited &&
+      !_multiAsGroupCut;
+
   CounterCountField get _effectiveMultiField {
     return _multiAsGroupCut ? CounterCountField.groupCut : _selectedMultiField;
   }
@@ -1194,6 +1296,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
       Navigator.of(context).pop(
         ActivityRecordDraft(
           type: _type,
+          groupRecordId: widget.initialDraft?.groupRecordId,
           counter: _selectedCounter,
           occurredAt: _occurredAt,
           activityName: _activityNameController.text.trim(),
@@ -1213,7 +1316,16 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     }
 
     if (_type == ActivityRecordType.multi) {
-      if (_selectedParticipants.length < 2 ||
+      final preservesUnassignedGroupCut =
+          widget.initialDraft?._preservesUnassignedGroupCut == true &&
+              _multiAsGroupCut &&
+              _selectedParticipants.isEmpty;
+      final preservesSplitMulti =
+          widget.initialDraft?._preservesSplitMulti == true &&
+              _selectedParticipants.length == 1;
+      if ((_selectedParticipants.length < 2 &&
+              !preservesUnassignedGroupCut &&
+              !preservesSplitMulti) ||
           _multiQuantity <= 0 ||
           (!_multiAsGroupCut &&
               !_multiVisibleFields.contains(_selectedMultiField)) ||
@@ -1224,6 +1336,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
       Navigator.of(context).pop(
         ActivityRecordDraft(
           type: _type,
+          groupRecordId: widget.initialDraft?.groupRecordId,
           occurredAt: _occurredAt,
           activityName: _activityNameController.text.trim(),
           venueName: _venueController.text.trim(),
@@ -1232,6 +1345,10 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
           multiParticipants: _selectedParticipants,
           multiField: _effectiveMultiField,
           multiAsGroupCut: _multiAsGroupCut,
+          preserveUnspecifiedMultiField: _preservesUnspecifiedMultiField,
+          preservedGroupCutGroupName:
+              widget.initialDraft?.preservedGroupCutGroupName,
+          existingMultiRecord: widget.initialDraft?._existingMultiRecord,
           multiQuantity: _multiQuantity,
           multiTotalPrice: _multiTotalPrice,
           pricingLabel: widget.initialDraft?.pricingLabel ?? '',
@@ -1248,6 +1365,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     Navigator.of(context).pop(
       ActivityRecordDraft(
         type: _type,
+        groupRecordId: widget.initialDraft?.groupRecordId,
         occurredAt: _occurredAt,
         activityName: activityName,
         venueName: _venueController.text.trim(),
@@ -1513,7 +1631,9 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
                   ),
                   _MetricPill(
                     label: '当前规格',
-                    value: _effectiveMultiField.label,
+                    value: _preservesUnspecifiedMultiField
+                        ? '未指定'
+                        : _effectiveMultiField.label,
                   ),
                   if (_multiSuggestedUnitPrice != null)
                     _MetricPill(
@@ -1591,6 +1711,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
                 onChanged: (value) {
                   setState(() {
                     _multiAsGroupCut = value;
+                    _multiFieldEdited = true;
                     if (!_multiAsGroupCut &&
                         !_multiVisibleFields.contains(_selectedMultiField)) {
                       _selectedMultiField = _multiVisibleFields.first;
@@ -1610,13 +1731,15 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
                   spacing: 8,
                   runSpacing: 8,
                   children: _multiVisibleFields.map((field) {
-                    final selected = field == _selectedMultiField;
+                    final selected = !_preservesUnspecifiedMultiField &&
+                        field == _selectedMultiField;
                     return ChoiceChip(
                       label: Text(field.label),
                       selected: selected,
                       onSelected: (_) {
                         setState(() {
                           _selectedMultiField = field;
+                          _multiFieldEdited = true;
                         });
                       },
                     );

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../models/counter_model.dart';
+import '../services/settings_service.dart';
 import '../theme/app_theme.dart';
 
 class CounterCountBadgeData {
@@ -32,6 +33,9 @@ class CounterCard extends StatelessWidget {
   final bool isLocked;
   final int gridColumns;
 
+  /// Member-card-only text scale. When omitted the 卡片字号 setting is used.
+  final double? textScale;
+
   const CounterCard({
     super.key,
     required this.counter,
@@ -44,6 +48,7 @@ class CounterCard extends StatelessWidget {
     required this.onEdit,
     this.isLocked = false,
     required this.gridColumns,
+    this.textScale,
   });
 
   @override
@@ -66,6 +71,10 @@ class CounterCard extends StatelessWidget {
         final ultraCompact = gridColumns >= 5 || width < 88;
         final extraCompact = gridColumns >= 4 || width < 104;
         final showBreakdown = gridColumns <= 2;
+        final cardScale = textScale ?? SettingsService.fontScale.value;
+        final safeCardScale = cardScale > 0 ? cardScale : 1.0;
+        final systemTextScale = MediaQuery.textScalerOf(context).scale(1.0);
+        final effectiveTextScale = systemTextScale * safeCardScale;
         final horizontalPadding = ultraCompact ? 7.0 : (compact ? 9.0 : 14.0);
         final verticalPadding = ultraCompact ? 7.0 : (compact ? 9.0 : 13.0);
         final radius = compact ? 18.0 : 22.0;
@@ -142,7 +151,6 @@ class CounterCard extends StatelessWidget {
                               countFontSize: countFontSize,
                               isLocked: isLocked,
                               isHidden: counter.isHidden,
-                              showGroup: !ultraCompact,
                               showAvatar: gridColumns <= 4,
                               onEdit: onEdit,
                               onDelete: onDelete,
@@ -158,6 +166,7 @@ class CounterCard extends StatelessWidget {
                               countFontSize: countFontSize,
                               isLocked: isLocked,
                               showBreakdown: showBreakdown,
+                              textScale: effectiveTextScale,
                               onEdit: onEdit,
                               onDelete: onDelete,
                               onLongPress: onLongPress,
@@ -170,10 +179,20 @@ class CounterCard extends StatelessWidget {
           ),
         );
 
+        // Scale only this card's text, on top of the phone's own font size.
+        // The rest of the app keeps the normal MaterialApp text scaling.
+        final scaledCard = safeCardScale == 1.0
+            ? card
+            : MediaQuery(
+                data: MediaQuery.of(context).copyWith(
+                  textScaler: TextScaler.linear(effectiveTextScale),
+                ),
+                child: card,
+              );
         return RepaintBoundary(
           child: Opacity(
             opacity: counter.isHidden ? 0.58 : 1,
-            child: card,
+            child: scaledCard,
           ),
         );
       },
@@ -191,6 +210,7 @@ class _RegularCardBody extends StatelessWidget {
   final double countFontSize;
   final bool isLocked;
   final bool showBreakdown;
+  final double textScale;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback? onLongPress;
@@ -205,6 +225,7 @@ class _RegularCardBody extends StatelessWidget {
     required this.countFontSize,
     required this.isLocked,
     required this.showBreakdown,
+    required this.textScale,
     required this.onEdit,
     required this.onDelete,
     required this.onLongPress,
@@ -218,6 +239,8 @@ class _RegularCardBody extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Avatar, status icons and the menu share the top row; the name and
+        // group get the full width underneath.
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -226,40 +249,10 @@ class _RegularCardBody extends StatelessWidget {
               accent: accent,
               size: 38,
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    counter.name,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontSize: nameFontSize,
-                      fontWeight: FontWeight.w800,
-                      height: 1.18,
-                      color: scheme.onSurface,
-                    ),
-                  ),
-                  if (counter.groupName.trim().isNotEmpty) ...[
-                    const SizedBox(height: 3),
-                    Text(
-                      counter.groupName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        fontSize: 11,
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
+            const Spacer(),
             if (isLocked || counter.isHidden)
               Padding(
-                padding: const EdgeInsets.only(left: 4, top: 2),
+                padding: const EdgeInsets.only(left: 4, top: 2, right: 2),
                 child: _StatusIcons(
                   isLocked: isLocked,
                   isHidden: counter.isHidden,
@@ -275,6 +268,30 @@ class _RegularCardBody extends StatelessWidget {
             ),
           ],
         ),
+        const SizedBox(height: 8),
+        Text(
+          counter.name,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontSize: nameFontSize,
+            fontWeight: FontWeight.w800,
+            height: 1.18,
+            color: scheme.onSurface,
+          ),
+        ),
+        if (counter.groupName.trim().isNotEmpty) ...[
+          const SizedBox(height: 3),
+          Text(
+            counter.groupName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.labelMedium?.copyWith(
+              fontSize: 11,
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+        ],
         const SizedBox(height: 10),
         Row(
           crossAxisAlignment: CrossAxisAlignment.end,
@@ -324,6 +341,7 @@ class _RegularCardBody extends StatelessWidget {
             child: _CountGrid(
               entries: breakdownEntries,
               accent: accent,
+              textScale: textScale,
             ),
           ),
         ] else
@@ -346,7 +364,6 @@ class _CompactCardBody extends StatelessWidget {
   final double countFontSize;
   final bool isLocked;
   final bool isHidden;
-  final bool showGroup;
   final bool showAvatar;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
@@ -360,7 +377,6 @@ class _CompactCardBody extends StatelessWidget {
     required this.countFontSize,
     required this.isLocked,
     required this.isHidden,
-    required this.showGroup,
     required this.showAvatar,
     required this.onEdit,
     required this.onDelete,
@@ -372,13 +388,28 @@ class _CompactCardBody extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
 
+    final name = Text(
+      counter.name,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: theme.textTheme.titleSmall?.copyWith(
+        fontSize: nameFontSize,
+        fontWeight: FontWeight.w800,
+        height: 1.12,
+        color: scheme.onSurface,
+      ),
+    );
+
+    // The top row holds only the avatar, status icons and menu. The name and
+    // group then use the full card width, which keeps 3-character names on one
+    // line even in a 5-column grid.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (showAvatar) ...[
+            if (showAvatar)
               _Avatar(
                 label: counter.name.trim().isEmpty
                     ? '?'
@@ -386,24 +417,10 @@ class _CompactCardBody extends StatelessWidget {
                 accent: accent,
                 size: 24,
               ),
-              const SizedBox(width: 6),
-            ],
-            Expanded(
-              child: Text(
-                counter.name,
-                maxLines: showAvatar ? 2 : 3,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontSize: nameFontSize,
-                  fontWeight: FontWeight.w800,
-                  height: 1.12,
-                  color: scheme.onSurface,
-                ),
-              ),
-            ),
+            const Spacer(),
             if (isLocked || isHidden)
               Padding(
-                padding: const EdgeInsets.only(left: 2),
+                padding: const EdgeInsets.only(left: 2, right: 1),
                 child: _StatusIcons(
                   isLocked: isLocked,
                   isHidden: isHidden,
@@ -421,44 +438,40 @@ class _CompactCardBody extends StatelessWidget {
             ),
           ],
         ),
+        SizedBox(height: showAvatar ? 5 : 4),
+        name,
+        if (counter.groupName.trim().isNotEmpty) ...[
+          const SizedBox(height: 2),
+          Text(
+            counter.groupName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.labelSmall?.copyWith(
+              fontSize: 9,
+              color: scheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
         const Spacer(),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            if (showGroup)
-              Expanded(
-                child: Text(
-                  counter.groupName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    fontSize: 9,
-                    color: scheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              )
-            else
-              const Spacer(),
-            const SizedBox(width: 4),
-            Flexible(
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerRight,
-                child: Text(
-                  '$totalCount',
-                  style: TextStyle(
-                    fontSize: countFontSize,
-                    fontWeight: FontWeight.w900,
-                    height: 1,
-                    letterSpacing: -0.8,
-                    color: scheme.onSurface,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
-                ),
+        Align(
+          alignment: Alignment.bottomRight,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerRight,
+            child: Text(
+              '$totalCount',
+              maxLines: 1,
+              style: TextStyle(
+                fontSize: countFontSize,
+                fontWeight: FontWeight.w900,
+                height: 1,
+                letterSpacing: -0.8,
+                color: scheme.onSurface,
+                fontFeatures: const [FontFeature.tabularFigures()],
               ),
             ),
-          ],
+          ),
         ),
       ],
     );
@@ -489,6 +502,7 @@ class _Avatar extends StatelessWidget {
       ),
       child: Text(
         label,
+        textScaler: TextScaler.noScaling,
         style: TextStyle(
           fontSize: size * 0.42,
           fontWeight: FontWeight.w800,
@@ -665,11 +679,16 @@ class _MenuItem extends StatelessWidget {
 class _CountGrid extends StatelessWidget {
   final List<CounterCountBadgeData> entries;
   final Color accent;
+  final double textScale;
 
   const _CountGrid({
     required this.entries,
     required this.accent,
+    required this.textScale,
   });
+
+  static double tileHeightFor(double textScale) =>
+      32.0 * math.max(1.0, textScale);
 
   @override
   Widget build(BuildContext context) {
@@ -687,14 +706,39 @@ class _CountGrid extends StatelessWidget {
         const spacing = 6.0;
         const minTileWidth = 64.0;
         final maxWidth = constraints.maxWidth;
-        final columns = math
+        var columns = math
             .max(1, ((maxWidth + spacing) / (minTileWidth + spacing)).floor())
             .clamp(1, 3);
+        final tileHeight = tileHeightFor(textScale);
+
+        // Never paint a series of badges taller than the space the card gave
+        // us. Whole rows only, so a row is never cut in half. If the usual
+        // column count leaves rows outside the card, first try a denser grid
+        // (up to three badges per row) before dropping anything.
+        final maxRows = constraints.maxHeight.isFinite
+            ? math.max(
+                0,
+                ((constraints.maxHeight + spacing) / (tileHeight + spacing))
+                    .floor(),
+              )
+            : visibleEntries.length;
+        if (visibleEntries.length > maxRows * columns) {
+          for (var candidate = columns + 1; candidate <= 3; candidate++) {
+            if (visibleEntries.length <= maxRows * candidate) {
+              columns = candidate;
+              break;
+            }
+          }
+        }
         final itemWidth = math.max(
           0.0,
           (maxWidth - ((columns - 1) * spacing)) / columns,
         );
-        final count = visibleEntries.length;
+        final count = math.min(visibleEntries.length, maxRows * columns);
+        if (count == 0) {
+          return const SizedBox.shrink();
+        }
+        final shown = visibleEntries.take(count).toList(growable: false);
 
         return Align(
           alignment: Alignment.topLeft,
@@ -702,16 +746,18 @@ class _CountGrid extends StatelessWidget {
             spacing: spacing,
             runSpacing: spacing,
             children: [
-              for (var i = 0; i < count; i++)
+              for (var i = 0; i < shown.length; i++)
                 SizedBox(
                   // A lone tile on the last row stretches to the full width.
-                  width: (i == count - 1 && count % columns == 1)
+                  width: (i == shown.length - 1 && shown.length % columns == 1)
                       ? maxWidth
                       : itemWidth,
                   child: _CountBadge(
-                    label: visibleEntries[i].label,
-                    value: visibleEntries[i].value,
+                    key: ValueKey<String>('count-badge-${shown[i].label}'),
+                    label: shown[i].label,
+                    value: shown[i].value,
                     accent: accent,
+                    height: tileHeight,
                   ),
                 ),
             ],
@@ -726,11 +772,14 @@ class _CountBadge extends StatelessWidget {
   final String label;
   final int value;
   final Color accent;
+  final double height;
 
   const _CountBadge({
+    super.key,
     required this.label,
     required this.value,
     required this.accent,
+    required this.height,
   });
 
   @override
@@ -743,8 +792,8 @@ class _CountBadge extends StatelessWidget {
         : scheme.onSurface;
 
     return Container(
-      height: 32,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
+      height: height,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
         color: accent.withValues(alpha: isZero ? 0.045 : 0.075),
         borderRadius: BorderRadius.circular(10),
@@ -771,22 +820,99 @@ class _CountBadge extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 4),
-          Text(
-            '$value',
-            maxLines: 1,
-            softWrap: false,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w900,
-              height: 1,
-              color: textColor,
-              fontFeatures: const [FontFeature.tabularFigures()],
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Text(
+                '$value',
+                maxLines: 1,
+                softWrap: false,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                  height: 1,
+                  color: textColor,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
             ),
           ),
         ],
       ),
     );
   }
+}
+
+/// Height the home grid should give a member card.
+///
+/// Reserves two name lines, a full-width group line, the total row and enough
+/// breakdown rows for [breakdownEntryCount]. Scaling this with the 卡片字号
+/// setting keeps the fixed grid extent from clipping card content.
+double counterCardHeight({
+  required int gridColumns,
+  required double availableWidth,
+  required double crossAxisSpacing,
+  required double textScale,
+  int breakdownEntryCount = 4,
+}) {
+  final scale = textScale > 0 ? textScale : 1.0;
+  final itemWidth = math.max(
+    0.0,
+    (availableWidth - ((gridColumns - 1) * crossAxisSpacing)) / gridColumns,
+  );
+
+  if (gridColumns <= 2) {
+    final nameFontSize = itemWidth < 190 ? 15.0 : 17.0;
+    final countFontSize = itemWidth < 190 ? 38.0 : 44.0;
+    final innerWidth = math.max(0.0, itemWidth - 31.0);
+    const spacing = 6.0;
+    const minTileWidth = 64.0;
+    final tileColumns = math
+        .max(1, ((innerWidth + spacing) / (minTileWidth + spacing)).floor())
+        .clamp(1, 3);
+    final breakdownRows = breakdownEntryCount <= 0
+        ? 0
+        : (breakdownEntryCount + tileColumns - 1) ~/ tileColumns;
+    final tileHeight = _CountGrid.tileHeightFor(math.max(1.0, scale));
+    final breakdownHeight = breakdownRows == 0
+        ? 0.0
+        : breakdownRows * tileHeight + (breakdownRows - 1) * spacing;
+
+    final contentHeight = 2 * 13.0 +
+        38.0 +
+        8.0 +
+        2 * nameFontSize * 1.18 * scale +
+        3.0 +
+        11.0 * 1.2 * scale +
+        10.0 +
+        countFontSize * 0.95 * scale +
+        10.0 +
+        breakdownHeight +
+        10.0;
+    return math.max(gridColumns == 1 ? 248.0 : 228.0, contentHeight);
+  }
+
+  final verticalPadding = gridColumns >= 5 ? 7.0 : 9.0;
+  final nameFontSize =
+      gridColumns >= 5 ? 9.5 : (gridColumns >= 4 ? 10.5 : 11.5);
+  final countFontSize =
+      gridColumns >= 5 ? 23.0 : (gridColumns >= 4 ? 27.0 : 30.0);
+  final contentHeight = 2 * verticalPadding +
+      24.0 +
+      (gridColumns <= 4 ? 5.0 : 4.0) +
+      2 * nameFontSize * 1.12 * scale +
+      2.0 +
+      9.0 * 1.2 * scale +
+      6.0 +
+      countFontSize * scale +
+      8.0;
+  final baseHeight = switch (gridColumns) {
+    3 => 140.0,
+    4 => 108.0,
+    _ => 94.0,
+  };
+  return math.max(baseHeight, contentHeight);
 }
 
 /// Builds the count tiles shown on a home card.

@@ -250,6 +250,102 @@ void main() {
     });
   }
 
+  for (final hiddenCount in [0, 1, 2]) {
+    for (final showHidden in [false, true]) {
+      testWidgets(
+          'linked split rows: hidden=$hiddenCount show=$showHidden count one physical photo',
+          (tester) async {
+        SharedPreferences.setMockInitialValues(
+            {'show_hidden_counters': showHidden});
+        late List<ActivityRecordModel> before;
+        await tester.runAsync(() async {
+          for (var i = 0; i < 2; i++) {
+            final member = i == 0 ? 'A' : 'B';
+            await DatabaseService.insertCounter(CounterModel(
+                name: member,
+                groupName: 'G',
+                color: '#ffffff',
+                isHidden: i < hiddenCount));
+            final raw = ActivityRecordModel.multiCut(
+                    participants: [
+                  ActivityParticipant(memberName: member, groupName: 'G')
+                ],
+                    field: CounterCountField.groupCut,
+                    occurredAt: DateTime(2026, 3, 18),
+                    quantity: 1,
+                    totalPrice: 60)
+                .toMap()
+              ..['group_record_id'] = 'same-photo'
+              ..['multi_participants_json'] = null;
+            await DatabaseService.insertActivityRecordWithCounterImpact(
+                ActivityRecordModel.fromMap(raw));
+          }
+          before = await DatabaseService.getActivityRecords();
+        });
+        await openHome(tester);
+        final visible = showHidden ? 2 : 2 - hiddenCount;
+        expectMetric(tester, '累计切奇', visible == 0 ? 0 : 1);
+        expectMetric(tester, '团切', visible == 0 ? 0 : 1);
+        final cards = cardCounts(tester);
+        expect(cards, hasLength(visible));
+        expect(cards.values, everyElement(1));
+        final after =
+            (await tester.runAsync(DatabaseService.getActivityRecords))!;
+        expect(after.map((r) => r.toMap()), before.map((r) => r.toMap()));
+        final counters = (await tester.runAsync(DatabaseService.getCounters))!;
+        expect(counters.map((c) => c.groupCutCount), [1, 1]);
+      });
+    }
+  }
+
+  testWidgets(
+      'linked events do not deduplicate independent ids, ordinary multis or opening counters',
+      (tester) async {
+    await tester.runAsync(() async {
+      // Existing card counts are the baseline, never reconstructed from rows.
+      for (final member in ['A', 'B']) {
+        await DatabaseService.insertCounter(CounterModel(
+            name: member, groupName: 'G', color: '#ffffff', threeInchCount: 7));
+      }
+      for (final groupId in ['first', 'second']) {
+        for (final member in ['A', 'B']) {
+          final raw = ActivityRecordModel.multiCut(
+                  participants: [
+                ActivityParticipant(memberName: member, groupName: 'G')
+              ],
+                  field: CounterCountField.unsignedThreeInch,
+                  occurredAt: DateTime(2026, 3, 18),
+                  totalPrice: 60)
+              .toMap()
+            ..['group_record_id'] = groupId;
+          await DatabaseService.insertActivityRecordWithCounterImpact(
+              ActivityRecordModel.fromMap(raw));
+        }
+      }
+      // Same date and cast without linkage still mean separate ordinary events.
+      for (var i = 0; i < 2; i++) {
+        await DatabaseService.insertActivityRecordWithCounterImpact(
+            ActivityRecordModel.multiCut(
+                participants: const [
+              ActivityParticipant(memberName: 'A', groupName: 'G'),
+              ActivityParticipant(memberName: 'B', groupName: 'G')
+            ],
+                field: CounterCountField.threeInch,
+                occurredAt: DateTime(2026, 3, 18),
+                totalPrice: 120));
+      }
+    });
+    await openHome(tester);
+    expectMetric(tester, '累计切奇', 18); // opening 14 + linked 2 + ordinary 2
+    expectMetric(
+        tester, '3寸', 18); // unsigned specs aggregate into the base field
+    expect(cardCounts(tester), {'A': 11, 'B': 11});
+    final records =
+        (await tester.runAsync(DatabaseService.getActivityRecords))!;
+    expect(records, hasLength(6));
+    expect(records.fold<double>(0, (sum, r) => sum + r.totalAmount), 480);
+  });
+
   testWidgets('legacy counters without records retain their group cut totals',
       (tester) async {
     await tester.runAsync(() => DatabaseService.insertCounter(

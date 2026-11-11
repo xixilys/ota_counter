@@ -1,25 +1,27 @@
 {
   "appName": "OTA Counter",
-  "versionName": "1.5.4",
-  "versionCode": 20,
-  "versionLabel": "v1.5.4",
-  "title": "OTA Counter v1.5.4",
+  "versionName": "1.6.0",
+  "versionCode": 21,
+  "versionLabel": "v1.6.0",
+  "title": "OTA Counter v1.6.0 测试版",
   "notes": [
-    "修复偶像资料刷新后同一成员被拆成多张卡的问题，自动合并重复成员与计数卡",
-    "修复卡片总数包含团切、但分项里看不到团切导致总数对不上的问题",
-    "大型完整备份改为流式导入导出，200MB 级照片备份不再一次性占用大量内存",
-    "相册与缩略图按显示尺寸解码，减少图片列表内存占用和重复数据库查询"
+    "【测试版】这是测试版本，新功能可能还不稳定；更新前建议先在菜单里做一次完整备份",
+    "新增批量导入切奇：拍一张摆满拍立得的桌面照片，自动切出每一张，并按人脸识别预填成员",
+    "新增人脸登记：在成员页登记几张照片后，识别会越用越准；识别没把握的会留给你确认",
+    "新增 MCP 同步：可以让 AI 助手查询切奇数据、代记切奇和门票，App 同步时生效",
+    "新增门票与票价记录、演出名单页面；首页和统计界面改版，偶像资料库补充了大量团体",
+    "成员卡片名字不再被挤成一列，可在菜单「卡片字号」放大卡片文字；统计页修正隐藏成员、凌晨记录、多人切重复计数等问题"
   ],
-  "publishedAt": "2026-10-18T22:56:01+08:00",
+  "publishedAt": "2026-11-11T14:31:01+08:00",
   "force": false,
-  "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.5.4.apk",
+  "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.6.0.apk",
   "downloadPageUrl": "https://ota-counter.huangxuanqi.top/ota-counter/",
-  "backupUrl": "https://github.com/xixilys/ota_counter/releases/download/v1.5.4/OTA-Counter-v1.5.4.apk",
+  "backupUrl": "https://github.com/xixilys/ota_counter/releases/download/v1.6.0/OTA-Counter-v1.6.0.apk",
   "platforms": {
     "android": {
-      "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.5.4.apk",
+      "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.6.0.apk",
       "downloadPageUrl": "https://ota-counter.huangxuanqi.top/ota-counter/",
-      "backupUrl": "https://github.com/xixilys/ota_counter/releases/download/v1.5.4/OTA-Counter-v1.5.4.apk"
+      "backupUrl": "https://github.com/xixilys/ota_counter/releases/download/v1.6.0/OTA-Counter-v1.6.0.apk"
     },
     "ios": {
       "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/#ios",

@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'app_metadata.dart';
 import 'models/activity_record_model.dart';
+import 'models/chart_stats_helpers.dart';
 import 'models/counter_model.dart';
 import 'models/ticket_type_model.dart';
 import 'pages/batch_capture_page.dart';
@@ -46,6 +47,12 @@ void main() async {
     databaseFactory = databaseFactoryFfi;
   }
 
+  try {
+    await SettingsService.loadFontScale();
+  } catch (_) {
+    // Keep the default size if preferences are unreadable.
+  }
+
   runApp(const MyApp());
 }
 
@@ -54,26 +61,34 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: kAppDisplayName,
-      debugShowCheckedModeBanner: false,
-      locale: const Locale('zh', 'CN'),
-      supportedLocales: const [
-        Locale('zh', 'CN'),
-        Locale('en', 'US'),
-      ],
-      localizationsDelegates: GlobalMaterialLocalizations.delegates,
-      themeMode: ThemeMode.system,
-      themeAnimationDuration: const Duration(milliseconds: 260),
-      theme: AppTheme.light(),
-      darkTheme: AppTheme.dark(),
-      home: const MyHomePage(),
+    return ValueListenableBuilder<double>(
+      valueListenable: SettingsService.fontScale,
+      builder: (context, cardFontScale, _) => MaterialApp(
+        title: kAppDisplayName,
+        debugShowCheckedModeBanner: false,
+        locale: const Locale('zh', 'CN'),
+        supportedLocales: const [
+          Locale('zh', 'CN'),
+          Locale('en', 'US'),
+        ],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        themeMode: ThemeMode.system,
+        themeAnimationDuration: const Duration(milliseconds: 260),
+        theme: AppTheme.light(),
+        darkTheme: AppTheme.dark(),
+        // 卡片字号 only affects member cards, so nothing is wrapped here.
+        home: MyHomePage(cardTextScale: cardFontScale),
+      ),
     );
   }
 }
 
 class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key});
+  /// Member-card text scale from the 卡片字号 setting. Pages outside the
+  /// member grid ignore it.
+  final double? cardTextScale;
+
+  const MyHomePage({super.key, this.cardTextScale});
 
   @override
   State<MyHomePage> createState() => _MyHomePageState();
@@ -136,6 +151,9 @@ class _MyHomePageState extends State<MyHomePage> {
   String _appBuildLabel = '';
   int _appVersionCode = 0;
   bool _autoUpdateCheckScheduled = false;
+
+  double get _cardTextScale =>
+      widget.cardTextScale ?? SettingsService.fontScale.value;
 
   @override
   void initState() {
@@ -658,27 +676,33 @@ class _MyHomePageState extends State<MyHomePage> {
         _scopedCounters.map((counter) => counter.id).whereType<int>().toSet();
     var duplicateContributionTotal = 0;
     final duplicateByField = <CounterCountField, int>{};
-    for (final record in _activityRecords) {
-      if (!record.isMulti) {
-        continue;
-      }
-      // A legacy multi row with only a quantity and no selected count field
-      // never touched counter totals; subtracting it would under-count the
-      // home overview.
-      final rawField = record.multiCountField;
+    final recordScope = ChartRecordScope(
+      counters: _counters,
+      records: _activityRecords,
+      showHiddenCounters: _showHiddenCounters,
+    );
+    for (final event in recordScope.multiEvents(recordScope.records)) {
+      // Quantity-only legacy rows never touched counter totals.
+      final rawField = event.field;
       if (rawField == null) {
         continue;
       }
-      final visibleParticipantCount = _visibleParticipantCountForMultiRecord(
-        record,
-        visibleIds: visibleIds,
+      // Counter cards retain each source row's contribution. Subtract only the
+      // extra visible contributions to the same physical photo event.
+      final visibleParticipantCount = event.records.fold<int>(
+        0,
+        (sum, record) =>
+            sum +
+            _visibleParticipantCountForMultiRecord(
+              record,
+              visibleIds: visibleIds,
+            ),
       );
       if (visibleParticipantCount <= 1) {
         continue;
       }
-
       final duplicateContribution =
-          record.multiTotalCount * (visibleParticipantCount - 1);
+          event.quantity * (visibleParticipantCount - 1);
       duplicateContributionTotal += duplicateContribution;
       final overviewField = rawField.aggregatedBaseField;
       duplicateByField[overviewField] =
@@ -1480,6 +1504,47 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
+  void _showFontScaleDialog() {
+    showDialog<void>(
+      context: context,
+      useRootNavigator: true,
+      builder: (context) => ValueListenableBuilder<double>(
+        valueListenable: SettingsService.fontScale,
+        builder: (context, current, _) => AlertDialog(
+          title: const Text('卡片字号'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SegmentedButton<double>(
+                segments: [
+                  for (final entry in SettingsService.fontScaleOptions.entries)
+                    ButtonSegment(value: entry.key, label: Text(entry.value)),
+                ],
+                selected: {current},
+                showSelectedIcon: false,
+                onSelectionChanged: (value) =>
+                    SettingsService.saveFontScale(value.first),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '在手机系统字号基础上，只放大首页成员卡片的名称、团体与计数，'
+                '不影响其他页面。',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('完成'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showGridSizeDialog() {
     showDialog(
       context: context,
@@ -2098,20 +2163,16 @@ class _MyHomePageState extends State<MyHomePage> {
     required int gridColumns,
     required double availableWidth,
     required double crossAxisSpacing,
+    required double textScale,
+    required int breakdownEntryCount,
   }) {
-    final itemWidth = math.max(
-      0.0,
-      (availableWidth - ((gridColumns - 1) * crossAxisSpacing)) / gridColumns,
+    return counterCardHeight(
+      gridColumns: gridColumns,
+      availableWidth: availableWidth,
+      crossAxisSpacing: crossAxisSpacing,
+      textScale: textScale,
+      breakdownEntryCount: breakdownEntryCount,
     );
-
-    return switch (gridColumns) {
-      1 => math.max(248.0, itemWidth * 0.72),
-      2 => math.max(228.0, itemWidth * 1.08),
-      3 => math.max(140.0, itemWidth + 14.0),
-      4 => math.max(108.0, itemWidth + 18.0),
-      5 => math.max(94.0, itemWidth + 24.0),
-      _ => math.max(228.0, itemWidth * 1.08),
-    };
   }
 
   Widget _buildOverviewCard(BuildContext context) {
@@ -2655,6 +2716,9 @@ class _MyHomePageState extends State<MyHomePage> {
                 case 'grid':
                   _showGridSizeDialog();
                   break;
+                case 'fontScale':
+                  _showFontScaleDialog();
+                  break;
                 case 'toggleHidden':
                   _toggleShowHiddenCounters();
                   break;
@@ -2732,6 +2796,16 @@ class _MyHomePageState extends State<MyHomePage> {
                     Icon(Icons.grid_view_rounded),
                     SizedBox(width: 8),
                     Text('网格大小'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'fontScale',
+                child: Row(
+                  children: [
+                    Icon(Icons.format_size_rounded),
+                    SizedBox(width: 8),
+                    Text('卡片字号'),
                   ],
                 ),
               ),
@@ -2866,10 +2940,22 @@ class _MyHomePageState extends State<MyHomePage> {
                 : 16.0;
             final contentWidth =
                 math.max(0.0, constraints.maxWidth - horizontalPadding * 2);
+            final maxBreakdownEntries = homeEntries.isEmpty
+                ? 4
+                : homeEntries.fold<int>(
+                    1,
+                    (maxEntries, entry) => math.max(
+                      maxEntries,
+                      entry.breakdownEntries.length,
+                    ),
+                  );
+            final systemTextScale = MediaQuery.textScalerOf(context).scale(1.0);
             final cardHeight = _calculateCardHeight(
               gridColumns: gridColumns,
               availableWidth: contentWidth,
               crossAxisSpacing: crossAxisSpacing,
+              textScale: systemTextScale * _cardTextScale,
+              breakdownEntryCount: maxBreakdownEntries,
             );
 
             return RefreshIndicator(
@@ -2960,6 +3046,7 @@ class _MyHomePageState extends State<MyHomePage> {
                               onDelete: () => _deleteHomeEntry(entry),
                               isLocked: _isLocked,
                               gridColumns: gridColumns,
+                              textScale: _cardTextScale,
                             );
                           },
                           childCount: homeEntries.length,

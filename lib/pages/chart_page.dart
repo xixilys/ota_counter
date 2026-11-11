@@ -10,6 +10,8 @@ import '../models/counter_model.dart';
 import '../models/group_pricing_model.dart';
 import '../models/ticket_type_model.dart';
 import '../services/database_service.dart';
+import '../services/face/face_recognition_rules.dart';
+import '../services/settings_service.dart';
 import '../services/ticket_pricing_service.dart';
 import '../widgets/add_activity_record_dialog.dart';
 import '../widgets/app_page_background.dart';
@@ -32,7 +34,11 @@ class ChartPage extends StatefulWidget {
 
 class _ChartPageState extends State<ChartPage> {
   List<CounterModel> _counters = [];
-  List<ActivityRecordModel> _records = [];
+  ChartRecordScope _recordScope = ChartRecordScope(
+    counters: const [],
+    records: const [],
+    showHiddenCounters: false,
+  );
   List<ActivityRecordMediaModel> _recordMedia = [];
   List<GroupPricingModel> _pricings = [];
   Map<String, GroupPricingModel> _pricingsByGroupName = const {};
@@ -40,7 +46,7 @@ class _ChartPageState extends State<ChartPage> {
   bool _initialComposerHandled = false;
   StatsScope _scope = StatsScope.day;
   MemberStatsMode _memberStatsMode = MemberStatsMode.group;
-  DateTime _anchor = DateTime.now();
+  DateTime _anchor = activityDayOf(DateTime.now());
 
   @override
   void initState() {
@@ -53,6 +59,7 @@ class _ChartPageState extends State<ChartPage> {
       _loading = true;
     });
 
+    final showHidden = await SettingsService.getShowHiddenCounters();
     final counters = await DatabaseService.getCounters();
     final records = await DatabaseService.getActivityRecords();
     final recordIds =
@@ -68,7 +75,11 @@ class _ChartPageState extends State<ChartPage> {
 
     setState(() {
       _counters = counters;
-      _records = records;
+      _recordScope = ChartRecordScope(
+        counters: counters,
+        records: records,
+        showHiddenCounters: showHidden,
+      );
       _recordMedia = media;
       _pricings = pricings;
       _pricingsByGroupName = {
@@ -98,14 +109,9 @@ class _ChartPageState extends State<ChartPage> {
 
   List<ActivityRecordModel> get _filteredRecords {
     final range = _activeRange;
-    if (range == null) {
-      return _records;
-    }
-
-    return _records.where((record) {
-      return !record.occurredAt.isBefore(range.start) &&
-          record.occurredAt.isBefore(range.end);
-    }).toList();
+    return range == null
+        ? _recordScope.records
+        : _recordScope.recordsBetween(range.start, range.end);
   }
 
   String _formatDate(DateTime value) {
@@ -154,12 +160,8 @@ class _ChartPageState extends State<ChartPage> {
     final summaries = <DateTime, _CalendarDaySummaryBuilder>{};
     final recordsById = <int, ActivityRecordModel>{};
 
-    for (final record in _records) {
-      final occurredDay = DateTime(
-        record.occurredAt.year,
-        record.occurredAt.month,
-        record.occurredAt.day,
-      );
+    for (final record in _recordScope.records) {
+      final occurredDay = recordActivityDay(record.occurredAt);
       if (occurredDay.isBefore(monthStart) || !occurredDay.isBefore(monthEnd)) {
         continue;
       }
@@ -176,15 +178,17 @@ class _ChartPageState extends State<ChartPage> {
       }
       if (record.isTicket) {
         summary.ticketCount += record.ticketQuantity;
-      } else if (record.isMulti) {
-        summary.cutCount += record.multiTotalCount;
-      } else {
+      } else if (!record.isMulti) {
         summary.cutCount += record.counterCountTotal;
       }
 
       if (record.id != null) {
         recordsById[record.id!] = record;
       }
+    }
+
+    for (final event in _recordScope.multiEvents(_recordScope.records)) {
+      summaries[event.day]?.cutCount += event.quantity;
     }
 
     for (final media in _recordMedia) {
@@ -195,11 +199,7 @@ class _ChartPageState extends State<ChartPage> {
       if (record == null) {
         continue;
       }
-      final occurredDay = DateTime(
-        record.occurredAt.year,
-        record.occurredAt.month,
-        record.occurredAt.day,
-      );
+      final occurredDay = recordActivityDay(record.occurredAt);
       final summary = summaries.putIfAbsent(
         occurredDay,
         () => _CalendarDaySummaryBuilder(date: occurredDay),
@@ -323,7 +323,7 @@ class _ChartPageState extends State<ChartPage> {
     if (nextRange == null) {
       return false;
     }
-    final today = DateTime.now();
+    final today = activityDayOf(DateTime.now());
     return !nextRange.start.isAfter(
       DateTime(today.year, today.month, today.day),
     );
@@ -565,12 +565,6 @@ class _ChartPageState extends State<ChartPage> {
     }
   }
 
-  String _memberStatKey(String groupName, String subjectName) {
-    final normalizedGroup = groupName.trim().toLowerCase();
-    final normalizedSubject = subjectName.trim().toLowerCase();
-    return '$normalizedGroup|$normalizedSubject';
-  }
-
   GroupPricingModel? _resolvePricingByGroupName(String groupName) {
     final normalizedGroup = groupName.trim();
     if (normalizedGroup.isEmpty) {
@@ -579,20 +573,6 @@ class _ChartPageState extends State<ChartPage> {
 
     return _pricingsByGroupName[normalizedGroup] ??
         GroupPricingModel.unconfigured(normalizedGroup);
-  }
-
-  String _personStatKey({
-    required int? personId,
-    required String personName,
-    required String groupName,
-    required String subjectName,
-  }) {
-    return chartPersonStatsKey(
-      personId: personId,
-      personName: personName,
-      groupName: groupName,
-      subjectName: subjectName,
-    );
   }
 
   bool _shouldUseCurrentPricingForRecord(ActivityRecordModel record) {
@@ -625,11 +605,8 @@ class _ChartPageState extends State<ChartPage> {
   }
 
   double _effectiveMultiParticipantAmountShare(ActivityRecordModel record) {
-    final participantCount = record.multiParticipantCount;
-    if (participantCount <= 0) {
-      return 0;
-    }
-    return _effectiveTotalAmount(record) / participantCount;
+    return _recordScope.multiParticipantAmountShare(
+        record, _effectiveTotalAmount(record));
   }
 
   String _effectivePricingLabel(ActivityRecordModel record) {
@@ -772,8 +749,9 @@ class _ChartPageState extends State<ChartPage> {
     final calendarSummaries = _calendarMonthSummaries;
     final selectedCalendarDate = _selectedCalendarDate;
     final selectedCalendarSummary = calendarSummaries[selectedCalendarDate];
-    final selectedDayRecords = _records.where((record) {
-      return _sameDay(record.occurredAt, selectedCalendarDate);
+    final selectedDayRecords = _recordScope.records.where((record) {
+      return _sameDay(
+          recordActivityDay(record.occurredAt), selectedCalendarDate);
     }).toList()
       ..sort((a, b) {
         final timeCompare = b.occurredAt.compareTo(a.occurredAt);
@@ -783,7 +761,10 @@ class _ChartPageState extends State<ChartPage> {
         return (b.id ?? 0).compareTo(a.id ?? 0);
       });
     final selectedDayMediaByRecordId = <int, List<ActivityRecordMediaModel>>{};
+    final selectedRecordIds =
+        selectedDayRecords.map((record) => record.id).toSet();
     for (final media in _recordMedia) {
+      if (!selectedRecordIds.contains(media.recordId)) continue;
       final bucket = selectedDayMediaByRecordId.putIfAbsent(
         media.recordId,
         () => <ActivityRecordMediaModel>[],
@@ -797,6 +778,7 @@ class _ChartPageState extends State<ChartPage> {
     final multiRecords = filteredRecords
         .where((record) => record.isMulti)
         .toList(growable: false);
+    final multiEvents = _recordScope.multiEvents(multiRecords);
     final ticketRecords = filteredRecords
         .where((record) => record.isTicket)
         .toList(growable: false);
@@ -805,9 +787,9 @@ class _ChartPageState extends State<ChartPage> {
       0,
       (sum, record) => sum + record.counterCountTotal,
     );
-    final multiCountTotal = multiRecords.fold<int>(
+    final multiCountTotal = multiEvents.fold<int>(
       0,
-      (sum, record) => sum + record.multiTotalCount,
+      (sum, event) => sum + event.quantity,
     );
     final ticketCountTotal = ticketRecords.fold<int>(
       0,
@@ -820,7 +802,10 @@ class _ChartPageState extends State<ChartPage> {
     final memberContributionTotal = counterCountTotal +
         multiRecords.fold<int>(
           0,
-          (sum, record) => sum + record.multiContributionTotal,
+          (sum, record) =>
+              sum +
+              _recordScope.participantsFor(record).length *
+                  record.effectiveMultiQuantity,
         );
     final totalAmount = filteredRecords.fold<double>(
       0,
@@ -833,9 +818,9 @@ class _ChartPageState extends State<ChartPage> {
               0,
               (sum, record) => sum + chartTypeFieldContribution(record, field),
             ) +
-            multiRecords.fold<int>(
+            multiEvents.fold<int>(
               0,
-              (sum, record) => sum + chartTypeFieldContribution(record, field),
+              (sum, event) => sum + (event.field == field ? event.quantity : 0),
             ),
     };
     final customTypeTotals = <String, int>{};
@@ -851,51 +836,42 @@ class _ChartPageState extends State<ChartPage> {
 
     final memberTotals = <String, _MemberStatEntry>{};
     for (final record in counterRecords) {
+      final identity = _recordScope.identityForRecord(record);
       final key = _memberStatsMode == MemberStatsMode.group
-          ? _memberStatKey(record.groupName, record.subjectName)
-          : _personStatKey(
-              personId: record.personId,
-              personName: record.personName,
-              groupName: record.groupName,
-              subjectName: record.subjectName,
-            );
+          ? identity.memberKey
+          : identity.personKey;
       final entry = memberTotals.putIfAbsent(
         key,
         () => _MemberStatEntry(
           name: _memberStatsMode == MemberStatsMode.group
-              ? record.subjectName
-              : (record.personName.trim().isEmpty
-                  ? record.subjectName
-                  : record.personName.trim()),
-          groupName: record.groupName,
+              ? identity.memberLabel
+              : identity.personLabel,
+          groupName: identity.groupName,
           isPersonEntry: _memberStatsMode == MemberStatsMode.person,
         ),
       );
-      entry.groups.add(record.groupName.trim());
+      entry.groups.add(identity.groupName);
       entry.count += record.counterCountTotal;
       entry.amount += _effectiveTotalAmount(record);
     }
     for (final record in multiRecords) {
-      for (final participant in record.effectiveParticipants) {
+      for (final participant in _recordScope.participantsFor(record)) {
+        final identity = _recordScope.identityForParticipant(participant,
+            fallbackGroupName: record.groupName);
         final key = _memberStatsMode == MemberStatsMode.group
-            ? _memberStatKey(participant.groupName, participant.memberName)
-            : _personStatKey(
-                personId: participant.personId,
-                personName: participant.personName,
-                groupName: participant.groupName,
-                subjectName: participant.memberName,
-              );
+            ? identity.memberKey
+            : identity.personKey;
         final entry = memberTotals.putIfAbsent(
           key,
           () => _MemberStatEntry(
             name: _memberStatsMode == MemberStatsMode.group
-                ? participant.memberName
-                : participant.resolvedPersonName,
-            groupName: participant.groupName,
+                ? identity.memberLabel
+                : identity.personLabel,
+            groupName: identity.groupName,
             isPersonEntry: _memberStatsMode == MemberStatsMode.person,
           ),
         );
-        entry.groups.add(participant.groupName.trim());
+        entry.groups.add(identity.groupName);
         entry.count += record.effectiveMultiQuantity;
         entry.amount += _effectiveMultiParticipantAmountShare(record);
       }
@@ -932,41 +908,51 @@ class _ChartPageState extends State<ChartPage> {
       }
     }
     for (final record in multiRecords) {
-      final participantsByGroup = <String, int>{};
-      for (final participant in record.effectiveParticipants) {
-        final key = participant.groupName.trim().isEmpty
-            ? (record.groupName.trim().isEmpty ? '未分组' : record.groupName)
-            : participant.groupName.trim();
-        participantsByGroup[key] = (participantsByGroup[key] ?? 0) + 1;
-      }
-      if (participantsByGroup.isEmpty) {
-        final fallbackGroup =
-            record.groupName.trim().isEmpty ? '未分组' : record.groupName;
-        participantsByGroup[fallbackGroup] = 1;
-      }
-
-      participantsByGroup.forEach((groupName, participantSlots) {
+      final amountsByGroup = _recordScope.multiGroupAmounts(
+        record,
+        _effectiveTotalAmount(record),
+      );
+      amountsByGroup.forEach((groupName, amount) {
         final summary = groupSummaries.putIfAbsent(
           groupName,
           () => _GroupSummary(groupName: groupName),
         );
-        summary.amount +=
-            _effectiveMultiParticipantAmountShare(record) * participantSlots;
+        summary.amount += amount;
         summary.recordCount += 1;
-        summary.counts[CounterCountField.groupCut] =
-            (summary.counts[CounterCountField.groupCut] ?? 0) +
-                chartGroupSummaryGroupCutContribution(record);
-        summary.multiCount += chartGroupSummaryMultiContribution(record);
       });
+    }
+    for (final event in multiEvents) {
+      final groups = event.records
+          .expand((record) => _recordScope
+              .multiGroupAmounts(record, _effectiveTotalAmount(record))
+              .keys)
+          .toSet();
+      for (final group in groups) {
+        final summary = groupSummaries[group]!;
+        if (event.field == CounterCountField.groupCut) {
+          summary.counts[CounterCountField.groupCut] =
+              (summary.counts[CounterCountField.groupCut] ?? 0) +
+                  event.quantity;
+        } else {
+          summary.multiCount += event.quantity;
+        }
+      }
     }
     final sortedGroupSummaries = groupSummaries.values.toList()
       ..sort((a, b) => b.totalCount.compareTo(a.totalCount));
 
     final multiSummaries = <String, _MultiSummary>{};
-    for (final record in multiRecords) {
-      final dateKey = _formatDate(record.occurredAt);
-      final labelKey = record.multiDisplayName;
-      final key = '$dateKey|$labelKey';
+    for (final event in multiEvents) {
+      final record = event.representative;
+      final participants = event.linkedSummaryKey == null
+          ? _recordScope.uniqueParticipantsFor(record)
+          : _recordScope.participantsForEvent(event);
+      final dateKey = _formatDate(event.day);
+      final labelKey = event.linkedSummaryKey == null
+          ? record.multiDisplayName
+          : record.copyWith(participants: participants).multiDisplayName;
+      final key =
+          event.linkedSummaryKey ?? _recordScope.multiSummaryKey(record);
       final summary = multiSummaries.putIfAbsent(
         key,
         () => _MultiSummary(
@@ -977,19 +963,24 @@ class _ChartPageState extends State<ChartPage> {
       if (record.multiFieldLabel.isNotEmpty) {
         summary.specLabel = record.multiFieldLabel;
       }
-      summary.groups.addAll(
-        record.effectiveParticipants
-            .map((participant) => participant.groupName.trim())
-            .where((groupName) => groupName.isNotEmpty),
-      );
-      summary.quantity += record.effectiveMultiQuantity;
-      summary.participantCount =
-          summary.participantCount > record.multiParticipantCount
-              ? summary.participantCount
-              : record.multiParticipantCount;
-      summary.amount += _effectiveTotalAmount(record);
-      if (record.note.trim().isNotEmpty) {
-        summary.notes.add(record.note.trim());
+      for (final row in event.records) {
+        summary.groups.addAll(
+          _recordScope
+              .uniqueParticipantsFor(row)
+              .map((participant) => _recordScope
+                  .identityForParticipant(participant,
+                      fallbackGroupName: row.groupName)
+                  .groupName)
+              .where((groupName) => groupName.isNotEmpty),
+        );
+        summary.amount += _effectiveTotalAmount(row);
+        if (row.note.trim().isNotEmpty) {
+          summary.notes.add(row.note.trim());
+        }
+      }
+      summary.quantity += event.quantity;
+      if (participants.length > summary.participantCount) {
+        summary.participantCount = participants.length;
       }
     }
     final sortedMultiSummaries = multiSummaries.values.toList()
@@ -997,13 +988,14 @@ class _ChartPageState extends State<ChartPage> {
 
     final ticketSummaries = <String, _TicketSummary>{};
     for (final record in ticketRecords) {
-      final dateKey = _formatDate(record.occurredAt);
+      final dateKey = _formatDate(recordActivityDay(record.occurredAt));
       final sessionKey = record.sessionLabel.trim();
-      final key = '$dateKey|${record.subjectName}|$sessionKey';
+      final key = chartTicketSummaryKey(record);
       final summary = ticketSummaries.putIfAbsent(
         key,
         () => _TicketSummary(
-          eventName: record.subjectName,
+          eventName: record.resolvedActivityName,
+          venueName: record.resolvedVenueName,
           sessionLabel: sessionKey,
           date: dateKey,
         ),
@@ -1034,6 +1026,9 @@ class _ChartPageState extends State<ChartPage> {
       Color(0xFFEC4899),
     ];
 
+    final memberHasNegative = memberEntries.any((entry) => entry.count < 0);
+    final groupHasNegative =
+        sortedGroupSummaries.any((entry) => entry.totalCount < 0);
     final memberPieData = <_PieDatum>[];
     final visibleMembers = memberEntries.take(6).toList();
     for (var index = 0; index < visibleMembers.length; index++) {
@@ -1095,6 +1090,11 @@ class _ChartPageState extends State<ChartPage> {
         backgroundColor: theme.colorScheme.surface.withValues(alpha: 0.96),
         title: const Text('统计与流水'),
         actions: [
+          IconButton.filledTonal(
+            onPressed: _openAddRecordDialog,
+            icon: const Icon(Icons.add),
+            tooltip: '新增记录',
+          ),
           IconButton(
             onPressed: () {
               Navigator.push(
@@ -1113,11 +1113,6 @@ class _ChartPageState extends State<ChartPage> {
             tooltip: '团体配置',
           ),
         ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _openAddRecordDialog,
-        icon: const Icon(Icons.add),
-        label: const Text('新增记录'),
       ),
       body: AppPageBackground(
         child: _loading
@@ -1151,24 +1146,17 @@ class _ChartPageState extends State<ChartPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: Row(
-                              children: StatsScope.values.map((scope) {
-                                return Padding(
-                                  padding: const EdgeInsets.only(right: 8),
-                                  child: ChoiceChip(
-                                    label: Text(scope.label),
-                                    selected: _scope == scope,
-                                    onSelected: (_) {
-                                      setState(() {
-                                        _scope = scope;
-                                      });
-                                    },
-                                  ),
-                                );
-                              }).toList(),
-                            ),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 4,
+                            children: StatsScope.values.map((scope) {
+                              return ChoiceChip(
+                                label: Text(scope.label),
+                                selected: _scope == scope,
+                                onSelected: (_) =>
+                                    setState(() => _scope = scope),
+                              );
+                            }).toList(),
                           ),
                           if (_scope == StatsScope.day) ...[
                             const SizedBox(height: 12),
@@ -1306,9 +1294,51 @@ class _ChartPageState extends State<ChartPage> {
                       ),
                       const SizedBox(height: 16),
                     ],
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 8,
+                        children: [
+                          Text(
+                            _recordScope.showHiddenCounters
+                                ? '流水 · 包含已隐藏成员'
+                                : '流水 · 跟随首页隐藏设置',
+                            style: theme.textTheme.bodyMedium,
+                          ),
+                          TextButton.icon(
+                            onPressed: () => showDialog<void>(
+                              context: context,
+                              builder: (context) => AlertDialog(
+                                title: const Text('统计口径'),
+                                content: const SingleChildScrollView(
+                                  child: Text(
+                                    '活动日：06:00 前的记录归前一天，仅日期的记录保留当天。\n\n'
+                                    '隐藏与未知：跟随首页隐藏设置；未知成员和无人团切保留，全为已知隐藏成员的多人流水会被过滤。\n\n'
+                                    '多人切：按实体张数计入合计，成员及团体贡献可能重复计入；金额按筛选前去重人数分摊，隐藏份额不转给其他人。保留的事件计入整笔金额。\n\n'
+                                    '首页计数与历史流水来源不同：旧计数可能无流水，历史未匹配流水仍保留。',
+                                  ),
+                                ),
+                                actions: [
+                                  TextButton(
+                                      onPressed: () => Navigator.pop(context),
+                                      child: const Text('关闭'))
+                                ],
+                              ),
+                            ),
+                            icon: const Icon(Icons.info_outline),
+                            label: const Text('统计口径'),
+                          ),
+                        ],
+                      ),
+                    ),
                     LayoutBuilder(
                       builder: (context, constraints) {
-                        final columns = constraints.maxWidth > 720 ? 4 : 2;
+                        final columns = constraints.maxWidth > 720
+                            ? 4
+                            : MediaQuery.textScalerOf(context).scale(1) > 1.3
+                                ? 1
+                                : 2;
                         final spacing = 12.0;
                         final itemWidth =
                             (constraints.maxWidth - (spacing * (columns - 1))) /
@@ -1332,7 +1362,7 @@ class _ChartPageState extends State<ChartPage> {
                               child: _SummaryCard(
                                 label: '拍切总数',
                                 value: '$counterCountTotal',
-                                hint: '单人切规格求和',
+                                hint: '拍切记录规格求和，含团切，不含多人切',
                                 icon: Icons.photo_library_outlined,
                               ),
                             ),
@@ -1341,8 +1371,17 @@ class _ChartPageState extends State<ChartPage> {
                               child: _SummaryCard(
                                 label: '多人切总数',
                                 value: '$multiCountTotal',
-                                hint: '按参与人数统计',
+                                hint: '按实体张数统计',
                                 icon: Icons.people_alt_outlined,
+                              ),
+                            ),
+                            SizedBox(
+                              width: itemWidth,
+                              child: _SummaryCard(
+                                label: '切奇合计',
+                                value: '${counterCountTotal + multiCountTotal}',
+                                hint: '拍切记录 + 多人切实体张数',
+                                icon: Icons.collections_outlined,
                               ),
                             ),
                             SizedBox(
@@ -1369,7 +1408,7 @@ class _ChartPageState extends State<ChartPage> {
                               child: _SummaryCard(
                                 label: '总金额',
                                 value: '¥${_formatAmount(totalAmount)}',
-                                hint: '按记录快照价格统计',
+                                hint: '按记录定价方式统计，含当前团价',
                                 icon: Icons.payments_outlined,
                               ),
                             ),
@@ -1378,7 +1417,10 @@ class _ChartPageState extends State<ChartPage> {
                       },
                     ),
                     const SizedBox(height: 16),
-                    if (memberPieData.isNotEmpty || groupPieData.isNotEmpty)
+                    if (memberPieData.isNotEmpty ||
+                        groupPieData.isNotEmpty ||
+                        memberHasNegative ||
+                        groupHasNegative)
                       LayoutBuilder(
                         builder: (context, constraints) {
                           final wide = constraints.maxWidth > 760;
@@ -1401,19 +1443,22 @@ class _ChartPageState extends State<ChartPage> {
                                       _memberStatsMode == MemberStatsMode.group
                                           ? '当前周期内还没有成员记录。'
                                           : '当前周期内还没有真人维度数据。',
-                                  centerLabel:
-                                      _memberStatsMode == MemberStatsMode.group
-                                          ? '成员'
-                                          : '真人',
+                                  centerLabel: '贡献合计',
+                                  hasNegative: memberHasNegative,
+                                  explanation:
+                                      '按参与成员计入，多人切可重复计入；份额以成员贡献合计为分母，与实体张数不同。',
                                   data: memberPieData,
                                 ),
                               ),
                               SizedBox(
                                 width: chartWidth,
                                 child: _PieBreakdownCard(
-                                  title: '团体占比',
+                                  title: '各团参与占比（跨团可重复计入）',
                                   emptyMessage: '当前周期内还没有团体数据。',
-                                  centerLabel: '团体',
+                                  centerLabel: '贡献合计',
+                                  hasNegative: groupHasNegative,
+                                  explanation:
+                                      '跨团参与可重复计入；份额以团体贡献合计为分母，与实体张数不同。',
                                   data: groupPieData,
                                 ),
                               ),
@@ -1421,7 +1466,10 @@ class _ChartPageState extends State<ChartPage> {
                           );
                         },
                       ),
-                    if (memberPieData.isNotEmpty || groupPieData.isNotEmpty)
+                    if (memberPieData.isNotEmpty ||
+                        groupPieData.isNotEmpty ||
+                        memberHasNegative ||
+                        groupHasNegative)
                       const SizedBox(height: 16),
                     _SectionCard(
                       title: '规格汇总',
@@ -1503,6 +1551,8 @@ class _ChartPageState extends State<ChartPage> {
                                             ),
                                           ],
                                         ),
+                                        const SizedBox(height: 8),
+                                        Text('贡献 ${summary.totalCount}'),
                                         const SizedBox(height: 8),
                                         Wrap(
                                           spacing: 8,
@@ -1594,6 +1644,8 @@ class _ChartPageState extends State<ChartPage> {
                                 subtitle: Text(
                                   [
                                     summary.date,
+                                    if (summary.venueName.isNotEmpty)
+                                      summary.venueName,
                                     if (summary.sessionLabel.isNotEmpty)
                                       summary.sessionLabel,
                                     if (summary.types.isNotEmpty)
@@ -1629,64 +1681,78 @@ class _ChartPageState extends State<ChartPage> {
                                   : '当前周期内还没有真人维度数据。',
                             )
                           : Column(
-                              children: memberEntries.take(20).map((entry) {
-                                final percent = memberContributionTotal == 0
-                                    ? 0.0
-                                    : entry.count / memberContributionTotal;
-                                return Padding(
-                                  padding: const EdgeInsets.only(bottom: 12),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  entry.name,
-                                                  style: theme
-                                                      .textTheme.titleMedium
-                                                      ?.copyWith(
-                                                    fontWeight: FontWeight.w700,
-                                                  ),
-                                                ),
-                                                if (entry.groupLabel.isNotEmpty)
+                              children: [
+                                if (memberHasNegative)
+                                  const Padding(
+                                    padding: EdgeInsets.only(bottom: 12),
+                                    child: Text('本周期含负数修正，暂不显示占比'),
+                                  ),
+                                ...(memberHasNegative
+                                        ? memberEntries
+                                        : memberEntries.take(20))
+                                    .map((entry) {
+                                  final percent = memberContributionTotal == 0
+                                      ? 0.0
+                                      : entry.count / memberContributionTotal;
+                                  return Padding(
+                                    padding: const EdgeInsets.only(bottom: 12),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
                                                   Text(
-                                                    entry.groupLabel,
+                                                    entry.name,
                                                     style: theme
-                                                        .textTheme.bodySmall,
+                                                        .textTheme.titleMedium
+                                                        ?.copyWith(
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                    ),
                                                   ),
-                                              ],
+                                                  if (entry
+                                                      .groupLabel.isNotEmpty)
+                                                    Text(
+                                                      entry.groupLabel,
+                                                      style: theme
+                                                          .textTheme.bodySmall,
+                                                    ),
+                                                ],
+                                              ),
                                             ),
-                                          ),
-                                          Text(
-                                            '${entry.count}',
-                                            style: theme.textTheme.titleMedium
-                                                ?.copyWith(
-                                              fontWeight: FontWeight.w800,
+                                            Text(
+                                              '${entry.count}',
+                                              style: theme.textTheme.titleMedium
+                                                  ?.copyWith(
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        if (!memberHasNegative) ...[
+                                          const SizedBox(height: 6),
+                                          ClipRRect(
+                                            borderRadius:
+                                                BorderRadius.circular(999),
+                                            child: LinearProgressIndicator(
+                                              value: percent.clamp(0.0, 1.0),
+                                              minHeight: 8,
+                                              backgroundColor: theme.colorScheme
+                                                  .surfaceContainerHighest,
                                             ),
                                           ),
                                         ],
-                                      ),
-                                      const SizedBox(height: 6),
-                                      ClipRRect(
-                                        borderRadius:
-                                            BorderRadius.circular(999),
-                                        child: LinearProgressIndicator(
-                                          value: percent.clamp(0.0, 1.0),
-                                          minHeight: 8,
-                                          backgroundColor: theme.colorScheme
-                                              .surfaceContainerHighest,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              }).toList(),
+                                      ],
+                                    ),
+                                  );
+                                }),
+                              ],
                             ),
                     ),
                     const SizedBox(height: 16),
@@ -2176,24 +2242,20 @@ class _CalendarOverviewCard extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           GridView.builder(
+            padding: EdgeInsets.zero,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: totalSlots,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 7,
-              crossAxisSpacing: 8,
+              crossAxisSpacing: 4,
               mainAxisSpacing: 8,
-              childAspectRatio: 0.78,
+              mainAxisExtent: MediaQuery.textScalerOf(context).scale(34) + 20,
             ),
             itemBuilder: (context, index) {
               final dayNumber = index - leadingSlots + 1;
               if (dayNumber <= 0 || dayNumber > daysInMonth) {
-                return DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerLowest,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                );
+                return const SizedBox.shrink();
               }
 
               final date = DateTime(month.year, month.month, dayNumber);
@@ -2206,80 +2268,85 @@ class _CalendarOverviewCard extends StatelessWidget {
                   !date.isBefore(activeRange!.start) &&
                   date.isBefore(activeRange!.end);
 
-              return Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(16),
-                  onTap: () => onDateSelected(date),
-                  child: Ink(
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? theme.colorScheme.primaryContainer
-                          : isInActiveWeek
-                              ? theme.colorScheme.primary.withAlpha(16)
-                              : theme.colorScheme.surfaceContainerLowest,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
+              return Semantics(
+                label:
+                    '${month.month}月$dayNumber日${hasRecords ? '，有记录' : '，无记录'}${hasScans ? '，有切图' : ''}',
+                selected: isSelected,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(16),
+                    onTap: () => onDateSelected(date),
+                    child: Ink(
+                      decoration: BoxDecoration(
                         color: isSelected
-                            ? theme.colorScheme.primary
+                            ? theme.colorScheme.primaryContainer
                             : isInActiveWeek
-                                ? theme.colorScheme.primary.withAlpha(80)
+                                ? theme.colorScheme.primary.withAlpha(16)
                                 : Colors.transparent,
-                        width: isSelected ? 1.6 : 1,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: isSelected
+                              ? theme.colorScheme.primary
+                              : isInActiveWeek
+                                  ? theme.colorScheme.primary.withAlpha(80)
+                                  : Colors.transparent,
+                          width: isSelected ? 1.6 : 1,
+                        ),
                       ),
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                          width: 34,
-                          height: 34,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: hasRecords
-                                ? (isSelected
-                                    ? recordIndicatorColor
-                                    : recordIndicatorColor.withAlpha(24))
-                                : Colors.transparent,
-                            border: Border.all(
-                              color: hasRecords
-                                  ? recordIndicatorColor
-                                  : theme.colorScheme.outlineVariant,
-                            ),
-                          ),
-                          child: Text(
-                            '$dayNumber',
-                            style: theme.textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w800,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            width: 34,
+                            height: 34,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
                               color: hasRecords
                                   ? (isSelected
-                                      ? Colors.white
-                                      : recordIndicatorColor)
-                                  : theme.colorScheme.onSurfaceVariant,
+                                      ? recordIndicatorColor
+                                      : recordIndicatorColor.withAlpha(24))
+                                  : Colors.transparent,
+                              border: Border.all(
+                                color: hasRecords
+                                    ? recordIndicatorColor
+                                    : theme.colorScheme.outlineVariant,
+                              ),
+                            ),
+                            child: Text(
+                              '$dayNumber',
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                color: isSelected
+                                    ? (hasRecords
+                                        ? Colors.white
+                                        : theme.colorScheme.onPrimaryContainer)
+                                    : theme.colorScheme.onSurface,
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        if (hasRecords || hasScans)
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              if (hasRecords)
-                                _CalendarStatusDot(
-                                  color: recordIndicatorColor,
-                                ),
-                              if (hasScans) ...[
-                                if (hasRecords) const SizedBox(width: 4),
-                                _CalendarStatusDot(
-                                  color: scanIndicatorColor,
-                                ),
+                          const SizedBox(height: 8),
+                          if (hasRecords || hasScans)
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                if (hasRecords)
+                                  _CalendarStatusDot(
+                                    color: recordIndicatorColor,
+                                  ),
+                                if (hasScans) ...[
+                                  if (hasRecords) const SizedBox(width: 4),
+                                  _CalendarStatusDot(
+                                    color: scanIndicatorColor,
+                                  ),
+                                ],
                               ],
-                            ],
-                          )
-                        else
-                          const SizedBox(height: 7),
-                      ],
+                            )
+                          else
+                            const SizedBox(height: 7),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -2666,21 +2733,25 @@ class _PieBreakdownCard extends StatelessWidget {
   final String title;
   final String emptyMessage;
   final String centerLabel;
+  final String explanation;
+  final bool hasNegative;
   final List<_PieDatum> data;
 
   const _PieBreakdownCard({
     required this.title,
     required this.emptyMessage,
     required this.centerLabel,
+    required this.explanation,
+    required this.hasNegative,
     required this.data,
   });
 
   @override
   Widget build(BuildContext context) {
-    if (data.isEmpty) {
+    if (hasNegative || data.isEmpty) {
       return _SectionCard(
         title: title,
-        child: Text(emptyMessage),
+        child: Text(hasNegative ? '本周期含负数修正，暂不显示占比' : emptyMessage),
       );
     }
 
@@ -2690,6 +2761,10 @@ class _PieBreakdownCard extends StatelessWidget {
       title: title,
       child: Column(
         children: [
+          Text(explanation, style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 6),
+          Text('扇区从顶部起顺时针排列，与下方编号顺序一致。',
+              style: Theme.of(context).textTheme.bodySmall),
           SizedBox(
             height: 220,
             child: Stack(
@@ -2700,18 +2775,24 @@ class _PieBreakdownCard extends StatelessWidget {
                     sectionsSpace: 2,
                     centerSpaceRadius: 42,
                     startDegreeOffset: -90,
-                    sections: data.map((item) {
+                    sections: data.asMap().entries.map((indexed) {
+                      final item = indexed.value;
                       final percent = total == 0 ? 0.0 : item.value / total;
+                      final luminance = item.color.computeLuminance();
+                      final textColor =
+                          (luminance + 0.05) / 0.05 >= 1.05 / (luminance + 0.05)
+                              ? Colors.black
+                              : Colors.white;
                       return PieChartSectionData(
                         color: item.color,
                         value: item.value,
                         radius: 54,
                         title: percent >= 0.08
-                            ? '${(percent * 100).toStringAsFixed(0)}%'
+                            ? '${indexed.key + 1} · ${(percent * 100).toStringAsFixed(0)}%'
                             : '',
                         titleStyle:
                             Theme.of(context).textTheme.labelMedium?.copyWith(
-                                  color: Colors.white,
+                                  color: textColor,
                                   fontWeight: FontWeight.w700,
                                 ),
                       );
@@ -2743,7 +2824,8 @@ class _PieBreakdownCard extends StatelessWidget {
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: data.map((item) {
+            children: data.asMap().entries.map((indexed) {
+              final item = indexed.value;
               final percent = total == 0 ? 0.0 : item.value / total;
               return Container(
                 padding:
@@ -2755,6 +2837,8 @@ class _PieBreakdownCard extends StatelessWidget {
                     color: item.color.withAlpha(80),
                   ),
                 ),
+                constraints: BoxConstraints(
+                    maxWidth: MediaQuery.sizeOf(context).width - 88),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -2767,9 +2851,11 @@ class _PieBreakdownCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Text(
-                      '${item.label} ${item.value.toStringAsFixed(item.value == item.value.roundToDouble() ? 0 : 1)}'
-                      ' · ${(percent * 100).toStringAsFixed(1)}%',
+                    Flexible(
+                      child: Text(
+                        '${indexed.key + 1}. ${item.label} ${item.value.toStringAsFixed(item.value == item.value.roundToDouble() ? 0 : 1)}'
+                        ' · ${(percent * 100).toStringAsFixed(1)}%',
+                      ),
                     ),
                   ],
                 ),
@@ -3095,6 +3181,7 @@ class _TicketStat extends StatelessWidget {
 
 class _TicketSummary {
   final String eventName;
+  final String venueName;
   final String sessionLabel;
   final String date;
   int quantity = 0;
@@ -3106,6 +3193,7 @@ class _TicketSummary {
 
   _TicketSummary({
     required this.eventName,
+    required this.venueName,
     required this.sessionLabel,
     required this.date,
   });

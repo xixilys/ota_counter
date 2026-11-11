@@ -77,6 +77,7 @@ class ActivityRecordModel {
   final ActivityRecordType type;
   final String source;
   final String? sourceRecordId;
+  final String? groupRecordId;
   final int? counterId;
   final int? personId;
   final String personName;
@@ -119,6 +120,7 @@ class ActivityRecordModel {
     required this.type,
     this.source = 'local',
     this.sourceRecordId,
+    this.groupRecordId,
     this.counterId,
     this.personId,
     this.personName = '',
@@ -339,6 +341,7 @@ class ActivityRecordModel {
     ActivityRecordType? type,
     String? source,
     String? sourceRecordId,
+    String? groupRecordId,
     int? counterId,
     int? personId,
     String? personName,
@@ -381,6 +384,7 @@ class ActivityRecordModel {
       type: type ?? this.type,
       source: source ?? this.source,
       sourceRecordId: sourceRecordId ?? this.sourceRecordId,
+      groupRecordId: groupRecordId ?? this.groupRecordId,
       counterId: counterId ?? this.counterId,
       personId: personId ?? this.personId,
       personName: personName ?? this.personName,
@@ -670,6 +674,7 @@ class ActivityRecordModel {
       'record_type': type.dbValue,
       'source': source,
       'source_record_id': sourceRecordId,
+      'group_record_id': groupRecordId,
       'counter_id': counterId,
       'person_id': personId,
       'person_name': personName,
@@ -737,6 +742,8 @@ class ActivityRecordModel {
       type: type,
       source: (map['source'] ?? 'local') as String,
       sourceRecordId: map['source_record_id'] as String?,
+      groupRecordId:
+          (map['group_record_id'] ?? map['groupRecordId']) as String?,
       counterId: (map['counter_id'] as num?)?.toInt(),
       personId: personId,
       personName: personName,

@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:ota_counter/models/activity_record_model.dart';
 import 'package:ota_counter/models/counter_model.dart';
 import 'package:ota_counter/services/database_service.dart';
 import 'package:ota_counter/services/export_import_service.dart';
@@ -49,6 +50,7 @@ void main() {
   }
 
   Map<String, Object?> buildManifest({
+    List<Map<String, Object?>> activityRecords = const [],
     List<Map<String, Object?>> activityRecordMedia = const [],
     List<Map<String, Object?>> images = const [],
     bool hiddenCounter = false,
@@ -79,6 +81,7 @@ void main() {
             'person_name': '',
           },
         ],
+        DatabaseService.activityRecordTableName: activityRecords,
         DatabaseService.activityRecordMediaTableName: activityRecordMedia,
       },
       'idol_database': {
@@ -101,6 +104,117 @@ void main() {
     );
     await ExportImportService.restoreFullBackup(payload.fullBackup!);
   }
+
+  group('full backup preserves legacy activity metadata', () {
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+    tearDown(() async => DatabaseService.clearAppData());
+
+    test('restore, ordinary edits and zip re-export preserve raw metadata',
+        () async {
+      // Synthetic shape of the failing backup: two linked split group cuts
+      // and thirteen opening-balance rows. No private backup content is used.
+      final rows = List.generate(
+          16,
+          (index) => <String, Object?>{
+                ...ActivityRecordModel(
+                  id: index + 1,
+                  type: ActivityRecordType.counter,
+                  counterId: 1,
+                  subjectName: 'Alice',
+                  groupName: 'Team A',
+                  occurredAt: DateTime(2026, 3, 18),
+                  threeInchCount: index >= 2 ? 1 : 0,
+                  groupCutCount: index < 2 ? 1 : 0,
+                  totalAmount: 0,
+                ).toMap(),
+                'group_record_id': index < 2 ? 'legacy-group-001' : null,
+                'is_system_adjustment': index >= 2 && index < 15 ? 1 : 0,
+              });
+      await restore(buildManifest(activityRecords: rows));
+
+      final records = await DatabaseService.getActivityRecords();
+      expect(records, hasLength(rows.length));
+      // Exercise both ordinary update paths, including the member-detail edit.
+      for (final record in records) {
+        await DatabaseService.updateActivityRecord(
+          record.id!,
+          record.copyWith(note: 'edited note'),
+        );
+        await DatabaseService.updateActivityRecordWithCounterImpact(
+          record.id!,
+          record.copyWith(note: 'edited note', venueName: 'edited venue'),
+        );
+      }
+
+      final exported = await ExportImportService.buildFullBackupBundle();
+      final payload = ExportImportService.parseImportPayload(
+        fileName: 'roundtrip.zip',
+        rawBytes: buildFullBackupZip(manifest: exported.toManifest()),
+      );
+      final actual = payload
+          .fullBackup!.mainDatabase[DatabaseService.activityRecordTableName]!;
+      expect(actual, hasLength(rows.length));
+      final byId = {for (final row in actual) row['id']: row};
+      for (final expected in rows) {
+        final row = byId[expected['id']]!;
+        expect(
+            row, containsPair('group_record_id', expected['group_record_id']));
+        expect(
+            row,
+            containsPair(
+                'is_system_adjustment', expected['is_system_adjustment']));
+        expect(row['note'], 'edited note');
+        expect(row['venue_name'], 'edited venue');
+        expect(row['three_inch_count'], expected['three_inch_count']);
+        expect(row['group_cut_count'], expected['group_cut_count']);
+      }
+      expect(actual.where((r) => r['group_record_id'] != null), hasLength(2));
+      expect(
+          actual.where((r) => r['is_system_adjustment'] == 1), hasLength(13));
+
+      await ExportImportService.restoreFullBackup(payload.fullBackup!);
+      final restored = await ExportImportService.buildFullBackupBundle();
+      final restoredRows =
+          restored.mainDatabase[DatabaseService.activityRecordTableName]!;
+      expect({for (final row in restoredRows) row['id']: row}, byId);
+    });
+
+    test('missing metadata and explicit nulls remain compatible', () async {
+      final ordinary = ActivityRecordModel(
+        id: 1,
+        type: ActivityRecordType.counter,
+        counterId: 1,
+        subjectName: 'Alice',
+        groupName: 'Team A',
+        occurredAt: DateTime(2026, 3, 18),
+        threeInchCount: 1,
+        totalAmount: 0,
+      );
+      await restore(buildManifest(activityRecords: [
+        ordinary.toMap(),
+        {
+          ...ordinary.copyWith(id: 2).toMap(),
+          'group_record_id': null,
+          'is_system_adjustment': null,
+        },
+      ]));
+      final insertedId = await DatabaseService.insertActivityRecord(ordinary);
+      final records = await DatabaseService.getActivityRecords();
+      expect(records, hasLength(3));
+      expect(records.every((r) => r.threeInchCount == 1), isTrue);
+      final exported = await ExportImportService.buildFullBackupBundle();
+      final byId = {
+        for (final row
+            in exported.mainDatabase[DatabaseService.activityRecordTableName]!)
+          row['id']: row
+      };
+      expect(byId[1], containsPair('group_record_id', null));
+      expect(byId[1], containsPair('is_system_adjustment', 0));
+      expect(byId[2], containsPair('is_system_adjustment', null));
+      expect(byId[insertedId], containsPair('group_record_id', null));
+      expect(byId[insertedId], containsPair('is_system_adjustment', 0));
+    });
+  });
 
   group('full backup restores the home hidden-member scope', () {
     tearDown(() async => DatabaseService.clearAppData());

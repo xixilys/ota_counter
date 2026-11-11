@@ -217,6 +217,8 @@ class DatabaseService {
         record_type TEXT NOT NULL,
         source TEXT NOT NULL DEFAULT 'local',
         source_record_id TEXT,
+        group_record_id TEXT,
+        is_system_adjustment INTEGER DEFAULT 0,
         counter_id INTEGER,
         person_id INTEGER,
         person_name TEXT NOT NULL DEFAULT '',
@@ -729,6 +731,10 @@ class DatabaseService {
       {
         'source': "TEXT NOT NULL DEFAULT 'local'",
         'source_record_id': 'TEXT',
+        // Preserve legacy backup metadata verbatim; ordinary model updates
+        // omit these columns and leave their values untouched.
+        'group_record_id': 'TEXT',
+        'is_system_adjustment': 'INTEGER DEFAULT 0',
         'counter_id': 'INTEGER',
         'person_id': 'INTEGER',
         'person_name': "TEXT NOT NULL DEFAULT ''",

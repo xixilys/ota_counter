@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SettingsService {
@@ -14,6 +15,31 @@ class SettingsService {
       'ignored_update_version_code';
 
   static const double defaultGridSize = 2;
+
+  static const String _fontScaleKey = 'font_scale';
+
+  /// 卡片字号: member-card text size on top of the phone's own font setting.
+  /// Everything outside the member cards keeps the normal system size.
+  static final Map<double, String> fontScaleOptions = {
+    1.0: '标准',
+    1.15: '大',
+    1.3: '特大',
+  };
+
+  /// The home page listens to this so a card-size change applies immediately.
+  static final ValueNotifier<double> fontScale = ValueNotifier(1.0);
+
+  static Future<void> loadFontScale() async {
+    final prefs = await SharedPreferences.getInstance();
+    final value = prefs.getDouble(_fontScaleKey) ?? 1.0;
+    fontScale.value = fontScaleOptions.containsKey(value) ? value : 1.0;
+  }
+
+  static Future<void> saveFontScale(double value) async {
+    fontScale.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_fontScaleKey, value);
+  }
 
   static const String sortByCount = 'count';
   static const String sortByName = 'name';

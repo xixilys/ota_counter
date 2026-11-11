@@ -74,6 +74,18 @@ class ActivityRecordMediaModel {
   final String ownerPersonName;
   final String ownerGroupName;
 
+  /// When the original photo was taken (camera shutter / EXIF
+  /// DateTimeOriginal). Null when unknown or not recorded.
+  final DateTime? capturedAt;
+
+  /// sha1 of the original photo the crop came from; guards against importing
+  /// the same original twice. Empty when not recorded.
+  final String sourceHash;
+
+  /// Crop corners in the (EXIF-upright) original, JSON of RecordScanQuad
+  /// fields. Empty when not recorded.
+  final String cropQuadJson;
+
   const ActivityRecordMediaModel({
     this.id,
     required this.recordId,
@@ -85,6 +97,9 @@ class ActivityRecordMediaModel {
     this.ownerPersonId,
     this.ownerPersonName = '',
     this.ownerGroupName = '',
+    this.capturedAt,
+    this.sourceHash = '',
+    this.cropQuadJson = '',
   });
 
   bool get isScan => mediaType == ActivityRecordMediaType.scan;
@@ -106,6 +121,9 @@ class ActivityRecordMediaModel {
       'owner_person_id': ownerPersonId,
       'owner_person_name': ownerPersonName,
       'owner_group_name': ownerGroupName,
+      'captured_at': capturedAt?.toIso8601String(),
+      'source_hash': sourceHash,
+      'crop_quad_json': cropQuadJson,
     };
   }
 
@@ -126,6 +144,11 @@ class ActivityRecordMediaModel {
       ownerPersonId: (map['owner_person_id'] as num?)?.toInt(),
       ownerPersonName: (map['owner_person_name'] ?? '') as String,
       ownerGroupName: (map['owner_group_name'] ?? '') as String,
+      capturedAt: DateTime.tryParse(
+        '${map['captured_at'] ?? map['capturedAt'] ?? ''}',
+      ),
+      sourceHash: '${map['source_hash'] ?? map['sourceHash'] ?? ''}',
+      cropQuadJson: '${map['crop_quad_json'] ?? map['cropQuadJson'] ?? ''}',
     );
   }
 
@@ -140,6 +163,9 @@ class ActivityRecordMediaModel {
     int? ownerPersonId,
     String? ownerPersonName,
     String? ownerGroupName,
+    DateTime? capturedAt,
+    String? sourceHash,
+    String? cropQuadJson,
   }) {
     return ActivityRecordMediaModel(
       id: id ?? this.id,
@@ -152,6 +178,9 @@ class ActivityRecordMediaModel {
       ownerPersonId: ownerPersonId ?? this.ownerPersonId,
       ownerPersonName: ownerPersonName ?? this.ownerPersonName,
       ownerGroupName: ownerGroupName ?? this.ownerGroupName,
+      capturedAt: capturedAt ?? this.capturedAt,
+      sourceHash: sourceHash ?? this.sourceHash,
+      cropQuadJson: cropQuadJson ?? this.cropQuadJson,
     );
   }
 }

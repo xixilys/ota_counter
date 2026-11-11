@@ -2,19 +2,18 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:ota_counter/main.dart';
 import 'package:ota_counter/models/counter_model.dart';
 import 'package:ota_counter/widgets/counter_card.dart';
 import 'package:ota_counter/widgets/counter_count_sheet.dart';
 
+import 'support/isolated_test_databases.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  setUpAll(() async {
+    await useIsolatedTestDatabases();
   });
 
   testWidgets('counter card breakdown keeps group cut in the totals', (
@@ -112,6 +111,7 @@ void main() {
               activityName = "",
               venueName = "",
               sessionLabel = "",
+              baseCounter,
             }) async =>
                 updatedCounter,
           ),
@@ -146,6 +146,7 @@ void main() {
               activityName = "",
               venueName = "",
               sessionLabel = "",
+              baseCounter,
             }) async =>
                 updatedCounter,
           ),
@@ -198,6 +199,7 @@ void main() {
               activityName = '',
               venueName = '',
               sessionLabel = '',
+              baseCounter,
             }) async {
               activeSaves += 1;
               maxActiveSaves =
@@ -253,6 +255,7 @@ void main() {
               activityName = "",
               venueName = "",
               sessionLabel = "",
+              baseCounter,
             }) async =>
                 updatedCounter,
           ),
@@ -287,6 +290,7 @@ void main() {
               activityName = "",
               venueName = "",
               sessionLabel = "",
+              baseCounter,
             }) async {
               saveCalls += 1;
               return updatedCounter;
@@ -331,6 +335,7 @@ void main() {
                   activityName = "",
                   venueName = "",
                   sessionLabel = "",
+                  baseCounter,
                 }) async =>
                     updatedCounter,
               ),

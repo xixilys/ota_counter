@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../models/idol_database_models.dart';
 import '../services/idol_database_service.dart';
 import '../widgets/no_autofill_text_field.dart';
+import 'idol_activity_events_page.dart';
 
 class IdolDatabasePage extends StatefulWidget {
   const IdolDatabasePage({super.key});
@@ -211,14 +212,23 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
                 return;
               }
 
-              await IdolDatabaseService.upsertGroup(
-                IdolGroup(
-                  id: initialGroup?.id,
-                  name: name,
-                  source: 'manual',
-                  isBuiltIn: false,
-                ),
-              );
+              try {
+                await IdolDatabaseService.upsertGroup(
+                  IdolGroup(
+                    id: initialGroup?.id,
+                    name: name,
+                    source: 'manual',
+                    isBuiltIn: false,
+                  ),
+                );
+              } catch (error) {
+                if (dialogContext.mounted) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    SnackBar(content: Text('保存团体失败：$error')),
+                  );
+                }
+                return;
+              }
 
               if (dialogContext.mounted) {
                 Navigator.of(dialogContext).pop();
@@ -253,59 +263,61 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
           title: Text(initialMember == null ? '添加成员' : '编辑成员'),
           content: SizedBox(
             width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                DropdownButtonFormField<int?>(
-                  initialValue: selectedGroupId,
-                  decoration: const InputDecoration(labelText: '所属团体'),
-                  items: _groups
-                      .where((group) => group.id != null)
-                      .map(
-                        (group) => DropdownMenuItem(
-                          value: group.id!,
-                          child: Text(group.name),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) {
-                    setDialogState(() {
-                      selectedGroupId = value;
-                    });
-                  },
-                ),
-                const SizedBox(height: 12),
-                NoAutofillTextField(
-                  controller: nameController,
-                  decoration: const InputDecoration(
-                    labelText: '成员名称',
-                    hintText: '请输入成员名称',
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<int?>(
+                    initialValue: selectedGroupId,
+                    decoration: const InputDecoration(labelText: '所属团体'),
+                    items: _groups
+                        .where((group) => group.id != null)
+                        .map(
+                          (group) => DropdownMenuItem(
+                            value: group.id!,
+                            child: Text(group.name),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      setDialogState(() {
+                        selectedGroupId = value;
+                      });
+                    },
                   ),
-                  textInputAction: TextInputAction.next,
-                ),
-                const SizedBox(height: 12),
-                NoAutofillTextField(
-                  controller: personController,
-                  decoration: const InputDecoration(
-                    labelText: '真人主档名',
-                    hintText: '同一真人跨团/时期请保持一致',
+                  const SizedBox(height: 12),
+                  NoAutofillTextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      labelText: '成员名称',
+                      hintText: '请输入成员名称',
+                    ),
+                    textInputAction: TextInputAction.next,
                   ),
-                  textInputAction: TextInputAction.next,
-                ),
-                const SizedBox(height: 12),
-                NoAutofillTextField(
-                  controller: statusController,
-                  decoration: const InputDecoration(
-                    labelText: '状态',
-                    hintText: '例如：正式成员 / 研修生 / 前成员',
+                  const SizedBox(height: 12),
+                  NoAutofillTextField(
+                    controller: personController,
+                    decoration: const InputDecoration(
+                      labelText: '真人主档名',
+                      hintText: '同一真人跨团/时期请保持一致',
+                    ),
+                    textInputAction: TextInputAction.next,
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '提示：状态或名称里写“蓝色担当 / 紫色担当”等字样，会自动识别成员担当色。',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
+                  const SizedBox(height: 12),
+                  NoAutofillTextField(
+                    controller: statusController,
+                    decoration: const InputDecoration(
+                      labelText: '状态',
+                      hintText: '例如：正式成员 / 研修生 / 前成员',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '提示：状态或名称里写“蓝色担当 / 紫色担当”等字样，会自动识别成员担当色；清空“真人主档名”会解除绑定。',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
             ),
           ),
           actions: [
@@ -316,7 +328,11 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
             FilledButton(
               onPressed: () async {
                 final name = nameController.text.trim();
+                final personName = personController.text.trim();
                 if (name.isEmpty || selectedGroupId == null) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    const SnackBar(content: Text('请填写成员名称并选择团体')),
+                  );
                   return;
                 }
 
@@ -324,19 +340,30 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
                   (item) => item.id == selectedGroupId,
                 );
 
-                await IdolDatabaseService.upsertMember(
-                  IdolMember(
-                    id: initialMember?.id,
-                    groupId: selectedGroupId!,
-                    groupName: group.name,
-                    personId: initialMember?.personId,
-                    personName: personController.text.trim(),
-                    name: name,
-                    status: statusController.text.trim(),
-                    source: 'manual',
-                    isBuiltIn: false,
-                  ),
-                );
+                try {
+                  await IdolDatabaseService.upsertMember(
+                    IdolMember(
+                      id: initialMember?.id,
+                      groupId: selectedGroupId!,
+                      groupName: group.name,
+                      personId: initialMember?.personId,
+                      personName: personName,
+                      name: name,
+                      status: statusController.text.trim(),
+                      source: 'manual',
+                      isBuiltIn: false,
+                    ),
+                    unlinkPerson:
+                        personName.isEmpty && initialMember?.personId != null,
+                  );
+                } catch (error) {
+                  if (dialogContext.mounted) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(
+                      SnackBar(content: Text('保存成员失败：$error')),
+                    );
+                  }
+                  return;
+                }
 
                 if (dialogContext.mounted) {
                   Navigator.of(dialogContext).pop();
@@ -446,6 +473,18 @@ class _IdolDatabasePageState extends State<IdolDatabasePage> {
       appBar: AppBar(
         title: const Text('偶像数据库'),
         actions: [
+          IconButton(
+            tooltip: '演出名单',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const IdolActivityEventsPage(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.event_note_outlined),
+          ),
           IconButton(
             tooltip: '从服务器同步最新偶像数据',
             onPressed: _syncing ? null : _syncFromRemote,

@@ -15,14 +15,59 @@ Android build：`1.5.4+20`
 - 支持多人切和多张团切，成员可来自不同团体；总览按照片张数计数，每位参与成员各计入对应张数，费用按每条流水总价保存
 - 统计与流水支持日 / 周 / 月 / 年 / 全部范围查看
 - 统计页会保存价格快照；旧的 0 价记录会按当前团价补算显示金额
-- 支持门票记录，支持同一天多场次
+- 支持门票记录，支持同一天多场次；可区分免费/付费、选择票种（预售/现场/学生/女性/特典/VIP…）；演出名单会从 MineCool 文案里尽量解析“免费入场/预售/现场/VIP”等票价，解析不到时再用同场次上次价格 → 票种默认价（本地学习）；文案价格不是结构化字段，识别不到的场次仍可手填
+- 首页有 LIVE TICKETS 票根卡，统计页有免费/付费/票种/门票金额明细；从统计页或演出名单右上角进入“门票价格”可维护票种和默认价
 - 支持从 MineCool 偶活行程缓存中选择场次，通过 HTTPS 缓存自动填入活动名 / 场地 / 日期
 - 内置中国偶像数据库，可搜索、编辑、补充团体 / 团籍 / 真人主档；通过 HTTPS 更新社区 Wiki 与人工补充资料，保留用户编辑和真人绑定，不凭跨团同名自动合并
+- 首页 `⋮` 或偶像数据库右上角可打开“演出名单”，查看 MineCool 缓存场次、同步最新名单、按活动/城市/场地/团体搜索，并显示文案解析出的票价
+- 演出名单票价依赖 `tool/generate_idol_activity_events.py` 新版本；线上 feed 需要重新部署 updater 并生成一次
+- 首页品牌与总览重做：切奇簿 / 我的切奇，深色模式、加载骨架、空状态、下拉刷新
 - 自动从偶像资料里识别担当色，并同步到成员卡片配色
 - 支持导入旧版计数器备份，以及 OTA 后台导出的历史 bundle
 - 支持导出当前数据
 - 支持隐藏不想在首页看到的成员卡片
 - 删除计数器时，会一并删除对应的单成员流水记录
+
+## UI 与设计
+
+首页、成员卡片、深色模式和统计页已做一轮统一视觉刷新，关键截图和 review
+清单见 [docs/UI_REVIEW.md](docs/UI_REVIEW.md)。
+
+```bash
+# 重新生成 UI review 截图（本机需要 Python fontTools + 系统中文字体）
+python3 tool/ui_preview/prepare_font.py
+flutter test tool/ui_preview/ui_preview_test.dart --update-goldens
+```
+
+## MCP / AI 同步
+
+App 可以通过一个本地同步服务把数据接到 Grok Bot / Hermes / Claude Desktop 等
+MCP 客户端。服务端在 `mcp_server/`，纯 Dart、无需额外依赖；App 侧入口是
+首页 `⋮` → **MCP 同步**。支持 Docker Compose / systemd / Nginx HTTPS
+生产部署，见 [mcp_server/DEPLOY.md](mcp_server/DEPLOY.md)。
+
+```bash
+# 电脑上启动（手机需能访问时加 --host 0.0.0.0）
+dart mcp_server/bin/ota_sync_server.dart serve --host 0.0.0.0
+
+# 给桌面 MCP 客户端用的 stdio 模式
+dart mcp_server/bin/ota_sync_server.dart mcp
+
+# 查看 token
+dart mcp_server/bin/ota_sync_server.dart token
+
+# 一键部署到已有 Docker 的服务器（默认 root@bgvps）
+tool/deploy_mcp_server.sh --dry-run
+tool/deploy_mcp_server.sh
+
+# 目标只有 systemd / 没有 Docker（例如 bgvps）：
+tool/build_mcp_server_linux.sh
+tool/deploy_mcp_server_binary.sh --dry-run
+tool/deploy_mcp_server_binary.sh
+```
+
+完整配置、工具列表、REST 接口和安全说明见
+[mcp_server/README.md](mcp_server/README.md)。
 
 ## 开发环境
 
@@ -31,8 +76,13 @@ Android build：`1.5.4+20`
 ```bash
 flutter pub get
 flutter analyze
+flutter test
 flutter run
 ```
+
+> 测试默认并行：每个测试文件通过 `test/support/isolated_test_databases.dart`
+> 使用独立的临时数据库目录。新增数据库相关测试时在 `setUpAll` 里调用
+> `useIsolatedTestDatabases()`。
 
 如果本地 Flutter / Android SDK 不在系统默认路径，请先自行配置环境变量，例如 `ANDROID_HOME`、`ANDROID_SDK_ROOT`。
 
@@ -49,8 +99,10 @@ flutter run
 正式包构建命令：
 
 ```bash
-flutter build apk --release
+flutter build apk --release --target-platform android-arm64
 ```
+
+正式包只含 64 位 ARM（`arm64-v8a`），32 位和 x86 手机装不了；原因是端侧人脸模型的运行库每种架构约 37MB。
 
 构建完成后，`build/app/outputs/flutter-apk/` 目录下会同时看到：
 

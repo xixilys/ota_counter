@@ -54,3 +54,11 @@ app.*.map.json
 .omx/
 
 .worktrees/
+
+# Local UI preview font (generated from a system font, not redistributable)
+tool/ui_preview/PingFangSC-Preview.ttf
+
+# Local sync bridge data / compiled helper
+.ota_counter_sync/
+.ota_sync/
+mcp_server/bin/ota-sync-server

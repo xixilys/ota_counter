@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:ota_counter/models/activity_record_model.dart';
 import 'package:ota_counter/models/activity_record_media_model.dart';
@@ -9,12 +8,13 @@ import 'package:ota_counter/models/group_pricing_model.dart';
 import 'package:ota_counter/services/database_service.dart';
 import 'package:ota_counter/widgets/add_activity_record_dialog.dart';
 
+import 'support/isolated_test_databases.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  setUpAll(() async {
+    await useIsolatedTestDatabases();
   });
 
   setUp(() async {

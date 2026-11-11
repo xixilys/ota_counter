@@ -1,0 +1,28 @@
+[Unit]
+Description=OTA Counter Sync / MCP bridge
+Documentation=file:/opt/ota-counter-sync/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ota-sync
+Group=ota-sync
+StateDirectory=ota-counter-sync
+Environment=OTA_SYNC_DATA_DIR=/var/lib/ota-counter-sync
+Environment=OTA_SYNC_HOST=127.0.0.1
+Environment=OTA_SYNC_PORT=8787
+# Optional: EnvironmentFile=/etc/ota-counter-sync.env
+ExecStart=/usr/local/bin/ota-sync serve --host 127.0.0.1 --port 8787
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/ota-counter-sync
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

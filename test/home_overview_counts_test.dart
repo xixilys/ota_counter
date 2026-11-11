@@ -3,19 +3,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:ota_counter/main.dart';
 import 'package:ota_counter/models/activity_record_model.dart';
 import 'package:ota_counter/models/counter_model.dart';
+import 'package:ota_counter/models/custom_cheki_type_model.dart';
 import 'package:ota_counter/services/database_service.dart';
 import 'package:ota_counter/widgets/counter_card.dart';
 
+import 'support/isolated_test_databases.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  setUpAll(() async {
+    await useIsolatedTestDatabases();
   });
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
@@ -41,9 +42,13 @@ void main() {
   }
 
   Future<void> openHome(WidgetTester tester) async {
+    tester.view.physicalSize = const Size(800, 1400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     await tester.runAsync(() => tester.pumpWidget(const MyApp()));
     await settleDatabase(tester);
-    expect(find.text('切奇总览'), findsOneWidget);
+    expect(find.text('我的切奇'), findsOneWidget);
     expect(tester.takeException(), isNull);
   }
 
@@ -87,7 +92,7 @@ void main() {
       (tester) async {
     final recordId = (await tester.runAsync(seedMixedCounts))!;
     await openHome(tester);
-    expectMetric(tester, '总数', 5);
+    expectMetric(tester, '累计切奇', 5);
     expectMetric(tester, '团切', 3);
     expect(cardCounts(tester), {'A': 5, 'B': 3});
 
@@ -112,7 +117,7 @@ void main() {
     });
     await tester.tap(find.byType(BackButton));
     await settleDatabase(tester);
-    expectMetric(tester, '总数', 4);
+    expectMetric(tester, '累计切奇', 4);
     expectMetric(tester, '团切', 2);
     expect(cardCounts(tester), {'A': 4, 'B': 2});
   });
@@ -126,14 +131,14 @@ void main() {
       await DatabaseService.updateCounter(b.id!, b.copyWith(isHidden: true));
     });
     await openHome(tester);
-    expectMetric(tester, '总数', 5);
+    expectMetric(tester, '累计切奇', 5);
     expectMetric(tester, '团切', 3);
     expect(cardCounts(tester), {'A': 5});
     await tester.tap(find.byIcon(Icons.more_vert));
     await tester.pumpAndSettle();
     await tester.tap(find.text('显示已隐藏项'));
     await tester.pumpAndSettle();
-    expectMetric(tester, '总数', 5);
+    expectMetric(tester, '累计切奇', 5);
     expectMetric(tester, '团切', 3);
     expect(cardCounts(tester), {'A': 5, 'B': 3});
   });
@@ -148,14 +153,14 @@ void main() {
       }
     });
     await openHome(tester);
-    expectMetric(tester, '总数', 0);
+    expectMetric(tester, '累计切奇', 0);
     expectMetric(tester, '团切', 0);
     expect(cardCounts(tester), isEmpty);
     await tester.tap(find.byIcon(Icons.more_vert));
     await tester.pumpAndSettle();
     await tester.tap(find.text('显示已隐藏项'));
     await tester.pumpAndSettle();
-    expectMetric(tester, '总数', 5);
+    expectMetric(tester, '累计切奇', 5);
     expectMetric(tester, '团切', 3);
     expect(cardCounts(tester), {'A': 5, 'B': 3});
   });
@@ -196,7 +201,7 @@ void main() {
         await DatabaseService.insertActivityRecordWithCounterImpact(imported);
       });
       await openHome(tester);
-      expectMetric(tester, '总数', 3);
+      expectMetric(tester, '累计切奇', 3);
       expectMetric(tester, '团切', 3);
       expect(cardCounts(tester), {'A': 3, 'B': 3});
     });
@@ -232,7 +237,7 @@ void main() {
         ));
       });
       await openHome(tester);
-      expectMetric(tester, '总数', hiddenCount == 2 ? 0 : 1);
+      expectMetric(tester, '累计切奇', hiddenCount == 2 ? 0 : 1);
       expectMetric(tester, '团切', hiddenCount == 2 ? 0 : 1);
       final cards = tester.widgetList<CounterCard>(find.byType(CounterCard));
       expect(
@@ -252,9 +257,75 @@ void main() {
               name: '旧成员', groupName: '旧团', color: '#ffffff', groupCutCount: 7),
         ));
     await openHome(tester);
-    expectMetric(tester, '总数', 7);
+    expectMetric(tester, '累计切奇', 7);
     expectMetric(tester, '团切', 7);
     expect(cardCounts(tester), {'旧成员': 7});
     expect(await tester.runAsync(DatabaseService.getActivityRecords), isEmpty);
+  });
+
+  testWidgets('legacy multi quantity without a count field does not undercount',
+      (tester) async {
+    await tester.runAsync(() async {
+      await DatabaseService.insertCounter(CounterModel(
+        name: 'A',
+        groupName: 'G',
+        color: '#ffffff',
+        threeInchCount: 1,
+      ));
+      await DatabaseService.insertCounter(CounterModel(
+        name: 'B',
+        groupName: 'G',
+        color: '#ffffff',
+        threeInchCount: 1,
+      ));
+      final raw = ActivityRecordModel(
+        type: ActivityRecordType.multi,
+        subjectName: 'A',
+        groupName: 'G',
+        occurredAt: DateTime(2026, 3, 18),
+        multiCutQuantity: 2,
+        totalAmount: 0,
+        participants: const [
+          ActivityParticipant(memberName: 'A', groupName: 'G'),
+          ActivityParticipant(memberName: 'B', groupName: 'G'),
+        ],
+      );
+      await DatabaseService.insertActivityRecordWithCounterImpact(raw);
+    });
+    await openHome(tester);
+    expectMetric(tester, '累计切奇', 2);
+    expect(cardCounts(tester), {'A': 1, 'B': 1});
+  });
+
+  testWidgets('custom cheki counts are included in home totals',
+      (tester) async {
+    await tester.runAsync(() async {
+      await DatabaseService.insertCounter(CounterModel(
+        name: 'A',
+        groupName: 'G',
+        color: '#ffffff',
+      ));
+      final counter = (await DatabaseService.getCounters()).single;
+      await DatabaseService.insertActivityRecordWithCounterImpact(
+        ActivityRecordModel.counterAdjustment(
+          counter: counter,
+          occurredAt: DateTime(2026, 3, 18),
+          deltas: const {CounterCountField.threeInch: 1},
+          customChekiCounts: const [
+            ActivityRecordCustomChekiCount(
+              typeId: 'sign',
+              label: '签绘',
+              count: 2,
+              unitPrice: 30,
+            ),
+          ],
+        ),
+      );
+    });
+    await openHome(tester);
+    expectMetric(tester, '累计切奇', 3);
+    expectMetric(tester, '签绘', 2);
+    expect(cardCounts(tester), {'A': 3});
+    expect(find.text('签绘'), findsNWidgets(2));
   });
 }

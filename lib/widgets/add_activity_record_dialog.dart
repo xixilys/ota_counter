@@ -6,7 +6,9 @@ import '../models/custom_cheki_type_model.dart';
 import '../models/group_pricing_model.dart';
 import '../models/idol_activity_event_model.dart';
 import '../models/idol_database_models.dart';
+import '../models/ticket_type_model.dart';
 import '../services/idol_database_service.dart';
+import '../services/ticket_pricing_service.dart';
 import 'no_autofill_text_field.dart';
 
 class ActivityRecordDraft {
@@ -30,6 +32,8 @@ class ActivityRecordDraft {
   final bool followCurrentCounterPricing;
   final int ticketQuantity;
   final double ticketUnitPrice;
+  final String ticketType;
+  final bool ticketIsFree;
 
   const ActivityRecordDraft({
     required this.type,
@@ -52,6 +56,8 @@ class ActivityRecordDraft {
     this.followCurrentCounterPricing = false,
     this.ticketQuantity = 0,
     this.ticketUnitPrice = 0,
+    this.ticketType = '',
+    this.ticketIsFree = false,
   });
 
   ActivityRecordDraft copyWith({
@@ -75,6 +81,8 @@ class ActivityRecordDraft {
     bool? followCurrentCounterPricing,
     int? ticketQuantity,
     double? ticketUnitPrice,
+    String? ticketType,
+    bool? ticketIsFree,
   }) {
     return ActivityRecordDraft(
       type: type ?? this.type,
@@ -99,6 +107,8 @@ class ActivityRecordDraft {
           followCurrentCounterPricing ?? this.followCurrentCounterPricing,
       ticketQuantity: ticketQuantity ?? this.ticketQuantity,
       ticketUnitPrice: ticketUnitPrice ?? this.ticketUnitPrice,
+      ticketType: ticketType ?? this.ticketType,
+      ticketIsFree: ticketIsFree ?? this.ticketIsFree,
     );
   }
 
@@ -169,6 +179,8 @@ class ActivityRecordDraft {
       pricingLabel: record.pricingLabel,
       ticketQuantity: record.ticketQuantity > 0 ? record.ticketQuantity : 1,
       ticketUnitPrice: record.ticketUnitPrice,
+      ticketType: record.ticketType,
+      ticketIsFree: record.resolvedTicketIsFree,
     );
   }
 
@@ -298,6 +310,8 @@ class ActivityRecordDraft {
       note: note,
       quantity: ticketQuantity,
       unitPrice: ticketUnitPrice,
+      isFree: ticketIsFree,
+      ticketType: ticketType,
     );
     return ticketRecord.copyWith(
       source: source,
@@ -350,8 +364,15 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
   CounterModel? _selectedCounter;
   List<IdolMember> _idolMembers = [];
   List<IdolActivityEvent> _activityEvents = [];
+  List<TicketTypeModel> _ticketTypes = const [];
+  List<IdolTicketTier> _eventTicketTiers = const [];
+  String _ticketType = '';
+  bool _ticketIsFree = false;
+  bool _ticketTypesLoading = false;
+  String? _ticketPriceHint;
   bool _idolLoading = false;
   bool _activityEventsLoading = false;
+  String? _activitySyncWarning;
   List<CustomChekiTypeModel> _counterCustomTypes = const [];
   List<ActivityParticipant> _selectedParticipants = [];
   CounterCountField _selectedMultiField = CounterCountField.threeInch;
@@ -374,6 +395,9 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
       seedCounts: widget.initialDraft?.customChekiCounts ?? const [],
     );
     _loadIdolDatabase();
+    if (widget.initialDraft?.type == ActivityRecordType.ticket) {
+      _loadTicketTypes();
+    }
   }
 
   @override
@@ -413,6 +437,146 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     });
   }
 
+  Future<void> _loadTicketTypes() async {
+    if (_ticketTypesLoading) return;
+    setState(() => _ticketTypesLoading = true);
+    try {
+      final types = await TicketPricingService.getTicketTypes();
+      if (!mounted) return;
+      // Do not silently assign a tier when editing a legacy ticket (or a
+      // draft) that had no tier; let the user choose explicitly. A brand-new
+      // record gets a useful default.
+      final selected = _ticketType.trim().isNotEmpty
+          ? _ticketType
+          : (widget.initialDraft == null && types.isNotEmpty
+              ? (types
+                      .where((type) => !type.isFree)
+                      .map((type) => type.name)
+                      .firstOrNull ??
+                  types.first.name)
+              : '');
+      setState(() {
+        _ticketTypes = types;
+        _ticketType = selected;
+        _ticketTypesLoading = false;
+        if (types.isNotEmpty &&
+            selected.isNotEmpty &&
+            types.any((type) => type.name == selected && type.isFree)) {
+          _ticketIsFree = true;
+        }
+      });
+      if (_type == ActivityRecordType.ticket && selected.isNotEmpty) {
+        await _suggestTicketPrice(
+            force: _ticketPriceController.text.trim() == '0');
+      }
+    } catch (_) {
+      if (mounted) setState(() => _ticketTypesLoading = false);
+    }
+  }
+
+  Future<void> _onTicketTypeChanged(String? name) async {
+    if (name == null) return;
+    final type = _ticketTypes.where((item) => item.name == name).firstOrNull;
+    final eventTier =
+        _eventTicketTiers.where((item) => item.name == name).firstOrNull;
+    setState(() {
+      _ticketType = name;
+      _ticketPriceHint = null;
+      if (eventTier != null) {
+        _ticketIsFree = eventTier.price <= 0;
+        _ticketPriceController.text = _formatPrice(eventTier.price);
+        _ticketPriceHint = '演出名单票价';
+      } else if (type != null) {
+        _ticketIsFree = type.isFree;
+        if (type.isFree) {
+          _ticketPriceController.text = '0';
+        }
+      }
+    });
+    if (eventTier == null) {
+      await _suggestTicketPrice(force: true);
+    }
+  }
+
+  Future<void> _onTicketFreeChanged(bool value) async {
+    setState(() {
+      _ticketIsFree = value;
+      if (value) {
+        _ticketPriceController.text = '0';
+        _ticketPriceHint = '免费场次，单价自动为 0';
+      } else {
+        _ticketPriceHint = null;
+      }
+    });
+    if (!value) {
+      await _suggestTicketPrice(force: true);
+    }
+  }
+
+  Future<void> _applyTicketInfoFromEvent(IdolActivityEvent event) async {
+    final tiers = event.ticketTiers
+        .where((tier) => tier.name.isNotEmpty && tier.price > 0)
+        .toList(growable: false);
+    setState(() {
+      _eventTicketTiers = tiers;
+      if (event.isFree) {
+        _ticketIsFree = true;
+        _ticketPriceController.text = '0';
+        _ticketPriceHint = tiers.isEmpty
+            ? '演出名单：免费入场'
+            : '演出名单：免费入场，可选 ${tiers.first.name} ¥${_formatPrice(tiers.first.price)}';
+      } else if (tiers.isNotEmpty) {
+        final tier = tiers.first;
+        _ticketType = tier.name;
+        _ticketIsFree = false;
+        _ticketPriceController.text = _formatPrice(tier.price);
+        _ticketPriceHint = '演出名单票价：${event.ticketSummary}';
+      }
+    });
+    if (!event.isFree && tiers.isEmpty) {
+      await _suggestTicketPrice(force: true);
+    }
+  }
+
+  Future<void> _suggestTicketPrice({bool force = false}) async {
+    if (_ticketIsFree) {
+      if (mounted) {
+        setState(() {
+          _ticketPriceController.text = '0';
+          _ticketPriceHint = '免费场次，单价自动为 0';
+        });
+      }
+      return;
+    }
+    if (_ticketType.trim().isEmpty) return;
+    final current = double.tryParse(_ticketPriceController.text.trim()) ?? 0;
+    if (!force && current > 0) return;
+    try {
+      final suggestion = await TicketPricingService.suggestPrice(
+        eventName: _activityNameController.text,
+        venueName: _venueController.text,
+        ticketType: _ticketType,
+        fallback: current,
+      );
+      // The user may have switched to a free ticket while we were looking up
+      // the remembered price; never put a paid price back in that case.
+      if (!mounted || _ticketIsFree) return;
+      setState(() {
+        if (suggestion.source != '自由输入' || force) {
+          _ticketPriceController.text =
+              _formatEditableNumber(suggestion.unitPrice);
+        }
+        if (suggestion.isFree) {
+          _ticketIsFree = true;
+          _ticketPriceController.text = '0';
+        }
+        _ticketPriceHint = suggestion.source;
+      });
+    } catch (_) {
+      // Price suggestions are best-effort; the field remains editable.
+    }
+  }
+
   Future<void> _loadActivityEvents({bool syncRemote = false}) async {
     setState(() {
       _activityEventsLoading = true;
@@ -421,13 +585,10 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     if (syncRemote) {
       try {
         await IdolDatabaseService.syncActivityEventsFromRemoteIfStale();
+        _activitySyncWarning = null;
       } catch (error) {
-        if (mounted) {
-          setState(() {
-            _activityEventsLoading = false;
-          });
-        }
-        rethrow;
+        // Cached events are still useful when the network/upstream fails.
+        _activitySyncWarning = '$error';
       }
     }
 
@@ -479,6 +640,8 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     _sessionController.text = draft.sessionLabel;
     _ticketQuantityController.text = '${draft.ticketQuantity}';
     _ticketPriceController.text = _formatEditableNumber(draft.ticketUnitPrice);
+    _ticketType = draft.ticketType;
+    _ticketIsFree = draft.ticketIsFree;
 
     for (final field in CounterCountField.values) {
       _countControllers[field.key]!.text = '${draft.counterDeltas[field] ?? 0}';
@@ -542,6 +705,11 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
       ..clear()
       ..addAll(nextControllers);
     _counterCustomTypes = nextTypes;
+  }
+
+  String _formatPrice(double value) {
+    if (value == value.roundToDouble()) return value.toStringAsFixed(0);
+    return value.toStringAsFixed(2);
   }
 
   String _formatEditableNumber(num value) {
@@ -844,6 +1012,25 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
     if (!mounted) {
       return;
     }
+    final warning = _activitySyncWarning;
+    _activitySyncWarning = null;
+    if (warning != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('演出名单更新失败，正在使用本地缓存：$warning'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+    if (_activityEvents.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('没有可用的偶活场次，请检查网络后重试'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
 
     final selected = await showModalBottomSheet<IdolActivityEvent>(
       context: context,
@@ -867,6 +1054,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
       _venueController.text = selected.venue;
       _sessionController.text = selected.sessionLabel;
     });
+    await _applyTicketInfoFromEvent(selected);
   }
 
   String get _selectedActivityEventSummary {
@@ -1067,6 +1255,8 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
         sessionLabel: _sessionController.text.trim(),
         ticketQuantity: _ticketQuantity,
         ticketUnitPrice: _ticketUnitPrice,
+        ticketType: _ticketType,
+        ticketIsFree: _ticketIsFree,
         pricingLabel: widget.initialDraft?.pricingLabel ?? '',
       ),
     );
@@ -1110,10 +1300,16 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
                 ),
               ],
               selected: {_type},
-              onSelectionChanged: (selection) {
+              onSelectionChanged: (selection) async {
                 setState(() {
                   _type = selection.first;
                 });
+                if (_type == ActivityRecordType.ticket) {
+                  if (_ticketTypes.isEmpty) {
+                    await _loadTicketTypes();
+                  }
+                  await _suggestTicketPrice(force: true);
+                }
               },
             ),
             const SizedBox(height: 16),
@@ -1388,7 +1584,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
                 title: const Text('按团切计算'),
                 subtitle: Text(
                   _multiAsGroupCut
-                      ? '每张团切计入所有参与成员，切奇总览每张只计一次。'
+                      ? '每张团切计入所有参与成员，我的切奇每张只计一次。'
                       : '关闭后按原来的多人切规格处理。',
                 ),
                 value: _multiAsGroupCut,
@@ -1457,6 +1653,63 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
                     ),
               ),
             ] else ...[
+              DropdownButtonFormField<String>(
+                initialValue: _ticketType.trim().isEmpty ? null : _ticketType,
+                decoration: const InputDecoration(
+                  labelText: '票种',
+                  prefixIcon: Icon(Icons.local_activity_outlined),
+                ),
+                items: [
+                  for (final type in _ticketTypes)
+                    DropdownMenuItem(
+                      value: type.name,
+                      child: Text(
+                        type.isFree
+                            ? '${type.name} · 免费'
+                            : type.defaultPrice > 0
+                                ? '${type.name} · ¥${_formatPrice(type.defaultPrice)}'
+                                : type.name,
+                      ),
+                    ),
+                  for (final tier in _eventTicketTiers)
+                    if (!_ticketTypes.any((type) => type.name == tier.name))
+                      DropdownMenuItem(
+                        value: tier.name,
+                        child: Text(
+                          '${tier.name} · ¥${_formatPrice(tier.price)}',
+                        ),
+                      ),
+                  if (_ticketType.isNotEmpty &&
+                      !_ticketTypes.any((type) => type.name == _ticketType) &&
+                      !_eventTicketTiers.any(
+                        (tier) => tier.name == _ticketType,
+                      ))
+                    DropdownMenuItem(
+                      value: _ticketType,
+                      child: Text('$_ticketType（历史票种）'),
+                    ),
+                ],
+                onChanged: _onTicketTypeChanged,
+              ),
+              if (_ticketTypesLoading)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    '票种加载中…',
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+                ),
+              const SizedBox(height: 8),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('免费场次'),
+                subtitle: Text(
+                  _ticketIsFree ? '单价固定为 0 元，仍会记录票种和数量' : '关闭后可按场次/票种自动填入上次价格',
+                ),
+                value: _ticketIsFree,
+                onChanged: _onTicketFreeChanged,
+              ),
+              const SizedBox(height: 8),
               NoAutofillTextField(
                 controller: _sessionController,
                 decoration: const InputDecoration(
@@ -1477,15 +1730,27 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
               const SizedBox(height: 12),
               NoAutofillTextField(
                 controller: _ticketPriceController,
-                decoration: const InputDecoration(
+                enabled: !_ticketIsFree,
+                decoration: InputDecoration(
                   labelText: '门票单价',
                   prefixText: '¥',
+                  hintText: _ticketIsFree ? '免费场次' : '选择票种后自动带入',
                 ),
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
                 onChanged: (_) => setState(() {}),
               ),
+              if (_ticketPriceHint != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    '价格提示：$_ticketPriceHint',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                  ),
+                ),
               const SizedBox(height: 12),
               Text(
                 '预计金额：¥${ticketPreviewTotal.toStringAsFixed(ticketPreviewTotal == ticketPreviewTotal.roundToDouble() ? 0 : 2)}',

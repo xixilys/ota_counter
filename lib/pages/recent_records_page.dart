@@ -4,6 +4,7 @@ import '../models/activity_record_model.dart';
 import '../models/counter_model.dart';
 import '../models/group_pricing_model.dart';
 import '../services/database_service.dart';
+import '../services/ticket_pricing_service.dart';
 import '../widgets/add_activity_record_dialog.dart';
 
 class RecentRecordsPage extends StatefulWidget {
@@ -130,6 +131,7 @@ class _RecentRecordsPageState extends State<RecentRecordsPage> {
         record.id!,
         updatedRecord,
       );
+      await TicketPricingService.rememberRecord(updatedRecord);
       await _loadData();
       if (!mounted) {
         return;
@@ -353,12 +355,20 @@ class _RecentRecordsPageState extends State<RecentRecordsPage> {
         _formatOccurredAtLabel(record.occurredAt),
         if (record.resolvedVenueName.isNotEmpty) record.resolvedVenueName,
         if (record.sessionLabel.isNotEmpty) record.sessionLabel,
+        record.ticketTypeLabel,
+        if (record.resolvedTicketIsFree)
+          '免费'
+        else
+          '¥${_formatAmount(record.ticketUnitPrice)}/张',
         '门票 ${record.ticketQuantity} 张',
         if (record.note.isNotEmpty) record.note,
       ].join(' · ');
     }
 
     if (record.isMulti) {
+      final unknownGroupMembers =
+          record.multiCountField == CounterCountField.groupCut &&
+              record.multiParticipantCount == 0;
       return [
         _formatOccurredAtLabel(record.occurredAt),
         if (record.resolvedActivityName.isNotEmpty) record.resolvedActivityName,
@@ -366,9 +376,11 @@ class _RecentRecordsPageState extends State<RecentRecordsPage> {
         if (multiGroupLabel.isNotEmpty) multiGroupLabel,
         _effectivePricingLabel(record),
         if (record.multiFieldLabel.isNotEmpty) record.multiFieldLabel,
-        '多人切 ${record.multiParticipantCount} 人',
+        unknownGroupMembers ? '成员待补' : '多人切 ${record.multiParticipantCount} 人',
         if (record.effectiveMultiQuantity > 1)
-          '每人 ${record.effectiveMultiQuantity}',
+          unknownGroupMembers
+              ? '${record.effectiveMultiQuantity} 张'
+              : '每人 ${record.effectiveMultiQuantity}',
         if (record.note.isNotEmpty) record.note,
       ].join(' · ');
     }

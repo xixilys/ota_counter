@@ -10,20 +10,31 @@ import 'package:url_launcher/url_launcher.dart';
 import 'app_metadata.dart';
 import 'models/activity_record_model.dart';
 import 'models/counter_model.dart';
+import 'models/ticket_type_model.dart';
+import 'pages/batch_capture_page.dart';
 import 'pages/chart_page.dart';
+import 'pages/face_recognition_settings_page.dart';
 import 'pages/group_pricing_page.dart';
+import 'pages/idol_activity_events_page.dart';
 import 'pages/idol_database_page.dart';
 import 'pages/image_page.dart';
 import 'pages/member_detail_page.dart';
 import 'pages/recent_records_page.dart';
+import 'pages/sync_page.dart';
 import 'services/database_service.dart';
 import 'services/export_import_service.dart';
 import 'services/idol_database_service.dart';
 import 'services/ota_admin_import_service.dart';
 import 'services/settings_service.dart';
+import 'services/sync_service.dart';
+import 'services/ticket_pricing_service.dart';
 import 'services/update_service.dart';
+import 'theme/app_theme.dart';
 import 'widgets/add_counter_dialog.dart';
+import 'widgets/app_page_background.dart';
+import 'widgets/cheki_overview_parts.dart';
 import 'widgets/counter_card.dart';
+import 'widgets/ticket_stub_card.dart';
 
 void main() async {
   // 确保 Flutter 绑定初始化
@@ -43,17 +54,9 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final lightScheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFF2F6FED),
-      brightness: Brightness.light,
-    );
-    final darkScheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFF6AA7FF),
-      brightness: Brightness.dark,
-    );
-
     return MaterialApp(
       title: kAppDisplayName,
+      debugShowCheckedModeBanner: false,
       locale: const Locale('zh', 'CN'),
       supportedLocales: const [
         Locale('zh', 'CN'),
@@ -61,14 +64,9 @@ class MyApp extends StatelessWidget {
       ],
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
       themeMode: ThemeMode.system,
-      theme: ThemeData(
-        colorScheme: lightScheme,
-        useMaterial3: true,
-      ),
-      darkTheme: ThemeData(
-        colorScheme: darkScheme,
-        useMaterial3: true,
-      ),
+      themeAnimationDuration: const Duration(milliseconds: 260),
+      theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
       home: const MyHomePage(),
     );
   }
@@ -101,14 +99,31 @@ class _HomeCounterEntry {
   });
 }
 
+class _HomeOverviewSnapshot {
+  final int memberTotal;
+  final int overviewTotal;
+  final Map<CounterCountField, int> typeTotals;
+
+  const _HomeOverviewSnapshot({
+    required this.memberTotal,
+    required this.overviewTotal,
+    required this.typeTotals,
+  });
+}
+
 class _MyHomePageState extends State<MyHomePage> {
-  static const double _overviewCardHorizontalPadding = 10;
-  static const double _overviewCardVerticalPadding = 10;
   static const double _overviewChipSpacing = 6;
 
   final List<CounterModel> _counters = [];
   final List<ActivityRecordModel> _activityRecords = [];
+  int _activityRecordCount = 0;
+  TicketStats _ticketStats = TicketStats.empty;
   List<_HomeCounterEntry>? _homeEntriesCache;
+  _HomeOverviewSnapshot? _overviewCache;
+  bool _initialLoadDone = false;
+  bool _startupMaintenanceStarted = false;
+  Future<void>? _idolDatabaseInit;
+  Future<void>? _packageInfoInit;
   double _gridSize = 2;
   bool _sortAscending = true;
   String _sortType = SettingsService.sortByCount; // 添加排序类型
@@ -125,10 +140,10 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void initState() {
     super.initState();
+    _idolDatabaseInit = _initializeIdolDatabase();
+    _packageInfoInit = _loadPackageInfo();
     _loadCounters(reconcileImportedRecords: true);
     _loadSettings();
-    _loadPackageInfo();
-    _initializeIdolDatabase();
   }
 
   Future<void> _initializeIdolDatabase() async {
@@ -195,35 +210,44 @@ class _MyHomePageState extends State<MyHomePage> {
       _overviewMetricOrder = overviewMetricOrder;
       _overviewMetricColumns = overviewMetricColumns;
       _applySort(_counters);
-      _homeEntriesCache = null;
+      _invalidateHomeCaches();
     });
   }
 
   Future<void> _loadCounters({bool reconcileImportedRecords = false}) async {
     try {
-      if (reconcileImportedRecords) {
-        await DatabaseService.syncActivityRecordsToCounters('ota_site');
-        await DatabaseService.autoAssignCounterThemeColors();
-      }
-      final counters = await DatabaseService.getCounters();
-      final activityRecords = await DatabaseService.getActivityRecords();
+      final results = await Future.wait([
+        DatabaseService.getCounters(),
+        DatabaseService.getHomeActivityRecords(),
+        DatabaseService.getActivityRecordCount(),
+        _loadTicketStats(),
+      ]);
+      final counters = results[0] as List<CounterModel>;
+      final activityRecords = results[1] as List<ActivityRecordModel>;
+      final activityRecordCount = results[2] as int;
+      final ticketStats = results[3] as TicketStats;
       if (!mounted) {
         return;
       }
       setState(() {
-        _counters.clear();
-        _counters.addAll(counters);
+        _counters
+          ..clear()
+          ..addAll(counters);
         _activityRecords
           ..clear()
           ..addAll(activityRecords);
+        _activityRecordCount = activityRecordCount;
+        _ticketStats = ticketStats;
         _applySort(_counters);
-        _homeEntriesCache = null;
+        _invalidateHomeCaches();
+        _initialLoadDone = true;
       });
       if (reconcileImportedRecords) {
-        // Identity repair can scan the whole idol database. Let the first
-        // frame render the stored cards, then repair and refresh if needed.
+        // Imported-record sync, color enrichment and identity repair can each
+        // scan a large database. Paint stored cards first, then run the
+        // maintenance once and refresh quietly in the background.
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _reconcileIdentitiesAfterLoad();
+          _runStartupMaintenance();
         });
       }
     } catch (e) {
@@ -231,12 +255,37 @@ class _MyHomePageState extends State<MyHomePage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('加载失败: ${e.toString()}')),
         );
+        setState(() {
+          _initialLoadDone = true;
+        });
       }
     }
   }
 
-  Future<void> _reconcileIdentitiesAfterLoad() async {
+  Future<TicketStats> _loadTicketStats() async {
     try {
+      return await TicketPricingService.getStats();
+    } catch (_) {
+      return TicketStats.empty;
+    }
+  }
+
+  Future<void> _runStartupMaintenance() async {
+    if (_startupMaintenanceStarted) {
+      return;
+    }
+    _startupMaintenanceStarted = true;
+    try {
+      await _packageInfoInit;
+      // A zero build number means package metadata is unavailable. Widget
+      // tests use that to opt out of network/update work; skipping heavy
+      // background maintenance there also keeps test teardown deterministic.
+      if (_appVersionCode <= 0) {
+        return;
+      }
+      await _idolDatabaseInit;
+      await DatabaseService.syncActivityRecordsToCounters('ota_site');
+      await DatabaseService.autoAssignCounterThemeColors();
       await DatabaseService.reconcileCounterIdentities();
     } catch (_) {
       return;
@@ -245,6 +294,22 @@ class _MyHomePageState extends State<MyHomePage> {
       return;
     }
     await _loadCounters();
+    await _runAutoSyncIfEnabled();
+  }
+
+  Future<void> _runAutoSyncIfEnabled() async {
+    try {
+      final settings = await SyncService.loadSettings();
+      if (!settings.autoSync || !settings.isConfigured) {
+        return;
+      }
+      final result = await SyncService.syncNow(settings);
+      if (result.applied > 0 && mounted) {
+        await _loadCounters();
+      }
+    } catch (_) {
+      // Network failures must never block app startup.
+    }
   }
 
   String _normalizedLookupPart(String value) {
@@ -264,22 +329,30 @@ class _MyHomePageState extends State<MyHomePage> {
         : _counters.where((counter) => !counter.isHidden).toList();
   }
 
-  int _visibleParticipantCountForMultiRecord(ActivityRecordModel record) {
-    final scopedCounters = _scopedCounters;
-    if (scopedCounters.isEmpty) {
+  int _visibleParticipantCountForMultiRecord(
+    ActivityRecordModel record, {
+    Set<int>? visibleIds,
+  }) {
+    final scopedIds = visibleIds ??
+        _scopedCounters.map((counter) => counter.id).whereType<int>().toSet();
+    if (scopedIds.isEmpty) {
       return 0;
     }
 
-    final visibleIds = scopedCounters.map((counter) => counter.id).toSet();
     final matchedIds = <int>{};
     for (final participant in record.effectiveParticipants) {
       final counter =
           DatabaseService.resolveCounterForParticipant(_counters, participant);
-      if (counter?.id != null && visibleIds.contains(counter!.id)) {
+      if (counter?.id != null && scopedIds.contains(counter!.id)) {
         matchedIds.add(counter.id!);
       }
     }
     return matchedIds.length;
+  }
+
+  void _invalidateHomeCaches() {
+    _homeEntriesCache = null;
+    _overviewCache = null;
   }
 
   String _homeEntryKey(CounterModel counter) {
@@ -528,32 +601,102 @@ class _MyHomePageState extends State<MyHomePage> {
     return immutableEntries;
   }
 
-  int get _memberTotal =>
-      _homeEntries.fold<int>(0, (sum, entry) => sum + entry.totalCount);
+  int get _memberTotal => _overviewSnapshot.memberTotal;
 
-  Map<CounterCountField, int> get _memberTypeTotals {
-    return {
-      CounterCountField.threeInch: _homeEntries.fold<int>(
-        0,
-        (sum, entry) => sum + entry.displayCounter.aggregatedThreeInchCount,
-      ),
-      CounterCountField.fiveInch: _homeEntries.fold<int>(
-        0,
-        (sum, entry) => sum + entry.displayCounter.aggregatedFiveInchCount,
-      ),
-      CounterCountField.threeInchShukudai: _homeEntries.fold<int>(
-        0,
-        (sum, entry) => sum + entry.displayCounter.threeInchShukudaiCount,
-      ),
-      CounterCountField.fiveInchShukudai: _homeEntries.fold<int>(
-        0,
-        (sum, entry) => sum + entry.displayCounter.fiveInchShukudaiCount,
-      ),
-      CounterCountField.groupCut: _homeEntries.fold<int>(
-        0,
-        (sum, entry) => sum + entry.displayCounter.groupCutCount,
-      ),
+  /// Members left out of the home totals because they are hidden and
+  /// "显示已隐藏项" is off. Shown in the header so a smaller total is never
+  /// mistaken for lost counts.
+  int get _hiddenEntryCount {
+    if (_showHiddenCounters) {
+      return 0;
+    }
+    final visibleKeys = _homeEntries.map((entry) => entry.key).toSet();
+    return _counters
+        .where((counter) => counter.isHidden)
+        .map(_homeEntryKey)
+        .where((key) => !visibleKeys.contains(key))
+        .toSet()
+        .length;
+  }
+
+  _HomeOverviewSnapshot get _overviewSnapshot {
+    final cached = _overviewCache;
+    if (cached != null) {
+      return cached;
+    }
+
+    final entries = _homeEntries;
+    var memberTotal = 0;
+    final typeTotals = <CounterCountField, int>{
+      CounterCountField.threeInch: 0,
+      CounterCountField.fiveInch: 0,
+      CounterCountField.threeInchShukudai: 0,
+      CounterCountField.fiveInchShukudai: 0,
+      CounterCountField.groupCut: 0,
     };
+
+    for (final entry in entries) {
+      memberTotal += entry.totalCount;
+      final counter = entry.displayCounter;
+      typeTotals[CounterCountField.threeInch] =
+          typeTotals[CounterCountField.threeInch]! +
+              counter.aggregatedThreeInchCount;
+      typeTotals[CounterCountField.fiveInch] =
+          typeTotals[CounterCountField.fiveInch]! +
+              counter.aggregatedFiveInchCount;
+      typeTotals[CounterCountField.threeInchShukudai] =
+          typeTotals[CounterCountField.threeInchShukudai]! +
+              counter.threeInchShukudaiCount;
+      typeTotals[CounterCountField.fiveInchShukudai] =
+          typeTotals[CounterCountField.fiveInchShukudai]! +
+              counter.fiveInchShukudaiCount;
+      typeTotals[CounterCountField.groupCut] =
+          typeTotals[CounterCountField.groupCut]! + counter.groupCutCount;
+    }
+
+    final visibleIds =
+        _scopedCounters.map((counter) => counter.id).whereType<int>().toSet();
+    var duplicateContributionTotal = 0;
+    final duplicateByField = <CounterCountField, int>{};
+    for (final record in _activityRecords) {
+      if (!record.isMulti) {
+        continue;
+      }
+      // A legacy multi row with only a quantity and no selected count field
+      // never touched counter totals; subtracting it would under-count the
+      // home overview.
+      final rawField = record.multiCountField;
+      if (rawField == null) {
+        continue;
+      }
+      final visibleParticipantCount = _visibleParticipantCountForMultiRecord(
+        record,
+        visibleIds: visibleIds,
+      );
+      if (visibleParticipantCount <= 1) {
+        continue;
+      }
+
+      final duplicateContribution =
+          record.multiTotalCount * (visibleParticipantCount - 1);
+      duplicateContributionTotal += duplicateContribution;
+      final overviewField = rawField.aggregatedBaseField;
+      duplicateByField[overviewField] =
+          (duplicateByField[overviewField] ?? 0) + duplicateContribution;
+    }
+
+    final adjustedTypeTotals = <CounterCountField, int>{
+      for (final field in CounterCountField.values)
+        field: math.max(
+            0, (typeTotals[field] ?? 0) - (duplicateByField[field] ?? 0)),
+    };
+    final snapshot = _HomeOverviewSnapshot(
+      memberTotal: memberTotal,
+      overviewTotal: math.max(0, memberTotal - duplicateContributionTotal),
+      typeTotals: adjustedTypeTotals,
+    );
+    _overviewCache = snapshot;
+    return snapshot;
   }
 
   Map<String, int> get _overviewCustomTypeTotals {
@@ -570,48 +713,10 @@ class _MyHomePageState extends State<MyHomePage> {
     return totals;
   }
 
-  Map<CounterCountField, int> get _overviewTypeTotals {
-    final totals = Map<CounterCountField, int>.from(_memberTypeTotals);
+  Map<CounterCountField, int> get _overviewTypeTotals =>
+      _overviewSnapshot.typeTotals;
 
-    for (final record in _activityRecords.where((record) => record.isMulti)) {
-      final visibleParticipantCount =
-          _visibleParticipantCountForMultiRecord(record);
-      if (visibleParticipantCount <= 1) {
-        continue;
-      }
-
-      final duplicateContribution =
-          record.multiTotalCount * (visibleParticipantCount - 1);
-      final rawField = record.multiCountField;
-      if (rawField == null) {
-        continue;
-      }
-
-      final overviewField = rawField.aggregatedBaseField;
-      final currentValue = totals[overviewField] ?? 0;
-      totals[overviewField] = math.max(
-        0,
-        currentValue - duplicateContribution,
-      );
-    }
-
-    return totals;
-  }
-
-  int get _overviewTotal {
-    var duplicateContributionTotal = 0;
-    for (final record in _activityRecords.where((record) => record.isMulti)) {
-      final visibleParticipantCount =
-          _visibleParticipantCountForMultiRecord(record);
-      if (visibleParticipantCount <= 1) {
-        continue;
-      }
-      duplicateContributionTotal +=
-          record.multiTotalCount * (visibleParticipantCount - 1);
-    }
-
-    return math.max(0, _memberTotal - duplicateContributionTotal);
-  }
+  int get _overviewTotal => _overviewSnapshot.overviewTotal;
 
   String _overviewMetricIdForField(CounterCountField field) {
     return 'builtin:${field.key}';
@@ -1019,18 +1124,24 @@ class _MyHomePageState extends State<MyHomePage> {
     String activityName = '',
     String venueName = '',
     String sessionLabel = '',
+    CounterModel? baseCounter,
   }) async {
     final index =
         _counters.indexWhere((counter) => counter.id == updatedCounter.id);
     if (index == -1 || updatedCounter.id == null) {
-      final deltas = {
-        for (final field in CounterCountField.values)
-          field: updatedCounter.countForField(field),
-      };
+      // Without a confirmed base this is a brand-new card: every count is new.
+      final deltas = _buildCounterDeltas(
+        baseCounter ?? _counterWithZeroCounts(updatedCounter),
+        updatedCounter,
+      );
 
       if (_hasCounterDeltas(deltas)) {
         await _recordCounterChange(
-          counter: _counterWithZeroCounts(updatedCounter),
+          // A queued tap may still carry the draft (id-less) copy although
+          // the previous save already created the card; link to that card.
+          counter: _counterWithZeroCounts(
+            updatedCounter.copyWith(id: baseCounter?.id),
+          ),
           deltas: deltas,
           occurredAt: occurredAt,
           note: note,
@@ -1038,14 +1149,17 @@ class _MyHomePageState extends State<MyHomePage> {
           venueName: venueName,
           sessionLabel: sessionLabel,
         );
-      } else {
+      } else if (baseCounter == null) {
         await DatabaseService.insertCounter(updatedCounter);
       }
       await _loadCounters();
       return _resolveSavedCounter(updatedCounter);
     }
 
-    final previousCounter = _counters[index];
+    // The sheet's confirmed base, not this page's cache: the cache can be
+    // stale (member detail edits, background sync) and would turn one tap
+    // into a larger or negative correction.
+    final previousCounter = baseCounter ?? _counters[index];
     final deltas = _buildCounterDeltas(previousCounter, updatedCounter);
 
     if (_hasCounterDeltas(deltas)) {
@@ -1079,6 +1193,7 @@ class _MyHomePageState extends State<MyHomePage> {
             activityName = '',
             venueName = '',
             sessionLabel = '',
+            baseCounter,
           }) async {
             return _saveCounter(
               updatedCounter,
@@ -1086,6 +1201,7 @@ class _MyHomePageState extends State<MyHomePage> {
               activityName: activityName,
               venueName: venueName,
               sessionLabel: sessionLabel,
+              baseCounter: baseCounter,
             );
           },
         ),
@@ -1648,7 +1764,7 @@ class _MyHomePageState extends State<MyHomePage> {
   void _toggleShowHiddenCounters() {
     setState(() {
       _showHiddenCounters = !_showHiddenCounters;
-      _homeEntriesCache = null;
+      _invalidateHomeCaches();
     });
     SettingsService.saveShowHiddenCounters(_showHiddenCounters);
   }
@@ -1686,7 +1802,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
   void _sortCounters() {
     _applySort(_counters);
-    _homeEntriesCache = null;
+    _invalidateHomeCaches();
   }
 
   void _toggleSortDirection() {
@@ -1715,11 +1831,56 @@ class _MyHomePageState extends State<MyHomePage> {
     await _loadCounters();
   }
 
+  /// 「新增」: a ledger record, or 批量拍切 (cut + recognise + save a batch).
   Future<void> _openAddRecordEntry() async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit_note_rounded),
+              title: const Text('记一笔流水'),
+              onTap: () => Navigator.pop(context, 'record'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.burst_mode_outlined),
+              title: const Text('批量拍切'),
+              subtitle: const Text('连拍或从相册多选拍立得，自动切图、认人、入账'),
+              onTap: () => Navigator.pop(context, 'batch'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || choice == null) return;
+    if (choice == 'batch') {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const BatchCapturePage()),
+      );
+      await _loadCounters();
+      return;
+    }
     await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => const ChartPage(openComposerOnStart: true),
+      ),
+    );
+    await _loadCounters();
+  }
+
+  Future<void> _openTicketComposer() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const ChartPage(
+          openComposerOnStart: true,
+          composerType: ActivityRecordType.ticket,
+        ),
       ),
     );
     await _loadCounters();
@@ -1840,6 +2001,9 @@ class _MyHomePageState extends State<MyHomePage> {
             return;
           }
           Navigator.of(context, rootNavigator: true).pop();
+          // The restore may switch "显示已隐藏项" so the home totals match
+          // the backed-up app; reload it before the counters.
+          await _loadSettings();
           await _loadCounters();
           if (!mounted) {
             return;
@@ -1953,96 +2117,137 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget _buildOverviewCard(BuildContext context) {
     final metrics = _visibleOverviewMetrics;
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final brightness = theme.brightness;
+    final isDark = brightness == Brightness.dark;
+    final metricExtent =
+        (56.0 * MediaQuery.textScalerOf(context).scale(1.0)).clamp(56.0, 96.0);
+    final oshi = AppTheme.oshi(brightness);
+    const onStage = Colors.white;
+    final onStageMuted = Colors.white.withValues(alpha: 0.78);
+    final penlights = [
+      for (final entry in _homeEntries)
+        if (entry.totalCount > 0)
+          PenlightData(
+            color: entry.displayCounter.colorValue,
+            count: entry.totalCount,
+          ),
+    ];
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final width = constraints.maxWidth;
         final columns = _overviewMetricColumns.clamp(2, 3);
-        final compactAddButton = width < 360;
-        final subtitle = '${_homeEntries.length} 个成员 / 项目 · 点按配置显示项、顺序和排布';
+        final compact = constraints.maxWidth < 350;
 
-        return Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(22),
-            onTap: _showOverviewMetricsDialog,
-            child: Ink(
-              padding: const EdgeInsets.fromLTRB(
-                _overviewCardHorizontalPadding,
-                _overviewCardVerticalPadding,
-                _overviewCardHorizontalPadding,
-                _overviewCardVerticalPadding,
-              ),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(22),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    theme.colorScheme.primary.withAlpha(28),
-                    theme.colorScheme.secondary.withAlpha(20),
+        // The overview is a cheki print: a white border around a "photo" of
+        // the stage, where every member is a penlight in her own color.
+        return Container(
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
+          decoration: BoxDecoration(
+            color: AppTheme.polaroid(brightness),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: scheme.onSurface.withValues(alpha: isDark ? 0.10 : 0.06),
+            ),
+            boxShadow: isDark
+                ? null
+                : [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.05),
+                      blurRadius: 12,
+                      offset: const Offset(0, 2),
+                    ),
                   ],
-                ),
-                border: Border.all(
-                  color: theme.colorScheme.primary.withAlpha(24),
-                ),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: ColoredBox(
+                  color: AppTheme.stage(brightness),
+                  child: Stack(
                     children: [
-                      Expanded(
+                      Positioned(
+                        left: 12,
+                        right: 12,
+                        bottom: 0,
+                        height: 56,
+                        child: PenlightCrowd(lights: penlights),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 4, 68),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              '切奇总览',
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              subtitle,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                fontSize: 11,
-                                color: theme.textTheme.bodyMedium?.color
-                                    ?.withValues(
-                                  alpha: 0.72,
+                            Row(
+                              children: [
+                                const ChekiSticker(text: '我的切奇'),
+                                const Spacer(),
+                                IconButton(
+                                  onPressed: _showOverviewMetricsDialog,
+                                  tooltip: '配置总览指标',
+                                  color: onStageMuted,
+                                  icon:
+                                      const Icon(Icons.tune_rounded, size: 20),
                                 ),
-                              ),
+                              ],
                             ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(16),
-                          color: theme.colorScheme.surface.withAlpha(196),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              '$_overviewTotal',
-                              style: theme.textTheme.headlineSmall?.copyWith(
-                                fontWeight: FontWeight.w900,
-                                height: 1,
-                              ),
+                            const SizedBox(height: 4),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '累计切奇',
+                                  style: theme.textTheme.labelLarge?.copyWith(
+                                    color: onStageMuted,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  alignment: Alignment.centerLeft,
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.baseline,
+                                    textBaseline: TextBaseline.alphabetic,
+                                    children: [
+                                      Text(
+                                        '$_overviewTotal',
+                                        style: theme.textTheme.displayMedium
+                                            ?.copyWith(
+                                          fontSize: compact ? 44 : 52,
+                                          fontWeight: FontWeight.w600,
+                                          height: 1.1,
+                                          letterSpacing: -1,
+                                          color: onStage,
+                                          fontFeatures: const [
+                                            FontFeature.tabularFigures(),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        '张',
+                                        style: theme.textTheme.titleMedium
+                                            ?.copyWith(
+                                          color: onStageMuted,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(height: 2),
                             Text(
-                              '总数',
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                fontWeight: FontWeight.w700,
+                              '${_homeEntries.length} 位成员 · $_activityRecordCount 条记录'
+                              '${_hiddenEntryCount > 0 ? ' · 另有 $_hiddenEntryCount 位已隐藏' : ''}',
+                              maxLines: 2,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: onStageMuted,
+                                fontSize: 12,
                               ),
                             ),
                           ],
@@ -2050,137 +2255,374 @@ class _MyHomePageState extends State<MyHomePage> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          '拖动排序和勾选显示项都在这里配置',
-                          style: theme.textTheme.labelMedium?.copyWith(
-                            color:
-                                theme.textTheme.bodyMedium?.color?.withValues(
-                              alpha: 0.66,
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(4, 12, 4, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (metrics.isNotEmpty)
+                      // Plain rows instead of a shrink-wrapped GridView: a
+                      // GridView without explicit padding inherits the
+                      // Scaffold's MediaQuery padding (status bar + app bar
+                      // + gesture bar), which used to open a large empty band
+                      // inside this card.
+                      for (var start = 0;
+                          start < metrics.length;
+                          start += columns) ...[
+                        if (start > 0)
+                          const SizedBox(height: _overviewChipSpacing),
+                        SizedBox(
+                          height: metricExtent,
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              // A short last row stretches to the full
+                              // width instead of leaving an empty slot.
+                              for (var i = start;
+                                  i < math.min(start + columns, metrics.length);
+                                  i++) ...[
+                                if (i > start)
+                                  const SizedBox(width: _overviewChipSpacing),
+                                Expanded(
+                                  child: _OverviewChip(
+                                    label: metrics[i].label,
+                                    value: metrics[i].value,
+                                    isCustom: metrics[i].isCustom,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ]
+                    else
+                      Text(
+                        '当前没有可显示的统计项，点右上角配置',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: _openAddRecordEntry,
+                            icon: const Icon(Icons.add_rounded, size: 18),
+                            label: Text(compact ? '新增' : '新增记录'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: oshi,
+                              foregroundColor: AppTheme.onOshi(brightness),
+                              minimumSize: const Size(0, 44),
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      FilledButton.tonalIcon(
-                        onPressed: _openAddRecordEntry,
-                        icon: const Icon(Icons.edit_note_rounded, size: 18),
-                        label: compactAddButton
-                            ? const Text('新增')
-                            : const Text('新增记录'),
-                        style: FilledButton.styleFrom(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: compactAddButton ? 12 : 14,
-                            vertical: 10,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _showPieChart,
+                            icon: const Icon(Icons.insights_rounded, size: 18),
+                            label: const Text('查看统计'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: scheme.onSurface,
+                              minimumSize: const Size(0, 44),
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 12),
+                              side: BorderSide(
+                                color: scheme.onSurface.withValues(alpha: 0.16),
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  if (metrics.isNotEmpty)
-                    GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: metrics.length,
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: columns,
-                        crossAxisSpacing: _overviewChipSpacing,
-                        mainAxisSpacing: _overviewChipSpacing,
-                        mainAxisExtent: 52,
-                      ),
-                      itemBuilder: (context, index) {
-                        final metric = metrics[index];
-                        return _OverviewChip(
-                          label: metric.label,
-                          value: metric.value,
-                          isCustom: metric.isCustom,
-                        );
-                      },
-                    ),
-                  if (metrics.isEmpty) ...[
-                    Text(
-                      '当前没有可显示的统计项',
-                      style: theme.textTheme.bodySmall,
+                      ],
                     ),
                   ],
-                ],
+                ),
               ),
-            ),
+            ],
           ),
         );
       },
     );
   }
 
-  Widget _buildTopHeaderRow(BuildContext context) {
-    return _buildOverviewCard(context);
+  Widget _buildHomeSectionHeader(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: [
+        Text(
+          '成员',
+          style: theme.textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.w600,
+            fontSize: 20,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          '${_homeEntries.length} 位',
+          style: theme.textTheme.labelLarge?.copyWith(
+            color: scheme.onSurfaceVariant,
+            fontWeight: FontWeight.w500,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+        const Spacer(),
+        Text(
+          '长按卡片管理',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: scheme.onSurfaceVariant,
+            fontSize: 12,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmptyHome(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final hasHiddenMembers = _counters.isNotEmpty && !_showHiddenCounters;
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.fromLTRB(24, 32, 24, 32),
+      decoration: BoxDecoration(
+        color: scheme.surface.withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: scheme.primaryContainer,
+            ),
+            child: Icon(
+              Icons.photo_camera_back_outlined,
+              color: scheme.primary,
+              size: 30,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            hasHiddenMembers ? '当前没有可见成员' : '还没有成员卡片',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            hasHiddenMembers
+                ? '成员被隐藏了，可以在更多菜单或这里重新显示。'
+                : '先添加一位成员，之后每次切奇点一下就能记下来。',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 16),
+          if (hasHiddenMembers)
+            FilledButton.icon(
+              onPressed: _toggleShowHiddenCounters,
+              icon: const Icon(Icons.visibility_rounded, size: 18),
+              label: const Text('显示已隐藏成员'),
+            )
+          else
+            FilledButton.icon(
+              onPressed: _addCounter,
+              icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
+              label: const Text('添加第一位成员'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLoadingGrid(int columns) {
+    final scheme = Theme.of(context).colorScheme;
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: columns * 2,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: columns,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 16,
+        mainAxisExtent: 228,
+      ),
+      itemBuilder: (context, index) => Container(
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHigh.withValues(alpha: 0.65),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: scheme.outlineVariant),
+        ),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: scheme.outlineVariant.withValues(alpha: 0.7),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Container(
+                    height: 14,
+                    decoration: BoxDecoration(
+                      color: scheme.outlineVariant.withValues(alpha: 0.7),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const Spacer(),
+            Container(
+              height: 38,
+              width: 92,
+              decoration: BoxDecoration(
+                color: scheme.outlineVariant.withValues(alpha: 0.7),
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              height: 66,
+              decoration: BoxDecoration(
+                color: scheme.outlineVariant.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final topInset = MediaQuery.paddingOf(context).top + kToolbarHeight + 8;
+
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor:
-            Theme.of(context).colorScheme.inversePrimary.withAlpha(204),
-        title: Text('总计 $_overviewTotal'),
+            AppTheme.paper(theme.brightness).withValues(alpha: 0.96),
+        titleSpacing: 16,
+        title: Row(
+          children: [
+            const PolaroidMark(width: 28),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    kAppBrandName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      color: scheme.onSurface,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 20,
+                      height: 1.15,
+                    ),
+                  ),
+                  Text(
+                    '$kAppBrandTagline · $_appVersionLabel',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
         actions: [
           IconButton(
-            onPressed: _showPieChart,
-            tooltip: '统计与流水',
-            icon: const Icon(Icons.insights_outlined),
-          ),
-          IconButton(
+            onPressed: _toggleLock,
+            tooltip: _isLocked ? '解锁计数' : '锁定计数',
             icon: Icon(
-                _sortAscending ? Icons.arrow_upward : Icons.arrow_downward),
-            onPressed: _toggleSortDirection,
-            tooltip: _sortAscending ? '升序' : '降序',
+              _isLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
+              size: 21,
+            ),
           ),
           PopupMenuButton<String>(
-            icon: const Icon(Icons.sort),
-            tooltip: '排序方式',
-            onSelected: _changeSortType,
+            icon: const Icon(Icons.sort_rounded, size: 21),
+            tooltip: '排序',
+            onSelected: (value) {
+              if (value == 'direction') {
+                _toggleSortDirection();
+              } else {
+                _changeSortType(value);
+              }
+            },
             itemBuilder: (context) => [
-              const PopupMenuItem(
+              PopupMenuItem(
+                value: 'direction',
+                child: Row(
+                  children: [
+                    Icon(
+                      _sortAscending
+                          ? Icons.arrow_downward_rounded
+                          : Icons.arrow_upward_rounded,
+                      size: 19,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(_sortAscending ? '改为降序' : '改为升序'),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
+              CheckedPopupMenuItem(
                 value: SettingsService.sortByCount,
-                child: Row(
-                  children: [
-                    Icon(Icons.format_list_numbered),
-                    SizedBox(width: 8),
-                    Text('按数量排序'),
-                  ],
-                ),
+                checked: _sortType == SettingsService.sortByCount,
+                child: const Text('按数量'),
               ),
-              const PopupMenuItem(
+              CheckedPopupMenuItem(
                 value: SettingsService.sortByName,
-                child: Row(
-                  children: [
-                    Icon(Icons.sort_by_alpha),
-                    SizedBox(width: 8),
-                    Text('按名称排序'),
-                  ],
-                ),
+                checked: _sortType == SettingsService.sortByName,
+                child: const Text('按名称'),
               ),
-              const PopupMenuItem(
+              CheckedPopupMenuItem(
                 value: SettingsService.sortByColor,
-                child: Row(
-                  children: [
-                    Icon(Icons.palette),
-                    SizedBox(width: 8),
-                    Text('按颜色排序'),
-                  ],
-                ),
+                checked: _sortType == SettingsService.sortByColor,
+                child: const Text('按颜色'),
               ),
             ],
           ),
           PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
+            icon: const Icon(Icons.more_vert, size: 21),
+            tooltip: '更多',
             onSelected: (value) async {
               switch (value) {
                 case 'export':
@@ -2194,6 +2636,15 @@ class _MyHomePageState extends State<MyHomePage> {
                     context,
                     MaterialPageRoute(
                       builder: (context) => const RecentRecordsPage(),
+                    ),
+                  );
+                  await _loadCounters();
+                  break;
+                case 'sync':
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const SyncPage(),
                     ),
                   );
                   await _loadCounters();
@@ -2221,11 +2672,27 @@ class _MyHomePageState extends State<MyHomePage> {
                     ),
                   );
                   break;
+                case 'activityEvents':
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const IdolActivityEventsPage(),
+                    ),
+                  );
+                  break;
                 case 'groupPricing':
                   Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (context) => const GroupPricingPage(),
+                    ),
+                  );
+                  break;
+                case 'faceRecognition':
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const FaceRecognitionSettingsPage(),
                     ),
                   );
                   break;
@@ -2239,26 +2706,6 @@ class _MyHomePageState extends State<MyHomePage> {
             },
             itemBuilder: (context) => [
               const PopupMenuItem(
-                value: 'export',
-                child: Row(
-                  children: [
-                    Icon(Icons.upload),
-                    SizedBox(width: 8),
-                    Text('导出数据'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'import',
-                child: Row(
-                  children: [
-                    Icon(Icons.download),
-                    SizedBox(width: 8),
-                    Text('导入数据'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
                 value: 'recentRecords',
                 child: Row(
                   children: [
@@ -2269,12 +2716,12 @@ class _MyHomePageState extends State<MyHomePage> {
                 ),
               ),
               const PopupMenuItem(
-                value: 'recalculate',
+                value: 'sync',
                 child: Row(
                   children: [
-                    Icon(Icons.calculate_outlined),
+                    Icon(Icons.hub_rounded),
                     SizedBox(width: 8),
-                    Text('从记录重算计数'),
+                    Text('MCP 同步'),
                   ],
                 ),
               ),
@@ -2282,7 +2729,7 @@ class _MyHomePageState extends State<MyHomePage> {
                 value: 'grid',
                 child: Row(
                   children: [
-                    Icon(Icons.grid_4x4),
+                    Icon(Icons.grid_view_rounded),
                     SizedBox(width: 8),
                     Text('网格大小'),
                   ],
@@ -2302,11 +2749,42 @@ class _MyHomePageState extends State<MyHomePage> {
                   ],
                 ),
               ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: 'export',
+                child: Row(
+                  children: [
+                    Icon(Icons.upload_rounded),
+                    SizedBox(width: 8),
+                    Text('导出数据'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'import',
+                child: Row(
+                  children: [
+                    Icon(Icons.download_rounded),
+                    SizedBox(width: 8),
+                    Text('导入数据'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'recalculate',
+                child: Row(
+                  children: [
+                    Icon(Icons.calculate_outlined),
+                    SizedBox(width: 8),
+                    Text('从记录重算计数'),
+                  ],
+                ),
+              ),
               const PopupMenuItem(
                 value: 'image',
                 child: Row(
                   children: [
-                    Icon(Icons.image),
+                    Icon(Icons.image_outlined),
                     SizedBox(width: 8),
                     Text('抽取图片'),
                   ],
@@ -2316,9 +2794,19 @@ class _MyHomePageState extends State<MyHomePage> {
                 value: 'idolDb',
                 child: Row(
                   children: [
-                    Icon(Icons.groups_2),
+                    Icon(Icons.groups_2_outlined),
                     SizedBox(width: 8),
                     Text('偶像数据库'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'activityEvents',
+                child: Row(
+                  children: [
+                    Icon(Icons.event_note_outlined),
+                    SizedBox(width: 8),
+                    Text('演出名单'),
                   ],
                 ),
               ),
@@ -2329,6 +2817,16 @@ class _MyHomePageState extends State<MyHomePage> {
                     Icon(Icons.sell_outlined),
                     SizedBox(width: 8),
                     Text('团体配置'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'faceRecognition',
+                child: Row(
+                  children: [
+                    Icon(Icons.face_retouching_natural_outlined),
+                    SizedBox(width: 8),
+                    Text('人脸识别'),
                   ],
                 ),
               ),
@@ -2346,7 +2844,7 @@ class _MyHomePageState extends State<MyHomePage> {
                 value: 'about',
                 child: Row(
                   children: [
-                    Icon(Icons.info_outline),
+                    Icon(Icons.info_outline_rounded),
                     SizedBox(width: 8),
                     Text('关于应用'),
                   ],
@@ -2356,91 +2854,139 @@ class _MyHomePageState extends State<MyHomePage> {
           ),
         ],
       ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Colors.blue.withAlpha(26),
-              Colors.purple.withAlpha(26),
-            ],
-          ),
-        ),
+      body: AppPageBackground(
         child: LayoutBuilder(
           builder: (context, constraints) {
             final homeEntries = _homeEntries;
             final gridColumns = _gridSize.toInt();
             final crossAxisSpacing = gridColumns >= 4 ? 10.0 : 12.0;
             final mainAxisSpacing = gridColumns >= 3 ? 12.0 : 16.0;
+            final horizontalPadding = constraints.maxWidth > 880
+                ? (constraints.maxWidth - 840) / 2
+                : 16.0;
+            final contentWidth =
+                math.max(0.0, constraints.maxWidth - horizontalPadding * 2);
             final cardHeight = _calculateCardHeight(
               gridColumns: gridColumns,
-              availableWidth: math.max(0.0, constraints.maxWidth - 32.0),
+              availableWidth: contentWidth,
               crossAxisSpacing: crossAxisSpacing,
             );
 
-            return CustomScrollView(
-              physics: const BouncingScrollPhysics(),
-              slivers: [
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                  sliver: SliverToBoxAdapter(
-                    child: _buildTopHeaderRow(context),
-                  ),
+            return RefreshIndicator(
+              onRefresh: _loadCounters,
+              edgeOffset: topInset - 8,
+              child: CustomScrollView(
+                physics: const AlwaysScrollableScrollPhysics(
+                  parent: BouncingScrollPhysics(),
                 ),
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                  sliver: SliverGrid(
-                    delegate: SliverChildBuilderDelegate(
-                      (context, index) {
-                        final entry = homeEntries[index];
-                        final counter = entry.displayCounter;
-                        return RepaintBoundary(
-                          child: CounterCard(
-                            key: ValueKey(entry.key),
-                            counter: counter,
-                            totalCount: entry.totalCount,
-                            breakdownEntries: entry.breakdownEntries,
-                            percentage: _getPercentage(entry.totalCount),
-                            onTap: () => _openCounterSheet(entry),
-                            onLongPress: () => _showHomeEntryActions(entry),
-                            onEdit: () => _editHomeEntry(entry),
-                            onDelete: () => _deleteHomeEntry(entry),
-                            isLocked: _isLocked,
-                            gridColumns: gridColumns,
-                          ),
-                        );
-                      },
-                      childCount: homeEntries.length,
+                slivers: [
+                  SliverPadding(
+                    padding: EdgeInsets.fromLTRB(
+                      horizontalPadding,
+                      topInset,
+                      horizontalPadding,
+                      0,
                     ),
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: gridColumns,
-                      mainAxisExtent: cardHeight,
-                      crossAxisSpacing: crossAxisSpacing,
-                      mainAxisSpacing: mainAxisSpacing,
+                    sliver: SliverToBoxAdapter(
+                      child: _buildOverviewCard(context),
                     ),
                   ),
-                ),
-              ],
+                  SliverPadding(
+                    padding: EdgeInsets.fromLTRB(
+                      horizontalPadding,
+                      12,
+                      horizontalPadding,
+                      0,
+                    ),
+                    sliver: SliverToBoxAdapter(
+                      child: TicketStubCard(
+                        stats: _ticketStats,
+                        onTap: _showPieChart,
+                        onAdd: _openTicketComposer,
+                      ),
+                    ),
+                  ),
+                  SliverPadding(
+                    padding: EdgeInsets.fromLTRB(
+                      horizontalPadding,
+                      24,
+                      horizontalPadding,
+                      12,
+                    ),
+                    sliver: SliverToBoxAdapter(
+                      child: _buildHomeSectionHeader(context),
+                    ),
+                  ),
+                  if (!_initialLoadDone)
+                    SliverPadding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: horizontalPadding,
+                      ),
+                      sliver: SliverToBoxAdapter(
+                        child: _buildLoadingGrid(gridColumns),
+                      ),
+                    )
+                  else if (homeEntries.isEmpty)
+                    SliverPadding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: horizontalPadding,
+                      ),
+                      sliver: SliverToBoxAdapter(
+                        child: _buildEmptyHome(context),
+                      ),
+                    )
+                  else
+                    SliverPadding(
+                      padding: EdgeInsets.fromLTRB(
+                        horizontalPadding,
+                        0,
+                        horizontalPadding,
+                        0,
+                      ),
+                      sliver: SliverGrid(
+                        delegate: SliverChildBuilderDelegate(
+                          (context, index) {
+                            final entry = homeEntries[index];
+                            final counter = entry.displayCounter;
+                            return CounterCard(
+                              key: ValueKey(entry.key),
+                              counter: counter,
+                              totalCount: entry.totalCount,
+                              breakdownEntries: entry.breakdownEntries,
+                              percentage: _getPercentage(entry.totalCount),
+                              onTap: () => _openCounterSheet(entry),
+                              onLongPress: () => _showHomeEntryActions(entry),
+                              onEdit: () => _editHomeEntry(entry),
+                              onDelete: () => _deleteHomeEntry(entry),
+                              isLocked: _isLocked,
+                              gridColumns: gridColumns,
+                            );
+                          },
+                          childCount: homeEntries.length,
+                        ),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: gridColumns,
+                          mainAxisExtent: cardHeight,
+                          crossAxisSpacing: crossAxisSpacing,
+                          mainAxisSpacing: mainAxisSpacing,
+                        ),
+                      ),
+                    ),
+                  const SliverPadding(
+                    padding: EdgeInsets.only(bottom: 112),
+                  ),
+                ],
+              ),
             );
           },
         ),
       ),
-      floatingActionButton: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          FloatingActionButton(
-            onPressed: _toggleLock,
-            heroTag: 'lock',
-            child: Icon(_isLocked ? Icons.lock : Icons.lock_open),
-          ),
-          const SizedBox(height: 16),
-          FloatingActionButton(
-            onPressed: _addCounter,
-            heroTag: 'add',
-            child: const Icon(Icons.add),
-          ),
-        ],
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _addCounter,
+        backgroundColor: AppTheme.oshi(theme.brightness),
+        foregroundColor: AppTheme.onOshi(theme.brightness),
+        icon: const Icon(Icons.person_add_alt_1_rounded, size: 20),
+        label: const Text('添加成员'),
       ),
     );
   }
@@ -2460,44 +3006,82 @@ class _OverviewChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final baseColor =
-        isCustom ? theme.colorScheme.tertiary : theme.colorScheme.primary;
+    final scheme = theme.colorScheme;
+    final brightness = theme.brightness;
+    final isDark = brightness == Brightness.dark;
+    final color =
+        isCustom ? AppTheme.chekiCustom : AppTheme.metricColor(label, scheme);
+    // A pastel tile in the metric's own color, like a colored sticker on the
+    // print's border. Text stays on the neutral ramp for contrast.
+    final background = Color.alphaBlend(
+      color.withValues(alpha: isDark ? 0.20 : 0.13),
+      AppTheme.polaroid(brightness),
+    );
 
     return Container(
-      height: 52,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.fromLTRB(10, 8, 8, 6),
       decoration: BoxDecoration(
-        color: baseColor.withAlpha(isCustom ? 22 : 18),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: baseColor.withAlpha(48),
-        ),
+        color: background,
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.labelMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-              fontSize: 11,
-              color: baseColor.withAlpha(210),
-            ),
-          ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Text(
-              '$value',
-              textAlign: TextAlign.right,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w900,
-                fontSize: 18,
-                height: 1,
+          Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: color,
+                  shape: BoxShape.circle,
+                ),
               ),
-            ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.w500,
+                    fontSize: 12,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '$value',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 22,
+                      height: 1.1,
+                      color: scheme.onSurface,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 3),
+              Text(
+                '张',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontSize: 11,
+                  color: scheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -2529,48 +3113,4 @@ class _OverviewMetricConfigResult {
     required this.visibleIds,
     required this.columns,
   });
-}
-
-/// Builds the count tiles shown on a home card.
-///
-/// Kept as a top-level function so tests can assert that the tiles add up to
-/// the card's total (including group cuts and custom cheki types).
-List<CounterCountBadgeData> buildHomeBreakdownEntries(
-  CounterModel counter,
-  Map<String, int> customCounts,
-) {
-  final sortedCustomEntries = customCounts.entries.toList()
-    ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
-  return [
-    CounterCountBadgeData(
-      label: CounterCountField.threeInch.shortLabel,
-      value: counter.aggregatedThreeInchCount,
-    ),
-    CounterCountBadgeData(
-      label: CounterCountField.fiveInch.shortLabel,
-      value: counter.aggregatedFiveInchCount,
-    ),
-    CounterCountBadgeData(
-      label: CounterCountField.threeInchShukudai.shortLabel,
-      value: counter.threeInchShukudaiCount,
-    ),
-    CounterCountBadgeData(
-      label: CounterCountField.fiveInchShukudai.shortLabel,
-      value: counter.fiveInchShukudaiCount,
-    ),
-    // Group cuts are part of the counter total, so keep them visible in the
-    // breakdown too; otherwise a card can show 301 while its tiles add up to
-    // 297 and the missing count looks lost.
-    if (counter.groupCutCount > 0)
-      CounterCountBadgeData(
-        label: CounterCountField.groupCut.shortLabel,
-        value: counter.groupCutCount,
-      ),
-    ...sortedCustomEntries.map((entry) {
-      return CounterCountBadgeData(
-        label: entry.key,
-        value: entry.value,
-      );
-    }),
-  ];
 }

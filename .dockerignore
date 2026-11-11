@@ -1,0 +1,17 @@
+.git
+.gitignore
+.dart_tool
+build
+tmp
+release
+.worktrees
+.omx
+.omo
+.idea
+.vscode
+docs/ui-preview
+tool/ui_preview/PingFangSC-Preview.ttf
+*.db
+*.db-journal
+*.db-wal
+secrets

@@ -5,9 +5,13 @@ import '../models/activity_record_media_scope.dart';
 import '../models/counter_model.dart';
 import '../models/group_pricing_model.dart';
 import '../services/database_service.dart';
+import '../services/face/face_sample_service.dart';
+import '../services/ticket_pricing_service.dart';
 import '../widgets/add_activity_record_dialog.dart';
 import '../widgets/counter_count_sheet.dart';
 import 'idol_cut_overview_page.dart';
+import 'face_recognition_settings_page.dart';
+import 'member_face_enrollment_page.dart';
 import 'record_memory_page.dart';
 
 class MemberDetailPage extends StatefulWidget {
@@ -289,6 +293,7 @@ class _MemberDetailPageState extends State<MemberDetailPage> {
           activityName = '',
           venueName = '',
           sessionLabel = '',
+          baseCounter,
         }) async {
           final saved = await widget.onCounterChanged(
             updatedCounter,
@@ -296,6 +301,7 @@ class _MemberDetailPageState extends State<MemberDetailPage> {
             activityName: activityName,
             venueName: venueName,
             sessionLabel: sessionLabel,
+            baseCounter: baseCounter,
           );
           _dirty = true;
           return saved;
@@ -435,6 +441,7 @@ class _MemberDetailPageState extends State<MemberDetailPage> {
         record.id!,
         updatedRecord,
       );
+      await TicketPricingService.rememberRecord(updatedRecord);
       _dirty = true;
       await _loadData();
       if (!mounted) {
@@ -543,6 +550,17 @@ class _MemberDetailPageState extends State<MemberDetailPage> {
     await _loadData();
   }
 
+  Future<void> _openFaceEnrollment() async {
+    if (!await FaceRecognitionSettingsPage.ensureEnabled(context) || !mounted) {
+      return;
+    }
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (context) => MemberFaceEnrollmentPage(
+        member: FaceSampleService.memberFromCounter(widget.primaryCounter),
+      ),
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -635,6 +653,15 @@ class _MemberDetailPageState extends State<MemberDetailPage> {
                           ),
                         ],
                       ),
+                    ),
+                    const SizedBox(height: 12),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.face_outlined),
+                      title: const Text('登记人脸'),
+                      subtitle: const Text('从照片认识这位成员，管理或清除样本'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: _openFaceEnrollment,
                     ),
                     const SizedBox(height: 16),
                     if (_records.isEmpty)

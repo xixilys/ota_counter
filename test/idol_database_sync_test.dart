@@ -45,6 +45,7 @@ void main() {
     await db.delete('idol_groups');
     await db.delete('idol_people');
     await db.delete('idol_meta');
+    await db.delete('idol_activity_events');
   });
   tearDownAll(() async {
     await server.close(force: true);
@@ -177,5 +178,73 @@ void main() {
     // A cold start must also retain the newer remote snapshot over the APK asset.
     await IdolDatabaseService.initializeBuiltInDataIfNeeded();
     expect((await IdolDatabaseService.getMembers()).single.name, '成员');
+  });
+
+  test('event roster sync keeps cached rows on an empty or corrupt payload',
+      () async {
+    final now = DateTime.now();
+    String day(int offset) {
+      final date = now.add(Duration(days: offset));
+      return '${date.year}-${date.month.toString().padLeft(2, '0')}-'
+          '${date.day.toString().padLeft(2, '0')}';
+    }
+
+    Map<String, Object?> event(String id, int offset, String name) => {
+          'sourceEventId': id,
+          'date': day(offset),
+          'city': '上海',
+          'venue': '测试剧场',
+          'eventName': name,
+          'startTime': '19:00',
+          'groups': [
+            {'name': '测试团', 'uid': '1'}
+          ],
+        };
+    payload = {
+      'sourceUrl': 'https://example.com/events',
+      'sourceLabel': 'MineCool 测试源',
+      'generatedAt': '2099-01-01T00:00:00Z',
+      'events': [
+        event('future-10', 10, '十天后的演出'),
+        event('future-1', 1, '明天的演出'),
+        event('past-5', -5, '五天前的演出'),
+        {'sourceEventId': 'bad-date', 'date': 'not-a-date', 'eventName': '坏数据'},
+      ],
+    };
+    await IdolDatabaseService.syncActivityEventsFromRemote(
+      url: 'http://127.0.0.1:${server.port}/events.json',
+    );
+    var events = await IdolDatabaseService.getActivityEvents(
+      from: now.subtract(const Duration(days: 30)),
+      to: now.add(const Duration(days: 30)),
+      limit: 100,
+    );
+    expect(events, hasLength(3));
+    expect(events.first.eventName, '明天的演出');
+    expect(events.last.eventName, '十天后的演出');
+
+    payload = {
+      'sourceUrl': 'https://example.com/events',
+      'sourceLabel': 'MineCool 测试源',
+      'generatedAt': '2099-01-02T00:00:00Z',
+      'events': const [],
+    };
+    await expectLater(
+      IdolDatabaseService.syncActivityEventsFromRemote(
+        url: 'http://127.0.0.1:${server.port}/events.json',
+      ),
+      throwsA(isA<FormatException>()),
+    );
+    events = await IdolDatabaseService.getActivityEvents(
+      from: now.subtract(const Duration(days: 30)),
+      to: now.add(const Duration(days: 30)),
+      limit: 100,
+    );
+    expect(events, hasLength(3), reason: 'empty payload must not wipe cache');
+
+    await expectLater(
+      IdolDatabaseService.syncActivityEventsFromRemote(url: 'file:///tmp/x'),
+      throwsA(isA<FormatException>()),
+    );
   });
 }

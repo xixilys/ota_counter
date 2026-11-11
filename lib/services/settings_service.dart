@@ -134,4 +134,18 @@ class SettingsService {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getInt(_ignoredUpdateVersionCodeKey) ?? 0;
   }
+
+  static const String _faceRecognitionEnabledKey = 'face_recognition_enabled';
+
+  /// 人脸识别 for 批量拍切. Off until the user turns it on (and has read the
+  /// on-device / privacy note).
+  static Future<bool> getFaceRecognitionEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_faceRecognitionEnabledKey) ?? false;
+  }
+
+  static Future<void> saveFaceRecognitionEnabled(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_faceRecognitionEnabledKey, enabled);
+  }
 }

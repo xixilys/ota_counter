@@ -1,0 +1,6 @@
+.dart_tool
+data
+.env
+*.db
+*.db-journal
+*.db-wal

@@ -2,13 +2,30 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:ota_counter/models/counter_model.dart';
 import 'package:ota_counter/services/database_service.dart';
 import 'package:ota_counter/services/export_import_service.dart';
+import 'package:ota_counter/services/settings_service.dart';
+
+import 'support/isolated_test_databases.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(() async {
+    final databases = await useIsolatedTestDatabases();
+    final documents = Directory('${databases.path}/documents')
+      ..createSync(recursive: true);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('plugins.flutter.io/path_provider'),
+      (call) async => documents.path,
+    );
+  });
+
   List<int> buildFullBackupZip({
     required Map<String, Object?> manifest,
     Map<String, List<int>> documentFiles = const {},
@@ -34,6 +51,8 @@ void main() {
   Map<String, Object?> buildManifest({
     List<Map<String, Object?>> activityRecordMedia = const [],
     List<Map<String, Object?>> images = const [],
+    bool hiddenCounter = false,
+    Map<String, Object?>? appSettings,
   }) {
     return {
       'type': FullBackupBundle.backupType,
@@ -46,7 +65,8 @@ void main() {
             'name': 'Alice',
             'group_name': 'Team A',
             'color': '#ffffff',
-            'is_hidden': 0,
+            'count': 1,
+            'is_hidden': hiddenCounter ? 1 : 0,
             'three_inch_count': 1,
             'five_inch_count': 0,
             'unsigned_three_inch_count': 0,
@@ -70,8 +90,59 @@ void main() {
       'image_database': {
         'images': images,
       },
+      if (appSettings != null) 'app_settings': appSettings,
     };
   }
+
+  Future<void> restore(Map<String, Object?> manifest) async {
+    final payload = ExportImportService.parseImportPayload(
+      fileName: 'backup.zip',
+      rawBytes: buildFullBackupZip(manifest: manifest),
+    );
+    await ExportImportService.restoreFullBackup(payload.fullBackup!);
+  }
+
+  group('full backup restores the home hidden-member scope', () {
+    tearDown(() async => DatabaseService.clearAppData());
+
+    test('older backup with hidden members shows them after restore', () async {
+      SharedPreferences.setMockInitialValues({});
+      await restore(buildManifest(hiddenCounter: true));
+      expect(await SettingsService.getShowHiddenCounters(), isTrue);
+      final counter = (await DatabaseService.getCounters()).single;
+      expect(counter.isHidden, isTrue);
+      expect(counter.count, 1);
+    });
+
+    test('older backup without hidden members leaves the switch alone',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      await restore(buildManifest());
+      expect(await SettingsService.getShowHiddenCounters(), isFalse);
+    });
+
+    test('backed-up switch wins over the hidden-member fallback', () async {
+      SharedPreferences.setMockInitialValues({'show_hidden_counters': true});
+      await restore(buildManifest(
+        hiddenCounter: true,
+        appSettings: {FullBackupBundle.showHiddenCountersSetting: false},
+      ));
+      expect(await SettingsService.getShowHiddenCounters(), isFalse);
+    });
+
+    test('manifest round-trips the app settings', () {
+      final bundle = FullBackupBundle.fromManifest(
+        manifest: buildManifest(
+          appSettings: {FullBackupBundle.showHiddenCountersSetting: true},
+        ),
+        documentFiles: const {},
+      );
+      expect(
+        bundle.toManifest()['app_settings'],
+        {FullBackupBundle.showHiddenCountersSetting: true},
+      );
+    });
+  });
 
   test('legacy counter export remains importable', () {
     final counter = CounterModel(

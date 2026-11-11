@@ -20,7 +20,11 @@ class DatabaseService {
   static const String activityRecordTableName = 'activity_records';
   static const String activityRecordMediaTableName = 'activity_record_media';
   static const String counterSyncTableName = 'counter_sync_log';
-  static const int _version = 19;
+
+  /// On-device face embeddings for 批量拍切. Private: deliberately left out of
+  /// full backups (see ExportImportService._buildFullBackupBundle).
+  static const String faceSamplesTableName = 'face_samples';
+  static const int _version = 21;
 
   static Database? _database;
   static Future<Database>? _databaseOpening;
@@ -148,6 +152,12 @@ class DatabaseService {
     if (oldVersion < 19) {
       await _migrateToV19(db);
     }
+    if (oldVersion < 20) {
+      await _migrateToV20(db);
+    }
+    if (oldVersion < 21) {
+      await _migrateToV21(db);
+    }
     await _ensureLatestSchema(db);
   }
 
@@ -174,6 +184,14 @@ class DatabaseService {
         three_inch_shukudai_count INTEGER NOT NULL DEFAULT 0,
         five_inch_shukudai_count INTEGER NOT NULL DEFAULT 0
       )
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_counters_person_id
+      ON $tableName(person_id)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_counters_name_group
+      ON $tableName(name COLLATE NOCASE, group_name COLLATE NOCASE)
     ''');
     await db.execute('''
       CREATE TABLE IF NOT EXISTS $groupPricingTableName(
@@ -220,6 +238,8 @@ class DatabaseService {
         multi_cut_quantity INTEGER NOT NULL DEFAULT 0,
         double_cut_quantity INTEGER NOT NULL DEFAULT 0,
         ticket_quantity INTEGER NOT NULL DEFAULT 0,
+        ticket_type TEXT NOT NULL DEFAULT '',
+        ticket_is_free INTEGER,
         three_inch_price REAL NOT NULL DEFAULT 0,
         five_inch_price REAL NOT NULL DEFAULT 0,
         unsigned_three_inch_price REAL NOT NULL DEFAULT 0,
@@ -247,6 +267,46 @@ class DatabaseService {
       ON $activityRecordTableName(source, source_record_id)
     ''');
     await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_activity_records_counter_id
+      ON $activityRecordTableName(counter_id)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_activity_records_person_id
+      ON $activityRecordTableName(person_id)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_activity_records_type
+      ON $activityRecordTableName(record_type)
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ticket_types(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        default_price REAL NOT NULL DEFAULT 0,
+        is_free INTEGER NOT NULL DEFAULT 0,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ticket_price_presets(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        scope_key TEXT NOT NULL,
+        event_name TEXT NOT NULL DEFAULT '',
+        venue_name TEXT NOT NULL DEFAULT '',
+        group_name TEXT NOT NULL DEFAULT '',
+        ticket_type TEXT NOT NULL,
+        unit_price REAL NOT NULL DEFAULT 0,
+        is_free INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL,
+        UNIQUE(scope_key, ticket_type)
+      )
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_ticket_price_presets_scope
+      ON ticket_price_presets(scope_key, ticket_type)
+    ''');
+    await db.execute('''
       CREATE TABLE IF NOT EXISTS $activityRecordMediaTableName(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         record_id INTEGER NOT NULL,
@@ -257,7 +317,10 @@ class DatabaseService {
         is_reversed INTEGER NOT NULL DEFAULT 0,
         owner_person_id INTEGER,
         owner_person_name TEXT NOT NULL DEFAULT '',
-        owner_group_name TEXT NOT NULL DEFAULT ''
+        owner_group_name TEXT NOT NULL DEFAULT '',
+        captured_at TEXT,
+        source_hash TEXT NOT NULL DEFAULT '',
+        crop_quad_json TEXT NOT NULL DEFAULT ''
       )
     ''');
     await db.execute('''
@@ -272,7 +335,35 @@ class DatabaseService {
         PRIMARY KEY(source, source_record_id)
       )
     ''');
+    await _createFaceSamplesSchema(db);
     _tableColumnsCache.clear();
+  }
+
+  static Future<void> _createFaceSamplesSchema(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $faceSamplesTableName(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        person_id INTEGER,
+        person_name TEXT NOT NULL DEFAULT '',
+        counter_id INTEGER,
+        is_self INTEGER NOT NULL DEFAULT 0,
+        media_id INTEGER,
+        face_box_json TEXT NOT NULL DEFAULT '{}',
+        embedding BLOB NOT NULL,
+        model_id TEXT NOT NULL,
+        quality REAL NOT NULL DEFAULT 0,
+        source TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_face_samples_person
+      ON $faceSamplesTableName(is_self, person_id, person_name)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_face_samples_media
+      ON $faceSamplesTableName(media_id)
+    ''');
   }
 
   static Future<void> _migrateToV2(Database db) async {
@@ -551,6 +642,31 @@ class DatabaseService {
     );
   }
 
+  static Future<void> _migrateToV20(Database db) async {
+    // The generic schema pass adds ticket_type / ticket_is_free columns and
+    // creates the ticket catalog tables. Keeping this migration explicit makes
+    // the version bump visible to future maintainers.
+    await _createSchema(db);
+  }
+
+  static Future<void> _migrateToV21(Database db) async {
+    // 批量拍切: face_samples table plus provenance columns on media.
+    await _createFaceSamplesSchema(db);
+    await _ensureColumns(db, activityRecordMediaTableName, {
+      'captured_at': 'TEXT',
+      'source_hash': "TEXT NOT NULL DEFAULT ''",
+      'crop_quad_json': "TEXT NOT NULL DEFAULT ''",
+    });
+    await _createMediaSourceHashIndex(db);
+  }
+
+  static Future<void> _createMediaSourceHashIndex(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_activity_record_media_source_hash
+      ON $activityRecordMediaTableName(source_hash)
+    ''');
+  }
+
   static Future<void> _migrateToV19(Database db) async {
     // The idol database refresh can replace person rows and leave counters /
     // records pointing at stale person ids. Re-resolve every identity so the
@@ -634,6 +750,8 @@ class DatabaseService {
         'multi_cut_quantity': 'INTEGER NOT NULL DEFAULT 0',
         'double_cut_quantity': 'INTEGER NOT NULL DEFAULT 0',
         'ticket_quantity': 'INTEGER NOT NULL DEFAULT 0',
+        'ticket_type': "TEXT NOT NULL DEFAULT ''",
+        'ticket_is_free': 'INTEGER',
         'three_inch_price': 'REAL NOT NULL DEFAULT 0',
         'five_inch_price': 'REAL NOT NULL DEFAULT 0',
         'unsigned_three_inch_price': 'REAL NOT NULL DEFAULT 0',
@@ -660,7 +778,10 @@ class DatabaseService {
         is_reversed INTEGER NOT NULL DEFAULT 0,
         owner_person_id INTEGER,
         owner_person_name TEXT NOT NULL DEFAULT '',
-        owner_group_name TEXT NOT NULL DEFAULT ''
+        owner_group_name TEXT NOT NULL DEFAULT '',
+        captured_at TEXT,
+        source_hash TEXT NOT NULL DEFAULT '',
+        crop_quad_json TEXT NOT NULL DEFAULT ''
       )
     ''');
     await _ensureColumns(
@@ -673,8 +794,12 @@ class DatabaseService {
         'owner_person_id': 'INTEGER',
         'owner_person_name': "TEXT NOT NULL DEFAULT ''",
         'owner_group_name': "TEXT NOT NULL DEFAULT ''",
+        'captured_at': 'TEXT',
+        'source_hash': "TEXT NOT NULL DEFAULT ''",
+        'crop_quad_json': "TEXT NOT NULL DEFAULT ''",
       },
     );
+    await _createMediaSourceHashIndex(db);
     await db.execute('''
       CREATE INDEX IF NOT EXISTS idx_activity_record_media_record_id
       ON $activityRecordMediaTableName(record_id, created_at DESC)
@@ -1081,16 +1206,130 @@ class DatabaseService {
     );
   }
 
+  /// Updates a counter's metadata (name, group, identity, color, hidden).
+  ///
+  /// Counts are derived from activity_records and are never taken from
+  /// [counter]: callers usually hold a copy loaded earlier, and writing its
+  /// counts back would silently drop anything recorded since (for example by
+  /// a background MCP sync). Change counts through activity records instead.
+  ///
+  /// When the name / group / identity changes, records that resolved to this
+  /// counter by name are re-linked so later deletes and replays still find it.
   static Future<void> updateCounter(int id, CounterModel counter) async {
     final db = await database;
-    final values =
-        await _filterValuesForTable(db, tableName, _toDatabaseMap(counter));
-    await db.update(
-      tableName,
-      values,
-      where: 'id = ?',
-      whereArgs: [id],
+    await db.transaction((txn) async {
+      final counters = await _getCountersFrom(txn);
+      final index = counters.indexWhere((item) => item.id == id);
+      if (index == -1) {
+        return;
+      }
+      final previous = counters[index];
+      final updated = counter.copyWith(
+        id: id,
+        threeInchCount: previous.threeInchCount,
+        fiveInchCount: previous.fiveInchCount,
+        unsignedThreeInchCount: previous.unsignedThreeInchCount,
+        unsignedFiveInchCount: previous.unsignedFiveInchCount,
+        groupCutCount: previous.groupCutCount,
+        threeInchShukudaiCount: previous.threeInchShukudaiCount,
+        fiveInchShukudaiCount: previous.fiveInchShukudaiCount,
+      );
+      await _relinkRecordsToUpdatedCounter(txn, counters, updated);
+      final values =
+          await _filterValuesForTable(txn, tableName, _toDatabaseMap(updated));
+      await txn.update(
+        tableName,
+        values,
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    });
+  }
+
+  static Future<void> _relinkRecordsToUpdatedCounter(
+    DatabaseExecutor db,
+    List<CounterModel> countersBefore,
+    CounterModel updated,
+  ) async {
+    final id = updated.id!;
+    final previous = countersBefore.firstWhere((item) => item.id == id);
+    final identityChanged = previous.personId != updated.personId ||
+        _normalizeLookupPart(previous.personName) !=
+            _normalizeLookupPart(updated.personName) ||
+        _normalizeLookupPart(previous.name) !=
+            _normalizeLookupPart(updated.name) ||
+        _normalizeLookupPart(previous.groupName) !=
+            _normalizeLookupPart(updated.groupName);
+    if (!identityChanged) {
+      return;
+    }
+    final countersAfter = [
+      for (final item in countersBefore) item.id == id ? updated : item,
+    ];
+
+    final maps = await db.query(
+      activityRecordTableName,
+      where: 'record_type <> ?',
+      whereArgs: [ActivityRecordType.ticket.dbValue],
     );
+    for (final map in maps) {
+      final record = ActivityRecordModel.fromMap(map);
+      final recordId = record.id;
+      if (recordId == null) {
+        continue;
+      }
+      if (record.isCounter) {
+        if (resolveCounterForActivityRecord(countersBefore, record)?.id ==
+                id &&
+            resolveCounterForActivityRecord(countersAfter, record)?.id != id) {
+          await db.update(
+            activityRecordTableName,
+            {'counter_id': id},
+            where: 'id = ?',
+            whereArgs: [recordId],
+          );
+        }
+        continue;
+      }
+      if (!record.isMulti) {
+        continue;
+      }
+      var changed = false;
+      final participants = record.effectiveParticipants.map((participant) {
+        if (resolveCounterForParticipant(countersBefore, participant)?.id !=
+                id ||
+            resolveCounterForParticipant(countersAfter, participant)?.id ==
+                id) {
+          return participant;
+        }
+        changed = true;
+        return ActivityParticipant(
+          memberName: updated.name,
+          groupName: updated.groupName,
+          personId: updated.personId,
+          personName: updated.personName,
+        );
+      }).toList(growable: false);
+      if (!changed) {
+        continue;
+      }
+      final relinked = record.copyWith(
+        participants: participants,
+        subjectName: participants.first.memberName,
+        secondarySubjectName:
+            participants.length > 1 ? participants[1].memberName : '',
+      );
+      await db.update(
+        activityRecordTableName,
+        await _filterValuesForTable(
+          db,
+          activityRecordTableName,
+          _recordToDatabaseMap(relinked),
+        ),
+        where: 'id = ?',
+        whereArgs: [recordId],
+      );
+    }
   }
 
   static Future<void> deleteCounter(int id) => deleteCounters([id]);
@@ -1136,16 +1375,7 @@ class DatabaseService {
       if (recordIds.isNotEmpty) {
         await _applyRecordsCounterImpact(txn, counters,
             removed: relatedRecords);
-        for (final record in relatedRecords) {
-          final sourceRecordId = record.sourceRecordId?.trim();
-          if (sourceRecordId != null && sourceRecordId.isNotEmpty) {
-            await txn.delete(
-              counterSyncTableName,
-              where: 'source = ? AND source_record_id = ?',
-              whereArgs: [record.source, sourceRecordId],
-            );
-          }
-        }
+        await _forgetCounterSyncLog(txn, relatedRecords);
 
         await _deleteActivityRecordMediaRows(txn,
             pendingFileDeletes: pendingFileDeletes, recordIds: recordIds);
@@ -1237,6 +1467,37 @@ class DatabaseService {
     return maps.map(ActivityRecordModel.fromMap).toList();
   }
 
+  /// The home screen only needs multi records (for physical-count de-dup) and
+  /// records carrying custom cheki counts. Loading 3k+ ticket/counter rows on
+  /// every launch is unnecessary; this query keeps startup proportional to the
+  /// support records instead of the whole history.
+  static Future<List<ActivityRecordModel>> getHomeActivityRecords() async {
+    final db = await database;
+    final maps = await db.query(
+      activityRecordTableName,
+      where: '''
+        record_type IN (?, ?) OR (
+          custom_cheki_counts_json IS NOT NULL AND
+          custom_cheki_counts_json NOT IN ('', '[]', 'null')
+        )
+      ''',
+      whereArgs: [ActivityRecordType.multi.dbValue, 'duo'],
+      orderBy: 'occurred_at DESC, id DESC',
+    );
+    return maps.map(ActivityRecordModel.fromMap).toList(growable: false);
+  }
+
+  static Future<int> getActivityRecordCount() async {
+    final db = await database;
+    final rows = await db.rawQuery(
+      'SELECT COUNT(*) AS record_count FROM $activityRecordTableName',
+    );
+    if (rows.isEmpty) {
+      return 0;
+    }
+    return (rows.first['record_count'] as num?)?.toInt() ?? 0;
+  }
+
   static Future<int> insertActivityRecord(ActivityRecordModel record) async {
     final db = await database;
     final values = await _filterValuesForTable(
@@ -1251,6 +1512,40 @@ class DatabaseService {
     );
   }
 
+  static Future<int?> _findRecordIdBySource(
+    DatabaseExecutor db,
+    ActivityRecordModel record,
+  ) async {
+    final sourceRecordId = record.sourceRecordId?.trim();
+    if (sourceRecordId == null || sourceRecordId.isEmpty) {
+      return null;
+    }
+    final rows = await db.query(
+      activityRecordTableName,
+      columns: ['id'],
+      where: 'source = ? AND source_record_id = ?',
+      whereArgs: [record.source, sourceRecordId],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : (rows.first['id'] as num?)?.toInt();
+  }
+
+  static Future<void> _forgetCounterSyncLog(
+    DatabaseExecutor db,
+    Iterable<ActivityRecordModel> records,
+  ) async {
+    for (final record in records) {
+      final sourceRecordId = record.sourceRecordId?.trim();
+      if (sourceRecordId != null && sourceRecordId.isNotEmpty) {
+        await db.delete(
+          counterSyncTableName,
+          where: 'source = ? AND source_record_id = ?',
+          whereArgs: [record.source, sourceRecordId],
+        );
+      }
+    }
+  }
+
   static Future<int> insertActivityRecordWithCounterImpact(
     ActivityRecordModel record,
   ) async {
@@ -1258,6 +1553,13 @@ class DatabaseService {
     var insertedNewCounter = false;
 
     final recordId = await db.transaction<int>((txn) async {
+      // Remote actions (MCP sync, imports) carry a stable source id. Applying
+      // the same one twice must be a no-op: the unique index would otherwise
+      // REPLACE the row and the counter impact would be added a second time.
+      final existingId = await _findRecordIdBySource(txn, record);
+      if (existingId != null) {
+        return existingId;
+      }
       final counters = await _getCountersFrom(txn);
       final prepared = await _prepareRecordForCounterImpact(
         txn,
@@ -1400,6 +1702,9 @@ class DatabaseService {
       final counters = await _getCountersFrom(txn);
       final records = maps.map(ActivityRecordModel.fromMap).toList();
       await _applyRecordsCounterImpact(txn, counters, removed: records);
+      // Forget that imported rows were applied, otherwise re-importing the
+      // same history file restores the row but never re-adds its count.
+      await _forgetCounterSyncLog(txn, records);
 
       await _deleteActivityRecordMediaRows(txn,
           pendingFileDeletes: pendingFileDeletes, recordIds: scopedIds);
@@ -1494,9 +1799,14 @@ class DatabaseService {
       await _deleteActivityRecordMediaRows(txn,
           pendingFileDeletes: pendingFileDeletes);
       await txn.delete(activityRecordMediaTableName);
+      // Member face samples point at the media / counters being wiped; "我"
+      // is not part of the ledger and survives a restore.
+      await txn.delete(faceSamplesTableName, where: 'is_self = 0');
       await txn.delete(counterSyncTableName);
       await txn.delete(activityRecordTableName);
       await txn.delete(groupPricingTableName);
+      await txn.delete('ticket_price_presets');
+      await txn.delete('ticket_types');
       await txn.delete(tableName);
     });
     await _deleteMediaFilesAfterCommit(pendingFileDeletes);
@@ -1624,6 +1934,146 @@ class DatabaseService {
       ownerPersonName: media.ownerPersonName,
       ownerGroupName: media.ownerGroupName,
     );
+  }
+
+  /// Records whose occurred_at lies in [from, to).
+  static Future<List<ActivityRecordModel>> getActivityRecordsBetween(
+    DateTime from,
+    DateTime to,
+  ) async {
+    final db = await database;
+    final maps = await db.query(
+      activityRecordTableName,
+      where: 'occurred_at >= ? AND occurred_at < ?',
+      whereArgs: [from.toIso8601String(), to.toIso8601String()],
+      orderBy: 'occurred_at ASC, id ASC',
+    );
+    return maps.map(ActivityRecordModel.fromMap).toList();
+  }
+
+  /// Every distinct record timestamp (for "which days have records").
+  static Future<List<DateTime>> getActivityRecordTimes() async {
+    final db = await database;
+    final rows = await db.rawQuery(
+      'SELECT DISTINCT occurred_at FROM $activityRecordTableName',
+    );
+    return rows
+        .map((row) => DateTime.tryParse('${row['occurred_at'] ?? ''}'))
+        .whereType<DateTime>()
+        .toList();
+  }
+
+  /// How many media rows already came from each of [hashes].
+  static Future<Map<String, int>> countMediaBySourceHash(
+    Iterable<String> hashes,
+  ) async {
+    final list = hashes.where((h) => h.isNotEmpty).toSet().toList();
+    if (list.isEmpty) return const {};
+    final db = await database;
+    final placeholders = List.filled(list.length, '?').join(', ');
+    final rows = await db.rawQuery(
+      'SELECT source_hash, COUNT(*) AS n FROM $activityRecordMediaTableName '
+      'WHERE source_hash IN ($placeholders) GROUP BY source_hash',
+      list,
+    );
+    return {
+      for (final row in rows)
+        '${row['source_hash']}': (row['n'] as num?)?.toInt() ?? 0,
+    };
+  }
+
+  /// Saves one 批量拍切 batch atomically: the supplementary ledger records
+  /// (with their counter impact, exactly like
+  /// [insertActivityRecordWithCounterImpact]) and every photo. A photo is
+  /// attached to an existing record ([BatchMediaInput.recordId]) or to one
+  /// of [newRecords] ([BatchMediaInput.newRecordIndex]). Files written for
+  /// a rolled-back batch are removed again.
+  static Future<BatchSaveResult> saveBatchImport({
+    required List<ActivityRecordModel> newRecords,
+    required List<BatchMediaInput> media,
+  }) async {
+    final directory = await getApplicationDocumentsDirectory();
+    final mediaDirectory =
+        Directory(join(directory.path, 'activity_record_media'));
+    if (!await mediaDirectory.exists()) {
+      await mediaDirectory.create(recursive: true);
+    }
+    final writtenFiles = <String>[];
+    final db = await database;
+    var insertedNewCounter = false;
+    try {
+      final result = await db.transaction<BatchSaveResult>((txn) async {
+        final counters = await _getCountersFrom(txn);
+        final recordIds = <int>[];
+        for (final record in newRecords) {
+          final prepared =
+              await _prepareRecordForCounterImpact(txn, counters, record);
+          insertedNewCounter =
+              insertedNewCounter || prepared.insertedNewCounter;
+          final values = await _filterValuesForTable(
+            txn,
+            activityRecordTableName,
+            _recordToDatabaseMap(prepared.record),
+          );
+          final id = await txn.insert(activityRecordTableName, values);
+          final created = await _applyRecordCounterImpact(
+            txn,
+            counters,
+            prepared.record.copyWith(id: id),
+            reverse: false,
+          );
+          insertedNewCounter = insertedNewCounter || created;
+          recordIds.add(id);
+        }
+
+        final mediaIds = <int>[];
+        final now = DateTime.now();
+        for (var i = 0; i < media.length; i++) {
+          final item = media[i];
+          final recordId = item.recordId ??
+              (item.newRecordIndex == null
+                  ? null
+                  : recordIds[item.newRecordIndex!]);
+          if (recordId == null) {
+            throw StateError('第 ${i + 1} 张照片没有可挂的流水');
+          }
+          final ext = item.fileExtension.startsWith('.')
+              ? item.fileExtension
+              : '.${item.fileExtension}';
+          final path = join(
+            mediaDirectory.path,
+            '${now.microsecondsSinceEpoch + i}_$recordId$ext',
+          );
+          await File(path).writeAsBytes(item.bytes, flush: true);
+          writtenFiles.add(path);
+          final model = ActivityRecordMediaModel(
+            recordId: recordId,
+            path: path,
+            createdAt: now,
+            mediaType: ActivityRecordMediaType.scan,
+            processingMode: item.processingMode,
+            ownerPersonId: item.owner?.personId,
+            ownerPersonName: item.owner?.personName ?? '',
+            ownerGroupName: item.owner?.groupName ?? '',
+            capturedAt: item.capturedAt,
+            sourceHash: item.sourceHash,
+            cropQuadJson: item.cropQuadJson,
+          );
+          mediaIds.add(await txn.insert(
+            activityRecordMediaTableName,
+            model.toMap()..remove('id'),
+          ));
+        }
+        return BatchSaveResult(recordIds: recordIds, mediaIds: mediaIds);
+      });
+      if (insertedNewCounter) {
+        await autoAssignCounterThemeColors();
+      }
+      return result;
+    } catch (_) {
+      await _deleteMediaFilesAfterCommit(writtenFiles);
+      rethrow;
+    }
   }
 
   static Future<void> updateActivityRecordMediaReversed(
@@ -1961,15 +2411,11 @@ class DatabaseService {
           continue;
         }
 
-        final nextCounter = counter.copyWith(color: resolvedThemeColor);
-        final values = await _filterValuesForTable(
-          txn,
-          tableName,
-          _toDatabaseMap(nextCounter),
-        );
+        // Only the colour: [counter] was read before the (slow) theme lookup,
+        // so its counts may already be stale and must not be written back.
         await txn.update(
           tableName,
-          values,
+          {'color': resolvedThemeColor},
           where: 'id = ?',
           whereArgs: [counter.id],
         );
@@ -2592,6 +3038,41 @@ class _ResolvedIdentity {
     required this.personId,
     required this.personName,
   });
+}
+
+/// One photo of [DatabaseService.saveBatchImport].
+class BatchMediaInput {
+  final List<int> bytes;
+  final String fileExtension;
+  final ActivityRecordMediaProcessingMode processingMode;
+  final int? recordId;
+  final int? newRecordIndex;
+  final ActivityRecordMediaOwnerScope? owner;
+  final DateTime? capturedAt;
+  final String sourceHash;
+  final String cropQuadJson;
+
+  const BatchMediaInput({
+    required this.bytes,
+    this.fileExtension = '.jpg',
+    this.processingMode = ActivityRecordMediaProcessingMode.manualAssist,
+    this.recordId,
+    this.newRecordIndex,
+    this.owner,
+    this.capturedAt,
+    this.sourceHash = '',
+    this.cropQuadJson = '',
+  }) : assert(recordId != null || newRecordIndex != null);
+}
+
+class BatchSaveResult {
+  /// Ids of the inserted supplementary records, in input order.
+  final List<int> recordIds;
+
+  /// Ids of the inserted media rows, in input order.
+  final List<int> mediaIds;
+
+  const BatchSaveResult({required this.recordIds, required this.mediaIds});
 }
 
 class _PreparedActivityRecord {

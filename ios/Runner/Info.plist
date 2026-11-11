@@ -26,6 +26,13 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>连接局域网内的 OTA Counter 同步 / MCP 服务。</string>
 	<key>NSCameraUsageDescription</key>
 	<string>需要相机权限来扫描拍立得和存图。</string>
 	<key>NSPhotoLibraryUsageDescription</key>

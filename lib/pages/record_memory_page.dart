@@ -9,6 +9,7 @@ import '../models/activity_record_media_model.dart';
 import '../models/activity_record_media_scope.dart';
 import '../models/activity_record_model.dart';
 import '../models/counter_model.dart';
+import 'batch_capture_page.dart';
 import 'manual_scan_crop_page.dart';
 import '../services/database_service.dart';
 import '../services/record_scan_service.dart';
@@ -571,6 +572,15 @@ class _RecordMemoryPageState extends State<RecordMemoryPage> {
               },
             ),
             ListTile(
+              leading: const Icon(Icons.burst_mode_outlined),
+              title: const Text('批量拍切'),
+              subtitle: const Text('一次拍多张拍立得，自动切图、认人、入账'),
+              onTap: () async {
+                Navigator.of(context).pop();
+                await _openBatchCapture();
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.photo_camera_outlined),
               title: const Text('拍一张纪念照'),
               onTap: () async {
@@ -590,6 +600,18 @@ class _RecordMemoryPageState extends State<RecordMemoryPage> {
         ),
       ),
     );
+  }
+
+  Future<void> _openBatchCapture() async {
+    final record = _primaryRecord;
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (context) => BatchCapturePage(
+          preferredDay: widget.albumDate ?? record?.occurredAt,
+        ),
+      ),
+    );
+    if (saved == true) await _loadMedia();
   }
 
   Future<void> _deleteMedia(ActivityRecordMediaModel media) async {

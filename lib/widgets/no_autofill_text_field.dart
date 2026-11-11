@@ -11,6 +11,7 @@ class NoAutofillTextField extends StatelessWidget {
   final int maxLines;
   final bool autocorrect;
   final bool enableSuggestions;
+  final bool enabled;
 
   const NoAutofillTextField({
     super.key,
@@ -24,6 +25,7 @@ class NoAutofillTextField extends StatelessWidget {
     this.maxLines = 1,
     this.autocorrect = true,
     this.enableSuggestions = true,
+    this.enabled = true,
   });
 
   @override
@@ -39,6 +41,7 @@ class NoAutofillTextField extends StatelessWidget {
       maxLines: maxLines,
       autocorrect: autocorrect,
       enableSuggestions: enableSuggestions,
+      enabled: enabled,
     );
   }
 }

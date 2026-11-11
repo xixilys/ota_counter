@@ -1,4 +1,6 @@
 const String kAppDisplayName = 'OTA Counter';
+const String kAppBrandName = '切奇簿';
+const String kAppBrandTagline = 'OTA Counter';
 const String kAppDescription = 'OTA切奇辅助小工具';
 const String kAppAuthorId = 'xixilys';
 const String kUpdateManifestUrl =

@@ -8,16 +8,22 @@ import '../models/activity_record_model.dart';
 import '../models/chart_stats_helpers.dart';
 import '../models/counter_model.dart';
 import '../models/group_pricing_model.dart';
+import '../models/ticket_type_model.dart';
 import '../services/database_service.dart';
+import '../services/ticket_pricing_service.dart';
 import '../widgets/add_activity_record_dialog.dart';
+import '../widgets/app_page_background.dart';
 import 'group_pricing_page.dart';
+import 'ticket_pricing_page.dart';
 
 class ChartPage extends StatefulWidget {
   final bool openComposerOnStart;
+  final ActivityRecordType? composerType;
 
   const ChartPage({
     super.key,
     this.openComposerOnStart = false,
+    this.composerType,
   });
 
   @override
@@ -84,7 +90,7 @@ class _ChartPageState extends State<ChartPage> {
       if (!mounted) {
         return;
       }
-      _openAddRecordDialog();
+      _openAddRecordDialog(type: widget.composerType);
     });
   }
 
@@ -426,6 +432,7 @@ class _ChartPageState extends State<ChartPage> {
 
     try {
       await DatabaseService.insertActivityRecordWithCounterImpact(record);
+      await TicketPricingService.rememberRecord(record);
       await _loadData();
     } catch (error) {
       if (!mounted) {
@@ -437,12 +444,18 @@ class _ChartPageState extends State<ChartPage> {
     }
   }
 
-  Future<void> _openAddRecordDialog() async {
+  Future<void> _openAddRecordDialog({ActivityRecordType? type}) async {
     final draft = await showDialog<ActivityRecordDraft>(
       context: context,
       builder: (context) => AddActivityRecordDialog(
         counters: _counters,
         pricings: _pricings,
+        initialDraft: type == null
+            ? null
+            : ActivityRecordDraft(
+                type: type,
+                occurredAt: DateTime.now(),
+              ),
       ),
     );
 
@@ -486,6 +499,7 @@ class _ChartPageState extends State<ChartPage> {
         record.id!,
         updatedRecord,
       );
+      await TicketPricingService.rememberRecord(updatedRecord);
       await _loadData();
       if (!mounted) {
         return;
@@ -709,12 +723,20 @@ class _ChartPageState extends State<ChartPage> {
         _formatOccurredAtLabel(record.occurredAt),
         if (record.resolvedVenueName.isNotEmpty) record.resolvedVenueName,
         if (record.sessionLabel.isNotEmpty) record.sessionLabel,
+        record.ticketTypeLabel,
+        if (record.resolvedTicketIsFree)
+          '免费'
+        else
+          '¥${_formatAmount(record.ticketUnitPrice)}/张',
         '门票 ${record.ticketQuantity} 张',
         if (record.note.isNotEmpty) record.note,
       ].join(' · ');
     }
 
     if (record.isMulti) {
+      final unknownGroupMembers =
+          record.multiCountField == CounterCountField.groupCut &&
+              record.multiParticipantCount == 0;
       return [
         _formatOccurredAtLabel(record.occurredAt),
         if (record.resolvedActivityName.isNotEmpty) record.resolvedActivityName,
@@ -722,9 +744,11 @@ class _ChartPageState extends State<ChartPage> {
         if (multiGroupLabel.isNotEmpty) multiGroupLabel,
         _effectivePricingLabel(record),
         if (record.multiFieldLabel.isNotEmpty) record.multiFieldLabel,
-        '多人切 ${record.multiParticipantCount} 人',
+        unknownGroupMembers ? '成员待补' : '多人切 ${record.multiParticipantCount} 人',
         if (record.effectiveMultiQuantity > 1)
-          '每人 ${record.effectiveMultiQuantity}',
+          unknownGroupMembers
+              ? '${record.effectiveMultiQuantity} 张'
+              : '每人 ${record.effectiveMultiQuantity}',
         if (record.note.isNotEmpty) record.note,
       ].join(' · ');
     }
@@ -788,6 +812,10 @@ class _ChartPageState extends State<ChartPage> {
     final ticketCountTotal = ticketRecords.fold<int>(
       0,
       (sum, record) => sum + record.ticketQuantity,
+    );
+    final ticketStats = TicketStats.fromRecords(
+      ticketRecords,
+      amountResolver: _effectiveTotalAmount,
     );
     final memberContributionTotal = counterCountTotal +
         multiRecords.fold<int>(
@@ -982,20 +1010,28 @@ class _ChartPageState extends State<ChartPage> {
       );
       summary.quantity += record.ticketQuantity;
       summary.amount += _effectiveTotalAmount(record);
-      summary.notes.add(record.note);
+      summary.types.add(record.ticketTypeLabel);
+      if (record.resolvedTicketIsFree) {
+        summary.freeQuantity += record.ticketQuantity;
+      } else {
+        summary.paidQuantity += record.ticketQuantity;
+      }
+      if (record.note.trim().isNotEmpty) {
+        summary.notes.add(record.note.trim());
+      }
     }
     final sortedTicketSummaries = ticketSummaries.values.toList()
       ..sort((a, b) => b.date.compareTo(a.date));
 
     const piePalette = [
-      Color(0xFF4F46E5),
-      Color(0xFF06B6D4),
-      Color(0xFF22C55E),
-      Color(0xFFF97316),
-      Color(0xFFEC4899),
-      Color(0xFFEAB308),
+      Color(0xFF5B4BE0),
+      Color(0xFF4E8DF5),
+      Color(0xFF0F9E8E),
+      Color(0xFFF2A93B),
+      Color(0xFFE85D7A),
       Color(0xFF8B5CF6),
       Color(0xFF14B8A6),
+      Color(0xFFEC4899),
     ];
 
     final memberPieData = <_PieDatum>[];
@@ -1054,9 +1090,23 @@ class _ChartPageState extends State<ChartPage> {
     }
 
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
+        backgroundColor: theme.colorScheme.surface.withValues(alpha: 0.96),
         title: const Text('统计与流水'),
         actions: [
+          IconButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const TicketPricingPage(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.local_activity_outlined),
+            tooltip: '门票价格',
+          ),
           IconButton(
             onPressed: _openPricingPage,
             icon: const Icon(Icons.sell_outlined),
@@ -1069,24 +1119,18 @@ class _ChartPageState extends State<ChartPage> {
         icon: const Icon(Icons.add),
         label: const Text('新增记录'),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    theme.colorScheme.primary.withAlpha(16),
-                    theme.colorScheme.secondary.withAlpha(10),
-                    theme.colorScheme.surface,
-                  ],
-                ),
-              ),
-              child: RefreshIndicator(
+      body: AppPageBackground(
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : RefreshIndicator(
                 onRefresh: _loadData,
                 child: ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    MediaQuery.paddingOf(context).top + kToolbarHeight + 8,
+                    16,
+                    96,
+                  ),
                   children: [
                     Container(
                       padding: const EdgeInsets.all(18),
@@ -1313,6 +1357,16 @@ class _ChartPageState extends State<ChartPage> {
                             SizedBox(
                               width: itemWidth,
                               child: _SummaryCard(
+                                label: '门票金额',
+                                value: '¥${_formatAmount(ticketStats.amount)}',
+                                hint:
+                                    '免费 ${ticketStats.freeTicketCount} / 付费 ${ticketStats.paidTicketCount}',
+                                icon: Icons.local_activity_outlined,
+                              ),
+                            ),
+                            SizedBox(
+                              width: itemWidth,
+                              child: _SummaryCard(
                                 label: '总金额',
                                 value: '¥${_formatAmount(totalAmount)}',
                                 hint: '按记录快照价格统计',
@@ -1519,32 +1573,49 @@ class _ChartPageState extends State<ChartPage> {
                     const SizedBox(height: 16),
                     _SectionCard(
                       title: '门票场次',
-                      child: sortedTicketSummaries.isEmpty
-                          ? const Text('当前周期内还没有门票记录。')
-                          : Column(
-                              children: sortedTicketSummaries.map((summary) {
-                                return ListTile(
-                                  contentPadding: EdgeInsets.zero,
-                                  leading: const Icon(
-                                    Icons.confirmation_num_outlined,
-                                  ),
-                                  title: Text(summary.eventName),
-                                  subtitle: Text(
-                                    [
-                                      summary.date,
-                                      if (summary.sessionLabel.isNotEmpty)
-                                        summary.sessionLabel,
-                                      if (summary.notes.isNotEmpty)
-                                        summary.notes.last,
-                                    ].join(' · '),
-                                  ),
-                                  trailing: Text(
-                                    '${summary.quantity} 张\n¥${_formatAmount(summary.amount)}',
-                                    textAlign: TextAlign.right,
-                                  ),
-                                );
-                              }).toList(),
-                            ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _TicketBreakdownHeader(stats: ticketStats),
+                          const SizedBox(height: 10),
+                          if (sortedTicketSummaries.isEmpty)
+                            const Text('当前周期内还没有门票记录。')
+                          else
+                            ...sortedTicketSummaries.map((summary) {
+                              return ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: Icon(
+                                  summary.freeQuantity > 0 &&
+                                          summary.paidQuantity == 0
+                                      ? Icons.card_giftcard_outlined
+                                      : Icons.confirmation_num_outlined,
+                                ),
+                                title: Text(summary.eventName),
+                                subtitle: Text(
+                                  [
+                                    summary.date,
+                                    if (summary.sessionLabel.isNotEmpty)
+                                      summary.sessionLabel,
+                                    if (summary.types.isNotEmpty)
+                                      summary.types.join(' / '),
+                                    if (summary.freeQuantity > 0 &&
+                                        summary.paidQuantity > 0)
+                                      '免费 ${summary.freeQuantity} · 付费 ${summary.paidQuantity}',
+                                    if (summary.notes.isNotEmpty &&
+                                        !summary.types.contains(
+                                          summary.notes.last,
+                                        ))
+                                      summary.notes.last,
+                                  ].join(' · '),
+                                ),
+                                trailing: Text(
+                                  '${summary.quantity} 张\n¥${_formatAmount(summary.amount)}',
+                                  textAlign: TextAlign.right,
+                                ),
+                              );
+                            }),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 16),
                     _SectionCard(
@@ -1671,7 +1742,7 @@ class _ChartPageState extends State<ChartPage> {
                   ],
                 ),
               ),
-            ),
+      ),
     );
   }
 
@@ -2870,12 +2941,167 @@ class _MultiSummary {
   }
 }
 
+class _TicketBreakdownHeader extends StatelessWidget {
+  final TicketStats stats;
+
+  const _TicketBreakdownHeader({required this.stats});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        gradient: LinearGradient(
+          colors: [
+            scheme.tertiaryContainer.withValues(alpha: 0.8),
+            scheme.primaryContainer.withValues(alpha: 0.55),
+          ],
+        ),
+        border: Border.all(
+          color: scheme.tertiary.withValues(alpha: 0.14),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: _TicketStat(
+                  label: '门票',
+                  value: '${stats.ticketCount}',
+                  unit: '张',
+                ),
+              ),
+              Expanded(
+                child: _TicketStat(
+                  label: '免费',
+                  value: '${stats.freeTicketCount}',
+                  unit: '张',
+                ),
+              ),
+              Expanded(
+                child: _TicketStat(
+                  label: '付费',
+                  value: '${stats.paidTicketCount}',
+                  unit: '张',
+                ),
+              ),
+              Expanded(
+                child: _TicketStat(
+                  label: '金额',
+                  value: '¥${_formatTicketAmount(stats.amount)}',
+                  unit: '',
+                ),
+              ),
+            ],
+          ),
+          if (stats.countByType.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: [
+                for (final entry in stats.countByType.entries)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: scheme.surface.withValues(alpha: 0.66),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '${entry.key} ${entry.value}',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  static String _formatTicketAmount(double value) {
+    if (value == value.roundToDouble()) return value.toStringAsFixed(0);
+    return value.toStringAsFixed(2);
+  }
+}
+
+class _TicketStat extends StatelessWidget {
+  final String label;
+  final String value;
+  final String unit;
+
+  const _TicketStat({
+    required this.label,
+    required this.value,
+    required this.unit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  value,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    height: 1,
+                  ),
+                ),
+              ),
+            ),
+            if (unit.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(left: 2, bottom: 1),
+                child: Text(
+                  unit,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
 class _TicketSummary {
   final String eventName;
   final String sessionLabel;
   final String date;
   int quantity = 0;
+  int freeQuantity = 0;
+  int paidQuantity = 0;
   double amount = 0;
+  final Set<String> types = {};
   final List<String> notes = [];
 
   _TicketSummary({

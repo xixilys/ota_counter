@@ -10,14 +10,18 @@ Flutter/Dart OTA切奇计数器。中文 UI，sqflite 持久化，自建 OTA 更
 ## STRUCTURE
 ```
 lib/
-├── main.dart          # 入口 + MyHomePage 主页面 (2339行)
+├── main.dart          # 入口 + MyHomePage 主页面 (~2900行)
 ├── app_metadata.dart  # 常量 (名称/URL)
-├── models/            # 7 文件: 数据模型, 手动 toMap/fromMap
-├── services/          # 8 文件: 全静态服务类, 3 个独立 SQLite DB
-├── pages/             # 10 文件: 各页面 StatefulWidget
-└── widgets/           # 7 文件: 可复用组件
-test/                  # 8 文件, flat, flutter_test only
-tool/                  # 部署/数据脚本 (shell + Python)
+├── models/            # 数据模型, 手动 toMap/fromMap
+├── services/          # 全静态服务类, 3 个独立 SQLite DB + SyncService
+├── pages/             # 各页面 StatefulWidget (含 sync_page / idol_activity_events_page)
+├── theme/             # app_theme.dart (Material 3 设计令牌)
+├── widgets/           # 可复用组件 (app_page_background / counter_card)
+└── ...
+mcp_server/            # 纯 Dart MCP + REST + SSE 同步服务 (App 快照/操作队列)
+docs/                  # UI review / 审计 / 维护记录
+test/                  # flutter_test only, 默认并行; DB 测试用 test/support/isolated_test_databases.dart
+tool/                  # 部署/数据脚本 + ui_preview/perf_probe
 ```
 
 ## WHERE TO LOOK
@@ -32,6 +36,12 @@ tool/                  # 部署/数据脚本 (shell + Python)
 | 导出导入 | lib/services/export_import_service.dart | 749行, 支持旧版/OTA bundle/ZIP |
 | 计数器添加 | lib/widgets/add_counter_dialog.dart | 1228行 |
 | 测试样例 | test/widget_test.dart | FFI 初始化模式参考 |
+| UI 主题/首页 | lib/theme/app_theme.dart, lib/main.dart | 设计令牌 + 首页改造 |
+| MCP / 同步 | mcp_server/, lib/services/sync_service.dart, lib/pages/sync_page.dart | 快照上行 + 操作队列下行 |
+| UI 评审截图 | docs/UI_REVIEW.md, docs/ui-preview/ | 真 widget 渲染的 before/after |
+| 演出名单维护 | lib/pages/idol_activity_events_page.dart, idol_database_service.dart | 远端同步/缓存/空数据保护；MineCool 文案票价解析 |
+| 门票/票种价格 | lib/pages/ticket_pricing_page.dart, lib/services/ticket_pricing_service.dart | 免费/付费、票种、场次价格记忆 |
+| 服务器部署 | mcp_server/DEPLOY.md, tool/deploy_mcp_server.sh, mcp_server/Dockerfile | Docker/systemd/Nginx |
 
 ## CONVENTIONS
 ### 架构 (与 .cursorrules 不一致!)
@@ -50,7 +60,7 @@ tool/                  # 部署/数据脚本 (shell + Python)
 ### 服务层
 - 全部 static 方法, 无实例化
 - 数据库服务通过 private static field 懒加载单例
-- 3 个独立 DB: counter_app.db (v16), idol_database.db (v2), images.db
+- 3 个独立 DB: counter_app.db (v20), idol_database.db (v4), images.db
 
 ### 国际化
 - 硬编码 `Locale('zh', 'CN')`, 无 ARB 文件
@@ -60,7 +70,7 @@ tool/                  # 部署/数据脚本 (shell + Python)
 - 文件命名: `_test.dart`, flat 在 test/ 下
 - 测试描述: 中英混合 ("app boots to home page")
 - 框架: flutter_test only, 无 mock/mocktail
-- DB 相关 Widget 测试: setUpAll 中 `sqfliteFfiInit()` + `databaseFactory = databaseFactoryFfi`
+- DB 相关测试: setUpAll 中 `await useIsolatedTestDatabases()`（test/support/isolated_test_databases.dart，FFI 初始化 + 每个测试文件独立临时库目录）
 - 测试数据全内联构造, 无 fixture 文件
 
 ### 构建
@@ -69,6 +79,7 @@ tool/                  # 部署/数据脚本 (shell + Python)
 - APK 自定义命名: OTA-Counter-v{version}.apk
 - CMake 任务禁用 (Flutter 3.41 兼容)
 - 无 CI — 测试手动执行
+- `flutter test` 可默认并行：每个测试文件用独立数据库目录；新增 DB 测试务必调用 `useIsolatedTestDatabases()`，否则会和其他文件抢同一个库
 
 ### 发布
 - 开发分支: codex/v1.3-prep
@@ -89,9 +100,11 @@ tool/                  # 部署/数据脚本 (shell + Python)
 ```bash
 flutter pub get          # 安装依赖
 flutter analyze          # 静态分析
-flutter test             # 运行测试
-flutter build apk --release  # 构建正式 APK
+flutter test                  # 运行测试（可并行）
+flutter build apk --release --target-platform android-arm64  # 构建正式 APK（只含 arm64）
 dart run tool/release_metadata.dart  # 读取版本信息
+tool/deploy_mcp_server.sh --dry-run   # 查看同步服务部署计划
+dart mcp_server/test/self_test.dart   # MCP/HTTP/SSE 自测
 python3 tool/generate_china_idols_seed.py  # 重新生成偶像种子
 ```
 
@@ -100,3 +113,8 @@ python3 tool/generate_china_idols_seed.py  # 重新生成偶像种子
 - 新增模型需同时兼容 snake_case + camelCase 键名 (旧数据兼容)
 - 新增服务方法保持 static 风格, 除非统一引入 DI
 - test/ 目录下新增测试直接用 flutter_test, 不加 mock 框架
+- MCP 同步模型：App 上传 snapshot；AI 只排队 `pending_actions`；App 拉取执行并 ack
+- `mcp_server` 使用纯 Dart 标准库，运行用 `dart mcp_server/bin/ota_sync_server.dart`（不要 `dart run`，避免 build hooks 污染 stdio JSON-RPC）
+- 同步服务生产部署：`mcp_server/Dockerfile` + compose / systemd / Nginx；一键脚本 `tool/deploy_mcp_server.sh`
+- 改团籍的真人主档名不会再改名共享 person；清空主档名需传 `unlinkPerson: true`
+- 演出名单：空 bundle 必须保留缓存；单条坏数据跳过；picker 远端失败回退本地缓存

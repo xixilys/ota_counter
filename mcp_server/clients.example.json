@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "ota-counter": {
+      "command": "dart",
+      "args": [
+        "/ABSOLUTE/PATH/TO/ota_counter/mcp_server/bin/ota_sync_server.dart",
+        "mcp",
+        "--data-dir",
+        "/Users/YOU/.ota_counter_sync"
+      ]
+    }
+  }
+}

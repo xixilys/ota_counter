@@ -13,7 +13,7 @@ import '../models/idol_database_models.dart';
 
 class IdolDatabaseService {
   static const String _dbName = 'idol_database.db';
-  static const int _version = 3;
+  static const int _version = 4;
   static const String _seedAssetPath = 'assets/data/china_idols_seed.json';
 
   static Database? _database;
@@ -67,6 +67,9 @@ class IdolDatabaseService {
     }
     if (oldVersion < 3) {
       await _createActivityEventSchema(db);
+    }
+    if (oldVersion < 4) {
+      await _migrateToV4(db);
     }
   }
 
@@ -136,6 +139,8 @@ class IdolDatabaseService {
         source_link TEXT NOT NULL DEFAULT '',
         poster_url TEXT NOT NULL DEFAULT '',
         groups_json TEXT NOT NULL DEFAULT '[]',
+        is_free INTEGER NOT NULL DEFAULT 0,
+        ticket_tiers_json TEXT NOT NULL DEFAULT '[]',
         synced_at TEXT NOT NULL,
         UNIQUE(source, source_event_id)
       )
@@ -168,6 +173,25 @@ class IdolDatabaseService {
 
     // Old versions had no explicit person identity. Keep migrated links null
     // until the user chooses a shared identity; names alone are insufficient.
+  }
+
+  static Future<void> _migrateToV4(Database db) async {
+    final columns =
+        await db.rawQuery('PRAGMA table_info(idol_activity_events)');
+    final names = columns
+        .map((row) => (row['name'] ?? '').toString())
+        .where((name) => name.isNotEmpty)
+        .toSet();
+    if (!names.contains('is_free')) {
+      await db.execute(
+        'ALTER TABLE idol_activity_events ADD COLUMN is_free INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    if (!names.contains('ticket_tiers_json')) {
+      await db.execute(
+        "ALTER TABLE idol_activity_events ADD COLUMN ticket_tiers_json TEXT NOT NULL DEFAULT '[]'",
+      );
+    }
   }
 
   static Future<void> initializeBuiltInDataIfNeeded() async {
@@ -371,7 +395,9 @@ class IdolDatabaseService {
   static Future<void> syncActivityEventsFromRemote({String? url}) async {
     final eventsUrl = url ?? kIdolActivityEventsUrl;
     final uri = Uri.tryParse(eventsUrl);
-    if (uri == null) {
+    if (uri == null ||
+        !['http', 'https'].contains(uri.scheme) ||
+        uri.host.isEmpty) {
       throw const FormatException('偶活数据地址无效');
     }
 
@@ -411,9 +437,13 @@ class IdolDatabaseService {
     final lastSyncedAt = DateTime.tryParse(
       meta['activity_events_synced_at'] ?? '',
     );
-    if (lastSyncedAt != null &&
-        DateTime.now().difference(lastSyncedAt).compareTo(maxAge) < 0) {
-      return;
+    if (lastSyncedAt != null) {
+      final age = DateTime.now().difference(lastSyncedAt);
+      // A future timestamp (clock skew) should force a refresh instead of
+      // suppressing it forever.
+      if (!age.isNegative && age < maxAge) {
+        return;
+      }
     }
     await syncActivityEventsFromRemote(url: url);
   }
@@ -421,6 +451,11 @@ class IdolDatabaseService {
   static Future<void> _syncActivityEventBundle(
     IdolActivityEventBundle bundle,
   ) async {
+    if (bundle.events.isEmpty) {
+      // Never wipe the local cache because one upstream fetch returned an
+      // empty/partial payload. The generator and app both guard this case.
+      throw const FormatException('偶活数据为空，已保留本地缓存');
+    }
     final db = await database;
     final syncedAt = DateTime.now();
 
@@ -511,10 +546,22 @@ class IdolDatabaseService {
       'idol_activity_events',
       where: where.isEmpty ? null : where.join(' AND '),
       whereArgs: whereArgs,
-      orderBy: 'event_date ASC, city COLLATE NOCASE ASC, event_name ASC',
-      limit: limit,
+      orderBy:
+          "ABS(julianday(event_date) - julianday('now')) ASC, event_date ASC, city COLLATE NOCASE ASC, event_name ASC",
+      limit: limit.clamp(1, 2000),
     );
-    return maps.map(IdolActivityEvent.fromMap).toList(growable: false);
+    final events = <IdolActivityEvent>[];
+    for (final map in maps) {
+      try {
+        final event = IdolActivityEvent.fromMap(map);
+        if (event.sourceEventId.isNotEmpty && event.eventName.isNotEmpty) {
+          events.add(event);
+        }
+      } catch (_) {
+        // A single corrupt cached row must not break the whole event picker.
+      }
+    }
+    return events;
   }
 
   static Future<void> restoreBuiltInData() async {
@@ -753,19 +800,31 @@ class IdolDatabaseService {
     });
   }
 
-  static Future<int> upsertMember(IdolMember member) async {
+  static Future<int> upsertMember(
+    IdolMember member, {
+    bool unlinkPerson = false,
+  }) async {
     final db = await database;
     return db.transaction((txn) async {
       final explicitName = member.personName.trim();
-      final personId = explicitName.isEmpty
-          ? member.personId
-          : await _ensurePerson(
-              txn,
-              name: explicitName,
-              source: member.source,
-              isBuiltIn: member.isBuiltIn,
-              preferredId: member.personId,
-            );
+      final int? personId;
+      if (unlinkPerson) {
+        personId = null;
+      } else if (explicitName.isEmpty) {
+        // Preserve an already linked person when the editor did not supply a
+        // new name; clearing the field goes through [unlinkPerson] instead.
+        personId = member.personId;
+      } else {
+        // Resolve by name instead of passing preferredId: renaming one
+        // membership must not rename a person shared by other memberships or
+        // already-linked counters.
+        personId = await _ensurePerson(
+          txn,
+          name: explicitName,
+          source: member.source,
+          isBuiltIn: member.isBuiltIn,
+        );
+      }
 
       final payload = {
         'group_id': member.groupId,

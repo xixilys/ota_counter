@@ -1,5 +1,12 @@
 import 'dart:convert';
 
+bool _readBool(Object? value) {
+  if (value is bool) return value;
+  if (value is num) return value.toInt() != 0;
+  final normalized = '${value ?? ''}'.trim().toLowerCase();
+  return normalized == 'true' || normalized == '1';
+}
+
 class IdolActivityGroup {
   final String name;
   final String uid;
@@ -24,6 +31,27 @@ class IdolActivityGroup {
   }
 }
 
+class IdolTicketTier {
+  final String name;
+  final double price;
+
+  const IdolTicketTier({
+    required this.name,
+    required this.price,
+  });
+
+  Map<String, Object?> toMap() {
+    return {'name': name, 'price': price};
+  }
+
+  factory IdolTicketTier.fromMap(Map<String, Object?> map) {
+    return IdolTicketTier(
+      name: '${map['name'] ?? ''}'.trim(),
+      price: (map['price'] as num?)?.toDouble() ?? 0,
+    );
+  }
+}
+
 class IdolActivityEvent {
   final int? id;
   final String source;
@@ -38,6 +66,8 @@ class IdolActivityEvent {
   final String sourceLink;
   final String posterUrl;
   final List<IdolActivityGroup> groups;
+  final bool isFree;
+  final List<IdolTicketTier> ticketTiers;
   final DateTime syncedAt;
 
   const IdolActivityEvent({
@@ -54,11 +84,14 @@ class IdolActivityEvent {
     this.sourceLink = '',
     this.posterUrl = '',
     this.groups = const [],
+    this.isFree = false,
+    this.ticketTiers = const [],
     required this.syncedAt,
   });
 
   String get sessionLabel {
-    final time = startTime.trim().isNotEmpty ? startTime.trim() : openTime.trim();
+    final time =
+        startTime.trim().isNotEmpty ? startTime.trim() : openTime.trim();
     if (time.isEmpty) {
       return '';
     }
@@ -97,8 +130,28 @@ class IdolActivityEvent {
       sourceLink: sourceLink,
       posterUrl: posterUrl,
       groups: groups,
+      isFree: isFree,
+      ticketTiers: ticketTiers,
       syncedAt: value,
     );
+  }
+
+  String get ticketSummary {
+    final tiers = ticketTiers
+        .where((tier) => tier.name.isNotEmpty && tier.price > 0)
+        .take(4)
+        .map((tier) => '${tier.name} ¥${_formatPrice(tier.price)}')
+        .toList(growable: false);
+    if (tiers.isEmpty) {
+      return isFree ? '免费入场' : '';
+    }
+    final joined = tiers.join(' / ');
+    return isFree ? '免费入场 · $joined' : joined;
+  }
+
+  static String _formatPrice(double value) {
+    if (value == value.roundToDouble()) return value.toStringAsFixed(0);
+    return value.toStringAsFixed(2);
   }
 
   factory IdolActivityEvent.fromJson(Map<String, Object?> json) {
@@ -107,10 +160,22 @@ class IdolActivityEvent {
         .map((item) => IdolActivityGroup.fromMap(item.cast<String, Object?>()))
         .where((item) => item.name.isNotEmpty)
         .toList(growable: false);
+    final tiers = (json['ticketTiers'] ?? json['ticket_tiers']);
+    final ticketTiers = tiers is List
+        ? tiers
+            .whereType<Map>()
+            .map(
+              (item) => IdolTicketTier.fromMap(
+                item.map((key, value) => MapEntry(key.toString(), value)),
+              ),
+            )
+            .where((tier) => tier.name.isNotEmpty && tier.price > 0)
+            .toList(growable: false)
+        : const <IdolTicketTier>[];
 
     return IdolActivityEvent(
-      sourceEventId: '${json['sourceEventId'] ?? json['source_event_id'] ?? ''}'
-          .trim(),
+      sourceEventId:
+          '${json['sourceEventId'] ?? json['source_event_id'] ?? ''}'.trim(),
       eventDate: DateTime.parse('${json['date'] ?? json['event_date']}'),
       city: '${json['city'] ?? ''}'.trim(),
       venue: '${json['venue'] ?? ''}'.trim(),
@@ -121,6 +186,8 @@ class IdolActivityEvent {
       sourceLink: '${json['sourceLink'] ?? json['source_link'] ?? ''}'.trim(),
       posterUrl: '${json['posterUrl'] ?? json['poster_url'] ?? ''}'.trim(),
       groups: groups,
+      isFree: _readBool(json['isFree'] ?? json['is_free']),
+      ticketTiers: ticketTiers,
       syncedAt: DateTime.now(),
     );
   }
@@ -142,6 +209,8 @@ class IdolActivityEvent {
       groups: (map['groups_json'] as String?) == null
           ? const []
           : _decodeGroups(map['groups_json'] as String),
+      isFree: _readBool(map['is_free']),
+      ticketTiers: _decodeTicketTiers(map['ticket_tiers_json']),
       syncedAt: DateTime.tryParse('${map['synced_at'] ?? ''}') ??
           DateTime.fromMillisecondsSinceEpoch(0),
     );
@@ -161,6 +230,10 @@ class IdolActivityEvent {
       'source_link': sourceLink,
       'poster_url': posterUrl,
       'groups_json': _encodeGroups(groups),
+      'is_free': isFree ? 1 : 0,
+      'ticket_tiers_json': jsonEncode(
+        ticketTiers.map((tier) => tier.toMap()).toList(growable: false),
+      ),
       'synced_at': syncedAt.toIso8601String(),
     };
   }
@@ -171,8 +244,30 @@ class IdolActivityEvent {
   }
 
   static String _encodeGroups(List<IdolActivityGroup> groups) {
-    final encoded = groups.map((group) => group.toMap()).toList(growable: false);
+    final encoded =
+        groups.map((group) => group.toMap()).toList(growable: false);
     return jsonEncode(encoded);
+  }
+
+  static List<IdolTicketTier> _decodeTicketTiers(Object? raw) {
+    if (raw is! String || raw.trim().isEmpty) {
+      return const [];
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return const [];
+      return decoded
+          .whereType<Map>()
+          .map(
+            (item) => IdolTicketTier.fromMap(
+              item.map((key, value) => MapEntry(key.toString(), value)),
+            ),
+          )
+          .where((tier) => tier.name.isNotEmpty && tier.price > 0)
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
   }
 
   static List<IdolActivityGroup> _decodeGroups(String raw) {
@@ -183,7 +278,8 @@ class IdolActivityEvent {
       }
       return decoded
           .whereType<Map>()
-          .map((item) => IdolActivityGroup.fromMap(item.cast<String, Object?>()))
+          .map(
+              (item) => IdolActivityGroup.fromMap(item.cast<String, Object?>()))
           .where((item) => item.name.isNotEmpty)
           .toList(growable: false);
     } catch (_) {
@@ -206,18 +302,30 @@ class IdolActivityEventBundle {
   });
 
   factory IdolActivityEventBundle.fromJson(Map<String, Object?> json) {
-    final events = (json['events'] as List<dynamic>? ?? const [])
-        .whereType<Map>()
-        .map((item) => IdolActivityEvent.fromJson(item.cast<String, Object?>()))
-        .where((item) =>
-            item.sourceEventId.isNotEmpty && item.eventName.trim().isNotEmpty)
-        .toList(growable: false);
+    final events = <IdolActivityEvent>[];
+    for (final item in json['events'] as List<dynamic>? ?? const []) {
+      if (item is! Map) {
+        continue;
+      }
+      try {
+        final event = IdolActivityEvent.fromJson(
+          item.cast<String, Object?>(),
+        );
+        if (event.sourceEventId.isNotEmpty &&
+            event.eventName.trim().isNotEmpty) {
+          events.add(event);
+        }
+      } catch (_) {
+        // A single bad row must not discard the rest of the roster.
+      }
+    }
 
     return IdolActivityEventBundle(
       sourceUrl: '${json['sourceUrl'] ?? json['source_url'] ?? ''}'.trim(),
       sourceLabel:
           '${json['sourceLabel'] ?? json['source_label'] ?? ''}'.trim(),
-      generatedAt: '${json['generatedAt'] ?? json['generated_at'] ?? ''}'.trim(),
+      generatedAt:
+          '${json['generatedAt'] ?? json['generated_at'] ?? ''}'.trim(),
       events: events,
     );
   }

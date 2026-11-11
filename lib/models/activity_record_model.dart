@@ -99,6 +99,8 @@ class ActivityRecordModel {
   final int fiveInchShukudaiCount;
   final int multiCutQuantity;
   final int ticketQuantity;
+  final String ticketType;
+  final bool? ticketIsFree;
   final double threeInchPrice;
   final double fiveInchPrice;
   final double unsignedThreeInchPrice;
@@ -139,6 +141,8 @@ class ActivityRecordModel {
     this.fiveInchShukudaiCount = 0,
     this.multiCutQuantity = 0,
     this.ticketQuantity = 0,
+    this.ticketType = '',
+    this.ticketIsFree,
     this.threeInchPrice = 0,
     this.fiveInchPrice = 0,
     this.unsignedThreeInchPrice = 0,
@@ -242,7 +246,11 @@ class ActivityRecordModel {
     String note = '',
     int quantity = 1,
     double unitPrice = 0,
+    String ticketType = '',
+    bool? isFree,
   }) {
+    // A free ticket is free regardless of any price left in the form.
+    final effectiveUnitPrice = isFree == true ? 0.0 : unitPrice;
     return ActivityRecordModel(
       id: id,
       type: ActivityRecordType.ticket,
@@ -256,8 +264,10 @@ class ActivityRecordModel {
       occurredAt: occurredAt,
       pricingLabel: '门票',
       ticketQuantity: quantity,
-      ticketUnitPrice: unitPrice,
-      totalAmount: quantity * unitPrice,
+      ticketType: ticketType.trim(),
+      ticketIsFree: isFree,
+      ticketUnitPrice: effectiveUnitPrice,
+      totalAmount: quantity * effectiveUnitPrice,
       customChekiCounts: const [],
     );
   }
@@ -351,6 +361,8 @@ class ActivityRecordModel {
     int? fiveInchShukudaiCount,
     int? multiCutQuantity,
     int? ticketQuantity,
+    String? ticketType,
+    bool? ticketIsFree,
     double? threeInchPrice,
     double? fiveInchPrice,
     double? unsignedThreeInchPrice,
@@ -395,6 +407,8 @@ class ActivityRecordModel {
           fiveInchShukudaiCount ?? this.fiveInchShukudaiCount,
       multiCutQuantity: multiCutQuantity ?? this.multiCutQuantity,
       ticketQuantity: ticketQuantity ?? this.ticketQuantity,
+      ticketType: ticketType ?? this.ticketType,
+      ticketIsFree: ticketIsFree ?? this.ticketIsFree,
       threeInchPrice: threeInchPrice ?? this.threeInchPrice,
       fiveInchPrice: fiveInchPrice ?? this.fiveInchPrice,
       unsignedThreeInchPrice:
@@ -415,6 +429,17 @@ class ActivityRecordModel {
   }
 
   bool get isTicket => type == ActivityRecordType.ticket;
+
+  String get ticketTypeLabel {
+    final normalized = ticketType.trim();
+    if (normalized.isNotEmpty) {
+      return normalized;
+    }
+    return resolvedTicketIsFree ? '免费票' : '门票';
+  }
+
+  bool get resolvedTicketIsFree =>
+      ticketIsFree ?? (isTicket && ticketUnitPrice <= 0 && totalAmount <= 0);
 
   bool get isMulti => type == ActivityRecordType.multi;
 
@@ -531,6 +556,10 @@ class ActivityRecordModel {
         .where((name) => name.isNotEmpty)
         .toList();
     if (participantNames.isEmpty) {
+      if (multiCountField == CounterCountField.groupCut &&
+          groupName.trim().isNotEmpty) {
+        return '${groupName.trim()} 团切';
+      }
       return subjectName;
     }
     if (participantNames.length == 1) {
@@ -665,6 +694,8 @@ class ActivityRecordModel {
       'multi_cut_quantity': multiCutQuantity,
       'double_cut_quantity': multiCutQuantity,
       'ticket_quantity': ticketQuantity,
+      'ticket_type': ticketType,
+      'ticket_is_free': ticketIsFree == null ? null : (ticketIsFree! ? 1 : 0),
       'three_inch_price': threeInchPrice,
       'five_inch_price': fiveInchPrice,
       'unsigned_three_inch_price': unsignedThreeInchPrice,
@@ -735,6 +766,8 @@ class ActivityRecordModel {
             : map['double_cut_quantity'],
       ),
       ticketQuantity: _readInt(map['ticket_quantity']),
+      ticketType: (map['ticket_type'] ?? '') as String,
+      ticketIsFree: _readNullableBool(map['ticket_is_free']),
       threeInchPrice: _readDouble(map['three_inch_price']),
       fiveInchPrice: _readDouble(map['five_inch_price']),
       unsignedThreeInchPrice: _readDouble(map['unsigned_three_inch_price']),

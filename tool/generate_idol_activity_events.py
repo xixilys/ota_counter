@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -49,6 +51,135 @@ def normalize_group(value: dict[str, Any]) -> dict[str, str]:
     }
 
 
+
+_TICKET_LABEL = (
+    r"(?:SVIP票?|VIP票?|双人普通票预售|普通票预售|VIP预售|VIP现场|"
+    r"预售票?|前売票?|当日票?|现场票?|普通票?|一般票?|学生票?|女性优惠|"
+    r"女性票?|优先票?|早鸟票?|三人票?|双人票?|特典票?|通票?|"
+    r"单日票?|双日票?|SS席|S席|A席|门票|1D)"
+)
+_TICKET_PRICE_RE = re.compile(
+    rf"(?P<label>{_TICKET_LABEL})\s*(?:票价|现金)?\s*[:：/]?\s*"
+    r"[¥￥💰]?\s*[（(]?\s*(?P<price>\d{1,4})(?:\s*(?:元|R|r))?",
+    re.IGNORECASE,
+)
+_TICKET_CURRENCY_RE = re.compile(r"[¥￥]\s*(?P<price>\d{1,4})")
+_FREE_PATTERNS = [
+    re.compile(r"(?:无料|免费|免票)(?:入场|观演|门票|入場)"),
+    re.compile(r"(?:无料|免费|免票)\s*[+＋/]\s*(?:1D|1d|drink)"),
+    re.compile(r"(?:入场|观演|门票)[^。\n]{0,8}(?:无料|免费|免票)"),
+]
+_TICKET_CONTEXT_RE = re.compile(r"票|票价|票务|料金|🎫|💰")
+_BAD_TICKET_CONTEXT_RE = re.compile(r"抽|送|基金|补贴|消费满|奖励|积分|兑换")
+
+
+def _normalize_tier_name(label: str) -> str:
+    name = label.strip()
+    if name == "门票":
+        return "普通"
+    if name in ("一般", "普通票"):
+        return "普通"
+    if name in ("前売", "前売票"):
+        return "预售"
+    if name == "女性优惠":
+        return "女性"
+    if name.upper() == "SVIP":
+        return "SVIP"
+    if name.lower() == "vip":
+        return "VIP"
+    if name.lower() == "1d":
+        return "1D"
+    if name.endswith("票"):
+        name = name[:-1]
+    return name.strip() or "门票"
+
+
+def extract_ticket_info(texts: list[Any]) -> dict[str, Any]:
+    """Best-effort parsing of Chinese event copy.
+
+    The upstream MineCool detail payload has no dedicated price field, but the
+    Weibo description usually contains phrases such as
+    ``🎫门票 一般：¥25 三人票：¥50`` or ``预售/59 现场/69``. This parser keeps
+    only explicitly labelled ticket prices and free-entry phrases so it does not
+    turn dates, lottery prizes, or drink fees into ticket prices.
+    """
+    text = "\n".join(
+        html.unescape(str(value or ""))
+        for value in texts
+        if str(value or "").strip()
+    )
+    if not text:
+        return {"isFree": False, "ticketTiers": []}
+
+    is_free = False
+    for pattern in _FREE_PATTERNS:
+        for match in pattern.finditer(text):
+            before = text[max(0, match.start() - 14) : match.start()]
+            after = text[match.end() : match.end() + 10]
+            if re.search(r"揪|抽|送|转|中奖|福利|名额", before):
+                continue
+            if re.search(r"抽|送|名额|奖品", after):
+                continue
+            is_free = True
+            break
+        if is_free:
+            break
+
+    tiers: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for match in _TICKET_PRICE_RE.finditer(text):
+        label = match.group("label")
+        try:
+            price = float(match.group("price"))
+        except (TypeError, ValueError):
+            continue
+        if price <= 0 or price > 999:
+            continue
+        around = text[max(0, match.start() - 12) : match.end() + 9]
+        has_currency = bool(re.search(r"[¥￥💰]|\d\s*(?:元|R|r)\b", match.group(0)))
+        # A free event's "当日 18" is usually a time; only trust explicit
+        # currency or premium/paid tier labels there.
+        if is_free and not has_currency and not re.search(
+            r"VIP|优先|生日|特典|招待|1D", label, re.IGNORECASE
+        ):
+            continue
+        premium_tier = bool(
+            re.search(r"VIP|优先|生日|特典|招待|1D", label, re.IGNORECASE)
+        )
+        if _BAD_TICKET_CONTEXT_RE.search(around) and not has_currency:
+            continue
+        if not has_currency and not premium_tier and not _TICKET_CONTEXT_RE.search(
+            text[max(0, match.start() - 70) : match.end() + 20]
+        ):
+            continue
+        name = _normalize_tier_name(label)
+        key = name.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        tiers.append({"name": name, "price": price})
+
+    if not tiers:
+        for match in _TICKET_CURRENCY_RE.finditer(text):
+            around = text[max(0, match.start() - 35) : match.end() + 20]
+            if not _TICKET_CONTEXT_RE.search(around):
+                continue
+            if _BAD_TICKET_CONTEXT_RE.search(around):
+                continue
+            try:
+                price = float(match.group("price"))
+            except (TypeError, ValueError):
+                continue
+            if 0 < price <= 999:
+                tiers.append({"name": "门票", "price": price})
+                break
+
+    return {
+        "isFree": is_free,
+        "ticketTiers": tiers[:6],
+    }
+
+
 def event_from_detail(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
     date = normalize_text(raw.get("date"))
     name = normalize_text(raw.get("event_name"))
@@ -79,6 +210,14 @@ def event_from_detail(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
     if poster and poster.startswith("images/"):
         poster = f"{BASE_URL}/{poster}"
 
+    ticket_info = extract_ticket_info(
+        [
+            raw.get("description"),
+            raw.get("retweeted_text_raw"),
+            raw.get("text_raw"),
+        ]
+    )
+
     return {
         "sourceEventId": f"minecool-detail-{stable_id}",
         "date": date,
@@ -93,6 +232,8 @@ def event_from_detail(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
         ),
         "posterUrl": poster,
         "groups": groups,
+        "isFree": ticket_info["isFree"],
+        "ticketTiers": ticket_info["ticketTiers"],
     }
 
 
@@ -133,6 +274,8 @@ def event_from_group(group: dict[str, Any], raw: dict[str, Any]) -> Optional[dic
         ]
         if group_name
         else [],
+        "isFree": False,
+        "ticketTiers": [],
     }
 
 

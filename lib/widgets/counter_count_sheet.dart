@@ -10,12 +10,20 @@ import '../services/database_service.dart';
 import '../services/idol_database_service.dart';
 import 'no_autofill_text_field.dart';
 
+/// Persists a quick-count change.
+///
+/// [updatedCounter] holds the absolute counts the sheet now shows and
+/// [baseCounter] the counts that were last confirmed as saved for the same
+/// target. The saved record must contain exactly `updated - base`; comparing
+/// against any other copy (for example the home page cache) double-counts or
+/// drops taps when that copy is stale or a previous save is still in flight.
 typedef CounterChangedCallback = Future<CounterModel> Function(
   CounterModel updatedCounter,
   DateTime occurredAt, {
   String activityName,
   String venueName,
   String sessionLabel,
+  CounterModel? baseCounter,
 });
 
 class CounterRecordTarget {
@@ -74,6 +82,7 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
   bool _enableUnsignedOptions = false;
   bool _targetsLoading = false;
   bool _activityEventsLoading = false;
+  String? _activitySyncWarning;
   final Map<String, _PendingCounterSave> _pendingCounterSaves = {};
   final Map<String, CounterModel> _lastPersistedCounters = {};
   bool _saveQueueRunning = false;
@@ -399,6 +408,7 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
 
   Future<CounterModel> _persistCounter(
     _PendingCounterSave request,
+    String targetKey,
   ) async {
     return widget.onCounterChanged(
       request.counter,
@@ -406,6 +416,9 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
       activityName: request.activityName,
       venueName: request.venueName,
       sessionLabel: request.sessionLabel,
+      // Read at drain time: an earlier save for this target may have just
+      // completed (and created the card) while this request was queued.
+      baseCounter: _lastPersistedCounters[targetKey],
     );
   }
 
@@ -439,7 +452,7 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
         _pendingCounterSaves.remove(targetKey);
 
         try {
-          final savedCounter = await _persistCounter(request);
+          final savedCounter = await _persistCounter(request, targetKey);
           _lastPersistedCounters[targetKey] = savedCounter;
           if (!mounted || _pendingCounterSaves.containsKey(targetKey)) {
             continue;
@@ -485,7 +498,13 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
     });
 
     if (syncRemote) {
-      await IdolDatabaseService.syncActivityEventsFromRemoteIfStale();
+      try {
+        await IdolDatabaseService.syncActivityEventsFromRemoteIfStale();
+        _activitySyncWarning = null;
+      } catch (error) {
+        // Keep using the cached roster when the upstream is unreachable.
+        _activitySyncWarning = '$error';
+      }
     }
 
     final now = DateTime.now();
@@ -530,6 +549,25 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
       }
     }
     if (!mounted) {
+      return;
+    }
+    final warning = _activitySyncWarning;
+    _activitySyncWarning = null;
+    if (warning != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('演出名单更新失败，正在使用本地缓存：$warning'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+    if (_activityEvents.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('没有可用的偶活场次，请检查网络后重试'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
       return;
     }
 
@@ -831,18 +869,15 @@ class _ActivityEventSearchSheetState extends State<_ActivityEventSearchSheet> {
   @override
   Widget build(BuildContext context) {
     final normalized = _query.trim().toLowerCase();
-    final events = widget.events
-        .where((event) {
-          if (normalized.isEmpty) {
-            return true;
-          }
-          return event.eventName.toLowerCase().contains(normalized) ||
-              event.city.toLowerCase().contains(normalized) ||
-              event.venue.toLowerCase().contains(normalized) ||
-              event.groupLabel.toLowerCase().contains(normalized);
-        })
-        .take(200)
-        .toList(growable: false);
+    final events = widget.events.where((event) {
+      if (normalized.isEmpty) {
+        return true;
+      }
+      return event.eventName.toLowerCase().contains(normalized) ||
+          event.city.toLowerCase().contains(normalized) ||
+          event.venue.toLowerCase().contains(normalized) ||
+          event.groupLabel.toLowerCase().contains(normalized);
+    }).toList(growable: false);
 
     return FractionallySizedBox(
       heightFactor: 0.85,

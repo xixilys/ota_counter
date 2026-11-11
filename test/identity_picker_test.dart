@@ -171,7 +171,10 @@ void main() {
       counter: current,
       allCounters: [current],
       onCounterChanged: (updated, occurredAt,
-              {activityName = '', venueName = '', sessionLabel = ''}) async =>
+              {activityName = '',
+              venueName = '',
+              sessionLabel = '',
+              baseCounter}) async =>
           updated,
     ))));
     await settle(tester);

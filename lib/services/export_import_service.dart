@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -12,6 +13,7 @@ import '../models/counter_model.dart';
 import 'database_service.dart';
 import 'idol_database_service.dart';
 import 'image_service.dart';
+import 'settings_service.dart';
 
 enum ImportPayloadKind {
   legacyCounters,
@@ -44,6 +46,14 @@ class FullBackupBundle {
   /// It must stay open until the documents have been restored.
   final InputFileStream? documentSource;
 
+  /// Preferences that decide which saved counts the home page includes.
+  /// Without them a restore on a fresh install (or the side-by-side debug
+  /// build) silently drops hidden members from the home totals. Empty for
+  /// backups made before this field existed.
+  final Map<String, Object?> appSettings;
+
+  static const String showHiddenCountersSetting = 'show_hidden_counters';
+
   const FullBackupBundle({
     required this.formatVersion,
     required this.exportedAt,
@@ -54,6 +64,7 @@ class FullBackupBundle {
     this.documentEntries = const {},
     this.documentPaths = const {},
     this.documentSource,
+    this.appSettings = const {},
   });
 
   Map<String, Object?> toManifest() {
@@ -64,6 +75,7 @@ class FullBackupBundle {
       'main_database': mainDatabase,
       'idol_database': idolDatabase,
       'image_database': imageDatabase,
+      if (appSettings.isNotEmpty) 'app_settings': appSettings,
     };
   }
 
@@ -104,7 +116,15 @@ class FullBackupBundle {
       documentFiles: documentFiles,
       documentEntries: documentEntries,
       documentSource: documentSource,
+      appSettings: _readSettings(manifest['app_settings']),
     );
+  }
+
+  static Map<String, Object?> _readSettings(Object? value) {
+    if (value is! Map) {
+      return const {};
+    }
+    return value.map((key, setting) => MapEntry(key.toString(), setting));
   }
 
   static Map<String, List<Map<String, Object?>>> _readTableDump(
@@ -369,7 +389,37 @@ class ExportImportService {
     // The restored idol database may use different person ids than the
     // restored counters / records. Repair before the home page reads them.
     await DatabaseService.reconcileCounterIdentities();
+    await _restoreShowHiddenCounters(backup);
   }
+
+  /// Home totals only include hidden members while "显示已隐藏项" is on, and
+  /// that switch lives in preferences, not in the databases. Restore it from
+  /// the backup; for older backups that did not record it, show hidden
+  /// members whenever the backup has any, so a restore never makes saved
+  /// counts disappear from the home page. The user can hide them again.
+  static Future<void> _restoreShowHiddenCounters(
+    FullBackupBundle backup,
+  ) async {
+    final saved =
+        backup.appSettings[FullBackupBundle.showHiddenCountersSetting];
+    if (saved is bool) {
+      await SettingsService.saveShowHiddenCounters(saved);
+      return;
+    }
+    final counters = backup.mainDatabase[DatabaseService.tableName] ?? const [];
+    final hasHiddenCounters = counters.any((row) {
+      final value = row['is_hidden'] ?? row['isHidden'];
+      return value == true || (value is num && value != 0);
+    });
+    if (hasHiddenCounters) {
+      await SettingsService.saveShowHiddenCounters(true);
+    }
+  }
+
+  /// The bundle [exportData] writes, without sharing it.
+  @visibleForTesting
+  static Future<FullBackupBundle> buildFullBackupBundle() =>
+      _buildFullBackupBundle();
 
   static Future<FullBackupBundle> _buildFullBackupBundle() async {
     final documentsDirectory = await getApplicationDocumentsDirectory();
@@ -425,6 +475,15 @@ class ExportImportService {
           mainDb,
           DatabaseService.counterSyncTableName,
         ),
+        'ticket_types': await _readTableRows(mainDb, 'ticket_types'),
+        'ticket_price_presets': await _readTableRows(
+          mainDb,
+          'ticket_price_presets',
+        ),
+        // DatabaseService.faceSamplesTableName is left out on purpose:
+        // face embeddings are biometric data that stays on this phone (the
+        // 人脸识别 settings promise "只在手机本地、不上传"). After a restore,
+        // 「从已归档照片学习」 rebuilds member samples from the restored photos.
       },
       idolDatabase: {
         'idol_people': await _readTableRows(idolDb, 'idol_people'),
@@ -437,6 +496,10 @@ class ExportImportService {
       },
       documentFiles: const {},
       documentPaths: documentPaths,
+      appSettings: {
+        FullBackupBundle.showHiddenCountersSetting:
+            await SettingsService.getShowHiddenCounters(),
+      },
     );
   }
 
@@ -514,6 +577,16 @@ class ExportImportService {
         txn,
         table: DatabaseService.counterSyncTableName,
         rows: tables[DatabaseService.counterSyncTableName] ?? const [],
+      );
+      await _insertRows(
+        txn,
+        table: 'ticket_types',
+        rows: tables['ticket_types'] ?? const [],
+      );
+      await _insertRows(
+        txn,
+        table: 'ticket_price_presets',
+        rows: tables['ticket_price_presets'] ?? const [],
       );
     });
   }

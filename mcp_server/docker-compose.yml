@@ -1,0 +1,25 @@
+services:
+  ota-sync:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ota-counter-sync:latest
+    container_name: ota-counter-sync
+    restart: unless-stopped
+    ports:
+      # Set OTA_SYNC_BIND=0.0.0.0 in .env to expose on LAN.
+      - "${OTA_SYNC_BIND:-127.0.0.1}:8787:8787"
+    environment:
+      OTA_SYNC_DATA_DIR: /data
+      # Optional explicit token. Leave unset to auto-generate on first start.
+      OTA_SYNC_TOKEN: "${OTA_SYNC_TOKEN:-}"
+    volumes:
+      - ota-sync-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  ota-sync-data:

@@ -1,0 +1,189 @@
+openapi: 3.1.0
+info:
+  title: OTA Counter Sync API
+  version: 1.0.0
+  description: |
+    Local-first sync bridge for the OTA Counter Flutter app.
+    The app uploads snapshots and pulls queued changes. AI agents / bots
+    normally use the MCP endpoint instead of this REST surface.
+servers:
+  - url: http://127.0.0.1:8787
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      security: []
+      summary: Public health check
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/status:
+    get:
+      summary: Snapshot and action queue status
+      responses:
+        '200':
+          description: Current status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '401':
+          description: Missing/invalid token
+  /api/v1/snapshot:
+    post:
+      summary: Upload an app snapshot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [snapshot]
+              properties:
+                device_id:
+                  type: string
+                snapshot:
+                  $ref: '#/components/schemas/Snapshot'
+      responses:
+        '200':
+          description: Snapshot accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: {type: boolean}
+                  rev: {type: integer}
+                  received_at: {type: string}
+                  pending_actions: {type: integer}
+  /api/v1/actions:
+    get:
+      summary: List queued actions
+      parameters:
+        - name: status
+          in: query
+          schema: {type: string, default: pending}
+        - name: limit
+          in: query
+          schema: {type: integer, default: 50, minimum: 1, maximum: 200}
+      responses:
+        '200':
+          description: Actions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: {type: integer}
+                  rev: {type: integer}
+                  actions:
+                    type: array
+                    items: {$ref: '#/components/schemas/Action'}
+    post:
+      summary: Queue an action manually
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Action'}
+      responses:
+        '201':
+          description: Queued
+        '200':
+          description: Duplicate id returned
+  /api/v1/actions/ack:
+    post:
+      summary: Mark actions applied
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  items: {type: string}
+                failures:
+                  type: object
+                  additionalProperties: {type: string}
+      responses:
+        '200':
+          description: Ack result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: {type: boolean}
+                  applied: {type: integer}
+                  failed: {type: integer}
+                  rev: {type: integer}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    Snapshot:
+      type: object
+      required: [schema, counters, records, summary]
+      properties:
+        schema:
+          const: ota-counter-snapshot
+        version: {type: integer}
+        exported_at: {type: string}
+        device_id: {type: string}
+        app_version: {type: string}
+        counters:
+          type: array
+          items: {type: object, additionalProperties: true}
+        records:
+          type: array
+          items: {type: object, additionalProperties: true}
+        pricings:
+          type: array
+          items: {type: object, additionalProperties: true}
+        summary:
+          type: object
+          additionalProperties: true
+    Action:
+      type: object
+      required: [kind, payload]
+      properties:
+        id: {type: string}
+        kind:
+          type: string
+          enum: [counter_delta, ticket]
+        status:
+          type: string
+          enum: [pending, applied, failed]
+        created_at: {type: string}
+        created_by: {type: string}
+        payload:
+          type: object
+          additionalProperties: true
+    Status:
+      type: object
+      properties:
+        ok: {type: boolean}
+        name: {type: string}
+        version: {type: string}
+        rev: {type: integer}
+        snapshot:
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: true
+        actions:
+          type: object
+          properties:
+            pending: {type: integer}
+            applied: {type: integer}
+            failed: {type: integer}

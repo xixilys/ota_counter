@@ -70,6 +70,7 @@ android {
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "top.huangxuanqi.otacounter"
+        manifestPlaceholders += [appLabel: "OTA Counter"]
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -79,10 +80,22 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Install side by side with the release app on a real phone, so
+            // debugging never replaces (or forces uninstalling) the user's data.
+            applicationIdSuffix ".debug"
+            manifestPlaceholders += [appLabel: "OTA Counter Debug"]
+        }
+        profile {
+            applicationIdSuffix ".debug"
+            manifestPlaceholders += [appLabel: "OTA Counter Debug"]
+        }
         release {
             // Prefer the local release keystore when it exists so future APKs
             // can upgrade in place. Keep the debug fallback for clean clones.
             signingConfig keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
+            // Keep rules for libraries that reach Java classes from native code.
+            proguardFile "proguard-rules.pro"
         }
     }
 }
@@ -125,5 +138,20 @@ afterEvaluate {
         task.name.startsWith("configureCMake") || task.name.startsWith("buildCMake")
     }.configureEach {
         enabled = false
+    }
+}
+
+// Release ships 64-bit ARM only: the on-device face models pull in
+// onnxruntime native libs per ABI (20-35 MB each), so 32-bit and x86 phones
+// can no longer install the release APK. ndk.abiFilters is overridden by the
+// Flutter Gradle plugin, so strip the other ABIs at packaging time instead.
+// Debug builds keep every ABI so any emulator still works.
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        variant.packaging.jniLibs.excludes.addAll([
+            "lib/armeabi-v7a/**",
+            "lib/x86/**",
+            "lib/x86_64/**",
+        ])
     }
 }

@@ -25,6 +25,45 @@
           "status": "正式成员 / 水色担当"
         }
       ]
+    },
+    {
+      "name": "终到站Terminus",
+      "members": [
+        {
+          "name": "一绪",
+          "status": "正式成员"
+        },
+        {
+          "name": "盈盈",
+          "status": "正式成员"
+        },
+        {
+          "name": "透",
+          "status": "正式成员"
+        }
+      ]
+    },
+    {
+      "name": "Cherishffon",
+      "members": [
+        {
+          "name": "酥酥",
+          "status": "正式成员"
+        },
+        {
+          "name": "小鸟Torine",
+          "status": "正式成员"
+        }
+      ]
+    },
+    {
+      "name": "NiiCORE",
+      "members": [
+        {
+          "name": "骷Kukuro",
+          "status": "正式成员"
+        }
+      ]
     }
   ]
 }

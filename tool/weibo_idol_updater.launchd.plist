@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>top.huangxuanqi.ota-counter.weibo-idol-updater</string>
+    <!-- 模板不直接安装。将 __REPO_ROOT__ 和 __HOME__
+         替换为本机绝对路径；launchd 不展开 ~、$HOME 或 shell 表达式。
+         updater 固定为仓库中的 tool/weibo_idol_updater.py。
+         Python 路径也须按目标机器核对。安装前先创建下方日志目录。
+         启用前由主人批准并自行部署新版 generator / runner，验证服务器
+         SSH 写权限及免交互认证；只上传微博文件不代表已入库。
+         OTA_WEIBO_MAX_REQUESTS 仅用于手工调试，定时运行不设置。 -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>__REPO_ROOT__/tool/weibo_idol_updater.py</string>
+        <string>--publish</string>
+        <string>--limit</string>
+        <string>25</string>
+        <string>--jitter-minutes</string>
+        <string>60</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>__REPO_ROOT__</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>OTA_WEIBO_IDOLS_DIR</key>
+        <string>__HOME__/.ota-counter/weibo-idols</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+    <!-- 每天本机当地时间 10:40；不在登录或加载时立即执行。 -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>10</integer>
+        <key>Minute</key>
+        <integer>40</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>__HOME__/.ota-counter/weibo-idols/logs/updater.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/.ota-counter/weibo-idols/logs/updater.stderr.log</string>
+</dict>
+</plist>

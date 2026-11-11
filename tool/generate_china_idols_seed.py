@@ -502,6 +502,9 @@ def load_manual_additions(path: Path) -> list[dict]:
     groups = data.get("groups") if isinstance(data, dict) else None
     if not isinstance(groups, list):
         raise ValueError("Manual additions must contain a groups list")
+    source_label = data.get("sourceLabel", "人工补充")
+    if not isinstance(source_label, str) or not source_label.strip():
+        raise ValueError("Invalid manual sourceLabel")
     for group in groups:
         if not isinstance(group, dict) or not isinstance(group.get("name"), str) or not group["name"].strip():
             raise ValueError("Invalid manual group name")
@@ -510,7 +513,18 @@ def load_manual_additions(path: Path) -> list[dict]:
         for member in group["members"]:
             if not isinstance(member, dict) or not isinstance(member.get("name"), str) or not member["name"].strip() or not isinstance(member.get("status"), str):
                 raise ValueError(f"Invalid manual member for {group['name']}")
-    return groups
+    return [dict(group, sourceLabel=source_label.strip()) for group in groups]
+
+
+def _normalize_weibo_group_name(name: str) -> str:
+    # Keep in sync with weibo_idol_updater.normalize_group_name; the seed
+    # generator runs independently without the updater's browser dependencies.
+    name = re.sub(r"[\s_\-·]*official\s*$", "", name.strip(), flags=re.I).strip()
+    return re.sub(r"[\s_\-·]+", "", name).casefold()
+
+
+def _normalize_weibo_member_name(name: str) -> str:
+    return re.sub(r"[\s_\-·]+", "", name).casefold()
 
 
 def merge_manual_additions(
@@ -521,6 +535,7 @@ def merge_manual_additions(
 
     - If a group exists in both, manual members are added (deduplicated by name).
     - If a group only exists in manual data, it is appended.
+    - 微博自动补充 only adds unseen members, matching the updater's name rules.
     """
     if not manual_groups:
         return list(wiki_groups)
@@ -530,12 +545,50 @@ def merge_manual_additions(
     wiki_index = {g["name"]: g for g in result}
     for manual_group in manual_groups:
         group_name = manual_group["name"].strip()
+        source_label = manual_group.get("sourceLabel", "人工补充")
+        if source_label == "微博自动补充":
+            group_key = _normalize_weibo_group_name(group_name)
+            matching_groups = []
+            exact_groups = []
+            for group in result:
+                existing_key = _normalize_weibo_group_name(group["name"])
+                if group_key and existing_key and (
+                    group_key in existing_key or existing_key in group_key
+                ):
+                    matching_groups.append(group)
+                    if group_key == existing_key:
+                        exact_groups.append(group)
+            candidates = exact_groups if exact_groups else matching_groups
+            if len(candidates) > 1:
+                names = ", ".join(group["name"] for group in candidates)
+                print(f"跳过微博补充团 {group_name}：团名匹配歧义（{names}）")
+                continue
+            # The updater checks members across all containment-matching groups.
+            # Keep that protection, but only append to an unambiguous target.
+            member_names = {
+                _normalize_weibo_member_name(member["name"])
+                for group in matching_groups for member in group["members"]
+            }
+            if candidates:
+                existing = candidates[0]
+            else:
+                existing = {"name": group_name, "members": [], "sourceLabel": source_label}
+                result.append(existing)
+                wiki_index[group_name] = existing
+            for member in manual_group["members"]:
+                member_key = _normalize_weibo_member_name(member["name"])
+                if member_key not in member_names:
+                    existing["members"].append(dict(
+                        member, name=member["name"].strip(), sourceLabel=source_label,
+                    ))
+                    member_names.add(member_key)
+            continue
         existing = wiki_index.get(group_name)
         if existing is None:
-            existing = {"name": group_name, "members": [], "sourceLabel": "人工补充"}
+            existing = {"name": group_name, "members": [], "sourceLabel": source_label}
             result.append(existing)
             wiki_index[group_name] = existing
-        manual_members = [dict(m, name=m["name"].strip(), sourceLabel="人工补充") for m in manual_group["members"]]
+        manual_members = [dict(m, name=m["name"].strip(), sourceLabel=source_label) for m in manual_group["members"]]
         manual_names = {m["name"] for m in manual_members}
         existing["members"] = [m for m in existing["members"] if m["name"].strip() not in manual_names] + manual_members
 
@@ -555,11 +608,13 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--manual",
         type=Path,
+        action="append",
         default=None,
         help=(
             "Path to manual idol additions JSON. "
-            "Groups from this file are merged into the wiki output "
-            "(manual data takes priority). "
+            "Repeat to merge files in order (later members take priority). "
+            "Files labeled 微博自动补充 only append previously unseen members. "
+            "The top-level sourceLabel defaults to 人工补充. "
             f"Defaults to {MANUAL} if the file exists."
         ),
     )
@@ -588,10 +643,10 @@ def main(argv: Optional[list[str]] = None) -> None:
             }
         )
 
-    manual_path = args.manual
-    if manual_path is None and MANUAL.is_file():
-        manual_path = MANUAL
-    if manual_path is not None:
+    manual_paths = args.manual
+    if manual_paths is None:
+        manual_paths = [MANUAL] if MANUAL.is_file() else []
+    for manual_path in manual_paths:
         manual_groups = load_manual_additions(manual_path)
         if manual_groups:
             groups = merge_manual_additions(groups, manual_groups)

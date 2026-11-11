@@ -9,6 +9,7 @@ SEED_PATH="${OTA_IDOL_SEED_PATH:-$DATA_DIR/china_idols_seed.json}"
 GENERATOR="${OTA_IDOL_GENERATOR:-$APP_DIR/generate_china_idols_seed.py}"
 VALIDATOR="${OTA_IDOL_VALIDATOR:-$APP_DIR/validate_china_idols_seed.py}"
 MANUAL_FILE="${OTA_IDOL_MANUAL_FILE:-$APP_DIR/manual_idols.json}"
+WEIBO_FILE="${OTA_IDOL_WEIBO_FILE:-$APP_DIR/weibo_idols.json}"
 PYTHON="${OTA_IDOL_PYTHON:-$APP_DIR/.venv/bin/python3}"
 MIN_GROUPS="${OTA_IDOL_MIN_GROUPS:-100}"
 MIN_MEMBERS="${OTA_IDOL_MIN_MEMBERS:-100}"
@@ -42,7 +43,11 @@ trap 'rm -rf "$work_dir"' EXIT
 tmp_seed="$work_dir/china_idols_seed.json"
 tmp_public="$SEED_PATH.tmp"
 
-"$PYTHON" "$GENERATOR" --output "$tmp_seed" --manual "$MANUAL_FILE"
+generator_args=(--output "$tmp_seed" --manual "$MANUAL_FILE")
+if [[ -f "$WEIBO_FILE" && -s "$WEIBO_FILE" ]]; then
+  generator_args+=(--manual "$WEIBO_FILE")
+fi
+"$PYTHON" "$GENERATOR" "${generator_args[@]}"
 "$PYTHON" "$VALIDATOR" "$tmp_seed" \
   --min-groups "$MIN_GROUPS" \
   --min-members "$MIN_MEMBERS"

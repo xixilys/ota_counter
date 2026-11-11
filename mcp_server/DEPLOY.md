@@ -35,11 +35,9 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-查看启动日志里的自动生成 token：
+启动日志不输出 token。仅在可信管理员终端读取配对凭据，不把输出复制到聊天或归档日志：
 
 ```bash
-docker compose logs ota-sync | grep -i token
-# 或
 docker compose exec ota-sync cat /data/token
 ```
 
@@ -64,7 +62,7 @@ docker compose exec -T ota-sync tar czf - -C /data . > ota-sync-backup.tgz
 docker compose exec -T ota-sync tar xzf - -C /data < ota-sync-backup.tgz
 ```
 
-- 备份包含 `state.json`、`token` 和 `state.json.bak`；恢复后重启容器。
+- 备份包含 `state.json`、`token`、`state.json.bak` 和尚未清理的 `face-images/`；含敏感上传链接及脸照，按私有数据管理，恢复后重启容器。ack 只删除在线图片，不回收已有备份。
 - `state.json` 每次写入前会生成 `state.json.bak`。
 
 ### HTTPS（公网 / 不可信网络）
@@ -145,6 +143,21 @@ ssh root@server 'cat /var/lib/ota-counter-sync/token'
 
 默认只监听 `127.0.0.1:8787`，通过 Nginx 对外；如果直接暴露端口，把 unit 里的
 `--host 127.0.0.1` 改成 `0.0.0.0` 并配置防火墙。
+
+## 脸照上传的公网入口
+
+设置 `OTA_SYNC_PUBLIC_BASE_URL`，或在启动命令中加 `--public-base-url`（CLI 优先）。不从请求头推导协议/路径，未设置时生成上传链接会报错，原同步 API 不受影响。Docker Compose 会传入 `.env` 中的同名变量；脸照流程建议用 HTTP MCP。当前 JSON 存储是单写者，不能并行运行 stdio 和 HTTP 进程共写同一目录；如离线使用 stdio，需配置相同公开地址并停止后再启动 HTTP 服务。
+
+当前 `hkvps2` 公开入口为 `https://sub.lyszqx.love/ota-sync`，haproxy 剥除路径前缀，且没有可恢复此前缀的 forwarded headers。由部署负责人可靠配置：
+
+systemd unit 已读取可选的 `/etc/ota-counter-sync.env`（`EnvironmentFile=-`），写入即可：
+
+```ini
+# /etc/ota-counter-sync.env
+OTA_SYNC_PUBLIC_BASE_URL=https://sub.lyszqx.love/ota-sync
+```
+
+页面相对路径提交，浏览器保留 `/ota-sync` 前缀，服务端只接收 `/face-upload`。代理需要允许每张最多 15 MiB 的 image body；建议此路由 access log 不记录 query，上传凭证不是同步 token，但仍有 24 小时上传权限。图片写入持久数据目录，成功/失败 ack 后删除；启动及每日扫描清理超过 7 天的图片。同步 token 不进入启动日志。
 
 ## 首次配对流程
 

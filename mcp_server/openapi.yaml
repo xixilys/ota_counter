@@ -72,6 +72,10 @@ paths:
         - name: limit
           in: query
           schema: {type: integer, default: 50, minimum: 1, maximum: 200}
+        - name: X-OTA-Capabilities
+          in: header
+          description: New apps send face-enroll-v1 to receive enroll_face actions; old apps omit it and those actions stay hidden.
+          schema: {type: string}
       responses:
         '200':
           description: Actions
@@ -86,7 +90,8 @@ paths:
                     type: array
                     items: {$ref: '#/components/schemas/Action'}
     post:
-      summary: Queue an action manually
+      summary: Queue a non-enrollment action manually
+      description: Create enrollment images/actions through the MCP face tools, not arbitrary image references.
       requestBody:
         required: true
         content:
@@ -99,7 +104,7 @@ paths:
           description: Duplicate id returned
   /api/v1/actions/ack:
     post:
-      summary: Mark actions applied
+      summary: Acknowledge applied/failed actions and enrollment results
       requestBody:
         required: true
         content:
@@ -108,8 +113,37 @@ paths:
               type: object
               properties:
                 ids:
+                  description: Include both successful and failed enrollment ids.
                   type: array
                   items: {type: string}
+                results:
+                  type: object
+                  description: Per-action results, including failed enrollments; each includes faces_found, used_face and samples_kept.
+                  additionalProperties:
+                    type: object
+                    required: [faces_found, samples_kept]
+                    properties:
+                      faces_found: {type: integer, minimum: 0}
+                      used_face: {type: [integer, 'null'], minimum: 1, description: One-based index from left; null for failures}
+                      used_face_bounds: {type: object, description: Face bounding box in pixels, additionalProperties: true}
+                      faces:
+                        type: array
+                        description: All detected faces, newest normalized boxes for left_N retry.
+                        items:
+                          type: object
+                          required: [index_from_left, box]
+                          properties:
+                            index_from_left: {type: integer, minimum: 1}
+                            box:
+                              type: object
+                              required: [x, y, width, height]
+                              properties:
+                                x: {type: number, minimum: 0, maximum: 1}
+                                y: {type: number, minimum: 0, maximum: 1}
+                                width: {type: number, minimum: 0, maximum: 1}
+                                height: {type: number, minimum: 0, maximum: 1}
+                      samples_kept: {type: integer, minimum: 0, description: Actual retained samples; zero means no new sample retained}
+                    additionalProperties: true
                 failures:
                   type: object
                   additionalProperties: {type: string}
@@ -125,8 +159,71 @@ paths:
                   applied: {type: integer}
                   failed: {type: integer}
                   rev: {type: integer}
+  /api/v1/face-images/{imageId}:
+    get:
+      summary: Download a pending enrollment image using the sync bearer header
+      description: Query tokens are not accepted. Images are deleted after ACK or by the 7-day sweep.
+      parameters:
+        - name: imageId
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Image bytes
+          content:
+            image/jpeg: {schema: {type: string, format: binary}}
+            image/png: {schema: {type: string, format: binary}}
+            image/webp: {schema: {type: string, format: binary}}
+            image/gif: {schema: {type: string, format: binary}}
+            image/bmp: {schema: {type: string, format: binary}}
+        '401': {description: Missing sync bearer header}
+        '404': {description: Unknown or expired image}
+  /face-upload:
+    get:
+      security:
+        - uploadCapability: []
+        - uploadQueryCapability: []
+      summary: Chinese mobile upload page for a scoped member
+      responses:
+        '200':
+          description: Self-contained HTML with canvas JPEG compression
+          content:
+            text/html: {schema: {type: string}}
+        '401': {description: Invalid or expired 24-hour capability}
+        '409': {description: Ten-image quota exhausted}
+    post:
+      security:
+        - uploadCapability: []
+        - uploadQueryCapability: []
+      summary: Upload one image and queue enroll_face for the scoped member
+      description: At most ten images per capability, 15 MiB per image. No sync token needed.
+      requestBody:
+        required: true
+        content:
+          image/jpeg: {schema: {type: string, format: binary}}
+          image/png: {schema: {type: string, format: binary}}
+          image/webp: {schema: {type: string, format: binary}}
+          image/gif: {schema: {type: string, format: binary}}
+          image/bmp: {schema: {type: string, format: binary}}
+      responses:
+        '201': {description: Queued; not yet enrolled by the app}
+        '400': {description: Empty image}
+        '401': {description: Invalid or expired capability}
+        '409': {description: Upload quota or pending queue full}
+        '413': {description: Image exceeds 15 MiB}
+        '415': {description: Unsupported image Content-Type}
 components:
   securitySchemes:
+    uploadCapability:
+      type: http
+      scheme: bearer
+      description: Independently generated member-scoped capability, not the sync bearer token.
+    uploadQueryCapability:
+      type: apiKey
+      in: query
+      name: token
+      description: Member-scoped upload capability used for opening the form.
     bearerAuth:
       type: http
       scheme: bearer
@@ -160,12 +257,17 @@ components:
         id: {type: string}
         kind:
           type: string
-          enum: [counter_delta, ticket]
+          enum: [counter_delta, ticket, enroll_face]
         status:
           type: string
           enum: [pending, applied, failed]
         created_at: {type: string}
         created_by: {type: string}
+        result:
+          type: object
+          description: Successful enrollment summary returned by the app.
+          additionalProperties: true
+        failure: {type: string, description: Chinese failure reason}
         payload:
           type: object
           additionalProperties: true

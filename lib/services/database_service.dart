@@ -24,7 +24,9 @@ class DatabaseService {
   /// On-device face embeddings for 批量拍切. Private: deliberately left out of
   /// full backups (see ExportImportService._buildFullBackupBundle).
   static const String faceSamplesTableName = 'face_samples';
-  static const int _version = 21;
+  static const String faceEnrollmentActionsTableName =
+      'face_enrollment_actions';
+  static const int _version = 22;
 
   static Database? _database;
   static Future<Database>? _databaseOpening;
@@ -338,6 +340,17 @@ class DatabaseService {
       )
     ''');
     await _createFaceSamplesSchema(db);
+    // Durable receipts survive ACK/network failures and sample-cap eviction.
+    // Stored locally only, together with the private face samples.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $faceEnrollmentActionsTableName(
+        server_url TEXT NOT NULL,
+        action_id TEXT NOT NULL,
+        result_json TEXT,
+        failure TEXT,
+        PRIMARY KEY(server_url, action_id)
+      )
+    ''');
     _tableColumnsCache.clear();
   }
 
@@ -1808,6 +1821,7 @@ class DatabaseService {
       // Member face samples point at the media / counters being wiped; "我"
       // is not part of the ledger and survives a restore.
       await txn.delete(faceSamplesTableName, where: 'is_self = 0');
+      await txn.delete(faceEnrollmentActionsTableName);
       await txn.delete(counterSyncTableName);
       await txn.delete(activityRecordTableName);
       await txn.delete(groupPricingTableName);

@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'face_images.dart';
 import 'snapshot.dart';
 import 'store.dart';
 
@@ -22,7 +23,9 @@ class McpMethodException extends ToolException {
 /// [handle] accepts a decoded request object (or a JSON-RPC batch) and returns
 /// the decoded response object. Notifications return `null`.
 class McpProtocol {
-  McpProtocol(this.store);
+  McpProtocol(this.store, {this.requestBaseUrl});
+
+  final String? requestBaseUrl;
 
   final SyncStore store;
 
@@ -96,7 +99,14 @@ class McpProtocol {
                   'get_overview/list_members/list_records. Use record_cheki or '
                   'add_ticket to queue changes; they are applied by the OTA '
                   'Counter app on its next pull. Check get_sync_status for '
-                  'snapshot age and pending actions.',
+                  'snapshot age and pending actions. 用户发照片并说「这是X」时：先用 '
+                  'list_members/get_member 核对 member_id（重名时补充 group），再调用 '
+                  'enroll_face；有图片字节就用 image_base64，只有公开 HTTP(S) 图片 URL 才用 '
+                  'image_url。只能回复「已排队，手机打开同步后生效」，不要说已录入。之后用 '
+                  'list_face_enrollments 查询 App 回执，诚实报告 faces_found、used_face 和 '
+                  'samples_kept（每人最多保留 30 个样本，samples_kept 可能为 0）。失败时按中文原因'
+                  '和 faces 里的 index_from_left 让用户用 face: left_N 重试。没有图片字节时用 '
+                  'create_face_upload_link 给用户手机上传链接。不要索取或显示同步 token。',
         };
       case 'ping':
         return <String, dynamic>{};
@@ -163,9 +173,198 @@ class McpProtocol {
         return _listPendingActions(arguments);
       case 'get_sync_status':
         return _getSyncStatus();
+      case 'create_face_upload_link':
+        return store.createFaceUploadLink(await _faceTarget(arguments),
+            requestBaseUrl: requestBaseUrl);
+      case 'enroll_face':
+        final target = await _faceTarget(arguments);
+        final face = _faceSelector(arguments);
+        final image = _faceImageArgument(arguments);
+        final imageId = image.url != null
+            ? await store.faceImages.fetch(image.url!)
+            : await store.faceImages.saveBytes(image.bytes!, image.mime!);
+        try {
+          final queued = await store
+              .queueFaceEnrollment(target, imageId, image.source, face: face);
+          return {
+            ...queued,
+            'enrollment_id': queued['action_id'],
+            'face': face,
+            'message': '已排队，手机打开 OTA Counter 同步后才会处理；尚未录入。',
+          };
+        } catch (_) {
+          await store.faceImages.delete(imageId);
+          rethrow;
+        }
+      case 'list_face_enrollments':
+        final status = readString(arguments, ['status']);
+        if (status.isNotEmpty &&
+            !{'pending', 'applied', 'failed'}.contains(status)) {
+          throw ToolException('status 只能是 pending、applied 或 failed');
+        }
+        final hasIdentity = arguments['member_id'] != null ||
+            readString(arguments, ['member']).trim().isNotEmpty;
+        final member = hasIdentity ? await _faceMember(arguments) : null;
+        final actions = await store.faceEnrollments(
+          status: status.isEmpty ? null : status,
+          group: readString(arguments, ['group']).trim().isEmpty
+              ? null
+              : readString(arguments, ['group']).trim(),
+          counterIds: member?.counterIds.toSet(),
+          personId: member?.personId,
+          limit: readInt(arguments, ['limit'], 50).clamp(1, 100),
+        );
+        return {'count': actions.length, 'enrollments': actions};
       default:
         throw ToolException('Unknown tool: $name');
     }
+  }
+
+  Future<MemberAggregate> _faceMember(Map<String, dynamic> arguments) async {
+    final rawId = arguments['member_id'];
+    if (rawId != null && _parseMemberId(rawId) == null) {
+      throw ToolException('member_id 无效，请用 list_members 核对');
+    }
+    if (rawId == null &&
+        (arguments['member'] is! String ||
+            (arguments['member'] as String).trim().isEmpty)) {
+      throw ToolException('请提供 member_id（优先）或 member（成员名）；重名时同时提供 group（团名）');
+    }
+    if (arguments['group'] != null && arguments['group'] is! String) {
+      throw ToolException('group 必须是字符串');
+    }
+    return _findMember(await _requireSnapshot(), arguments,
+        requireUnique: true);
+  }
+
+  int? _parseMemberId(Object? value) {
+    if (value is num) {
+      final id = value.toInt();
+      return id > 0 ? id : null;
+    }
+    if (value is String) {
+      final id = int.tryParse(value.trim());
+      return id != null && id > 0 ? id : null;
+    }
+    return null;
+  }
+
+  Future<Map<String, dynamic>> _faceTarget(
+      Map<String, dynamic> arguments) async {
+    final member = await _faceMember(arguments);
+    final rawId = _parseMemberId(arguments['member_id']);
+    final group = readString(arguments, ['group']).trim();
+    Map<dynamic, dynamic>? counter;
+    if (rawId != null) {
+      for (final item in member.counters) {
+        if (readInt(item, ['id']) == rawId) {
+          counter = item;
+          break;
+        }
+      }
+      if (counter == null) {
+        throw ToolException(
+            'member_id $rawId 与成员 ${member.name} 不一致，请用 list_members 核对');
+      }
+      if (group.isNotEmpty &&
+          !normalizePart(counterGroup(counter))
+              .contains(normalizePart(group))) {
+        throw ToolException(
+            'member_id $rawId 属于 ${counterGroup(counter)}，与 group「$group」不一致');
+      }
+    } else {
+      final groups = member.groups
+          .where((g) => normalizePart(g).contains(normalizePart(group)))
+          .toList();
+      if (group.isNotEmpty && groups.length != 1) {
+        throw ToolException('团名不明确，请提供完整 group：${member.groups.join('、')}');
+      }
+      counter = group.isEmpty
+          ? member.counters.firstWhere(
+              (c) => readInt(c, ['id']) == member.primaryCounterId,
+              orElse: () => member.counters.first)
+          : member.counters
+              .firstWhere((c) => counterGroup(c).trim() == groups.single);
+    }
+    final id = readInt(counter, ['id']);
+    if (id <= 0) throw ToolException('成员编号无效，请先重新同步 App 快照');
+    final personName = counterPersonName(counter).trim();
+    return {
+      'counter_id': id,
+      'person_id': member.personId,
+      'person_name': personName.isEmpty ? member.name : personName,
+      'member_name': counterName(counter),
+      'group_name': counterGroup(counter),
+    };
+  }
+
+  String _faceSelector(Map<String, dynamic> arguments) {
+    final raw = arguments['face'];
+    if (raw == null || (raw is String && raw.trim().isEmpty)) return 'auto';
+    if (raw is! String) {
+      throw ToolException('face 必须是字符串：auto、largest 或 left_N');
+    }
+    final value = raw.trim().toLowerCase();
+    if (value == 'auto' || value == 'largest') return value;
+    final match = RegExp(r'^left_(\d+)$').firstMatch(value);
+    final index = match == null ? null : int.tryParse(match.group(1)!);
+    if (index != null && index >= 1 && index <= 50) return 'left_$index';
+    throw ToolException('face 只能是 auto、largest 或 left_N（N 从 1 开始，按人脸框中心从左到右）');
+  }
+
+  ({String? url, List<int>? bytes, String? mime, String source})
+      _faceImageArgument(Map<String, dynamic> arguments) {
+    final urlValue = arguments['image_url'];
+    final base64Value = arguments['image_base64'];
+    if (urlValue == null && base64Value == null) {
+      throw ToolException('请提供 image_url 或 image_base64（二者只能有一个）');
+    }
+    if (urlValue != null && base64Value != null) {
+      throw ToolException('image_url 与 image_base64 只能提供一个');
+    }
+    if (urlValue != null) {
+      if (urlValue is! String || urlValue.trim().isEmpty) {
+        throw ToolException('image_url 必须是非空 HTTP(S) 图片地址');
+      }
+      return (url: urlValue.trim(), bytes: null, mime: null, source: 'url');
+    }
+    if (base64Value is! String || base64Value.trim().isEmpty) {
+      throw ToolException('image_base64 必须是非空 JPEG 或 PNG 的 base64 字符串');
+    }
+    var text = base64Value.trim();
+    String? declaredMime;
+    final prefix =
+        RegExp(r'^data:image/(jpeg|jpg|png);base64,', caseSensitive: false)
+            .firstMatch(text);
+    if (text.toLowerCase().startsWith('data:')) {
+      if (prefix == null) {
+        throw ToolException('只接受 data:image/jpeg 或 data:image/png 前缀');
+      }
+      declaredMime =
+          prefix.group(1)!.toLowerCase() == 'png' ? 'image/png' : 'image/jpeg';
+      text = text.substring(prefix.end);
+    }
+    if (text.length > maxFaceBase64EncodedBytes) {
+      throw ToolException('image_base64 编码后不能超过 8 MB');
+    }
+    List<int> bytes;
+    try {
+      bytes = base64Decode(text.replaceAll(RegExp(r'[\s]'), ''));
+    } on FormatException {
+      throw ToolException('image_base64 不是有效的 base64 数据');
+    }
+    String mime;
+    if (isJpegBytes(bytes)) {
+      mime = 'image/jpeg';
+    } else if (isPngBytes(bytes)) {
+      mime = 'image/png';
+    } else {
+      throw ToolException('仅支持 JPEG 或 PNG 图片，请换一张照片');
+    }
+    if (declaredMime != null && declaredMime != mime) {
+      throw ToolException('data: 前缀声明为 $declaredMime，但图片内容不是该格式');
+    }
+    return (url: null, bytes: bytes, mime: mime, source: 'base64');
   }
 
   Future<SnapshotView> _requireSnapshot() async {
@@ -468,6 +667,30 @@ class McpProtocol {
     final arguments = params['arguments'] is Map
         ? Map<String, dynamic>.from(params['arguments'] as Map)
         : <String, dynamic>{};
+    if (name == 'enroll-member-face') {
+      return {
+        'description': '从聊天中录入成员脸照',
+        'messages': [
+          {
+            'role': 'user',
+            'content': {
+              'type': 'text',
+              'text': '请帮我录入成员脸照。先用 list_members/get_member 核对成员，'
+                  '优先用 member_id；重名时询问并补充 member 与 group，不能擅自选择。'
+                  '用户发来照片时用 enroll_face，聊天机器人有图片字节就传 image_base64，'
+                  '有公开 HTTP(S) 图片地址才传 image_url；没有图片字节才用 '
+                  'create_face_upload_link 给用户手机上传链接（最多 10 张，24 小时）。'
+                  '不要索取或显示同步 token。回复只能是「已排队，手机打开同步后生效」，'
+                  '之后用 list_face_enrollments 查询，报告 faces_found、used_face、'
+                  'samples_kept（每人最多保留 30 个样本，0 表示新样本未保留）或中文失败原因。'
+                  '失败时按 faces 的 index_from_left 让用户用 face: left_N 重试。'
+                  '多人照片先按可信相似度选择；否则只有最大脸面积至少为次大脸的 1.5 倍才选择，'
+                  '无法判断或零张脸应报告失败。'
+            },
+          }
+        ],
+      };
+    }
     if (name != 'daily-summary' && name != 'monthly-report') {
       throw ToolException('Unknown prompt: $name');
     }
@@ -515,8 +738,9 @@ class McpProtocol {
 
   MemberAggregate _findMember(
     SnapshotView view,
-    Map<String, dynamic> arguments,
-  ) {
+    Map<String, dynamic> arguments, {
+    bool requireUnique = false,
+  }) {
     final members = view.members(includeHidden: true);
     final rawId = arguments['member_id'] ?? arguments['counter_id'];
     int? id;
@@ -528,6 +752,9 @@ class McpProtocol {
           return member;
         }
       }
+    }
+    if (requireUnique && rawId != null) {
+      throw ToolException('成员 ID 无效，请用 list_members 核对');
     }
     final name = normalizePart(readString(arguments, ['name', 'member']));
     final group = normalizePart(readString(arguments, ['group']));
@@ -548,10 +775,23 @@ class McpProtocol {
       );
     }).toList(growable: false);
     if (candidates.isEmpty) {
+      final suggestions = members
+          .take(10)
+          .map((m) =>
+              '${m.name}（${m.groupLabel.isEmpty ? '无团名' : m.groupLabel}，member_id ${m.primaryCounterId ?? '?'}）')
+          .join('；');
       throw ToolException(
-        'No member matched "$name${group.isEmpty ? '' : ' / $group'}". '
-        'Call list_members to see available names.',
+        '没有找到成员「$name${group.isEmpty ? '' : ' / $group'}」。'
+        '可用成员：${suggestions.isEmpty ? '无' : suggestions}。请用 list_members 核对。',
       );
+    }
+    if (requireUnique && candidates.length > 1) {
+      final labels = candidates
+          .take(10)
+          .map((m) =>
+              '${m.name} / ${m.groupLabel.isEmpty ? '无团名' : m.groupLabel}（member_id ${m.primaryCounterId ?? '?'}）')
+          .join('；');
+      throw ToolException('匹配到多位成员，请补充 member 与 group 或改用 member_id：$labels');
     }
     candidates.sort((a, b) => b.total.compareTo(a.total));
     return candidates.first;
@@ -602,10 +842,10 @@ class McpProtocol {
       'counts': counts,
       'multi_quantity': multiQuantity,
       'ticket_quantity': ticketQuantity,
-      'ticket_type':
-          readString(record, ['ticket_type', 'ticketType']).trim(),
+      'ticket_type': readString(record, ['ticket_type', 'ticketType']).trim(),
       'is_free': record['ticket_is_free'] == null
-          ? (readDouble(record, ['ticket_unit_price', 'ticketUnitPrice']) <= 0 &&
+          ? (readDouble(record, ['ticket_unit_price', 'ticketUnitPrice']) <=
+                  0 &&
               readDouble(record, ['total_amount', 'totalAmount']) <= 0)
           : readBool(record, ['ticket_is_free']),
       'total_amount': readDouble(record, ['total_amount', 'totalAmount']),
@@ -682,7 +922,81 @@ class McpProtocol {
         }).join();
   }
 
+  static const _faceMemberProperties = <String, dynamic>{
+    'member_id': {
+      'type': ['integer', 'string'],
+      'description': 'Preferred; id from list_members/get_member'
+    },
+    'member': {'type': 'string', 'description': '成员名；没有 member_id 时使用'},
+    'group': {'type': 'string', 'description': '团名；同名成员必须提供'},
+  };
+
+  static const _faceArgumentProperties = <String, dynamic>{
+    'member_id': {
+      'type': ['integer', 'string'],
+      'description': '首选；list_members/get_member 返回的 member_id'
+    },
+    'member': {'type': 'string', 'description': '成员名；没有 member_id 时使用'},
+    'group': {'type': 'string', 'description': '团名；同名成员必须提供'},
+    'image_url': {
+      'type': 'string',
+      'description': '公开 HTTP(S) 图片地址，≤15 MB，20 秒超时'
+    },
+    'image_base64': {
+      'type': 'string',
+      'description': 'JPEG/PNG 的 base64；可带 data:image/...;base64, 前缀，≤8 MB 编码'
+    },
+    'face': {
+      'type': 'string',
+      'description': 'auto（默认）、largest，或 left_N（按人脸框中心从左到右第 N 张）'
+    },
+  };
+
   static const List<Map<String, dynamic>> _toolDefinitions = [
+    {
+      'name': 'create_face_upload_link',
+      'description':
+          '为指定成员生成 24 小时有效的手机上传链接（最多 10 张），供没有图片字节的聊天客户端使用。优先用 member_id；重名补 member 与 group。App 同步后才处理。',
+      'inputSchema': {
+        'type': 'object',
+        'properties': _faceMemberProperties,
+        'additionalProperties': false
+      },
+    },
+    {
+      'name': 'enroll_face',
+      'description': '用户发照片说「这是X」时调用：先 list_members 核对 member_id，再提交图片排队录入。'
+          'image_url 与 image_base64 只能提供一个；image_base64 适合聊天机器人直接传字节。'
+          'App 同步后才会处理，只能回复「已排队，手机打开同步后生效」。'
+          '之后用 list_face_enrollments 报告实际结果；每人最多保留 30 个样本。',
+      'inputSchema': {
+        'type': 'object',
+        'properties': _faceArgumentProperties,
+        'additionalProperties': false
+      },
+    },
+    {
+      'name': 'list_face_enrollments',
+      'description': '查询脸照录入状态及 App 回执：pending 等待同步、applied 成功、failed 及中文原因。'
+          '每条包含 faces_found、used_face、samples_kept；失败还带 faces（index_from_left 与归一化 box），'
+          '可让用户用 face: left_N 重试。samples_kept 是实际保留数，可能为 0，不能说已新增。',
+      'inputSchema': {
+        'type': 'object',
+        'properties': {
+          'member_id': {
+            'type': ['integer', 'string']
+          },
+          'member': {'type': 'string'},
+          'group': {'type': 'string'},
+          'status': {
+            'type': 'string',
+            'enum': ['pending', 'applied', 'failed']
+          },
+          'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100},
+        },
+        'additionalProperties': false
+      },
+    },
     {
       'name': 'get_overview',
       'description':
@@ -881,6 +1195,10 @@ class McpProtocol {
   ];
 
   static const List<Map<String, dynamic>> _prompts = [
+    {
+      'name': 'enroll-member-face',
+      'description': '从聊天图片或手机上传链接为成员录入脸照，并查询 App 实际处理结果。'
+    },
     {
       'name': 'daily-summary',
       'description': 'Summarise one day of OTA Counter activity.',

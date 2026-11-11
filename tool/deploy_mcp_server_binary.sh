@@ -58,7 +58,7 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "2. scp binary to $target:$REMOTE_BIN"
   echo "3. install/refresh systemd unit, create ota-sync user"
   echo "4. systemctl daemon-reload && systemctl enable --now ota-counter-sync"
-  echo "5. print /var/lib/ota-counter-sync/token"
+  echo "5. check that ota-counter-sync is active (token is not printed)"
   exit 0
 fi
 
@@ -95,9 +95,6 @@ ssh "$target" "
 "
 
 echo "Service status:"
-ssh "$target" 'systemctl --no-pager --full status ota-counter-sync | sed -n "1,12p"'
-echo
-echo "Token:"
-ssh "$target" 'cat /var/lib/ota-counter-sync/token'
+ssh "$target" 'systemctl is-active ota-counter-sync'
 echo
 echo "Next: reverse-proxy 127.0.0.1:8787 over HTTPS, then use that URL in App → MCP 同步."

@@ -1,13 +1,18 @@
 // ignore_for_file: avoid_relative_lib_imports
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as image;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:ota_counter/models/activity_record_model.dart';
 import 'package:ota_counter/models/counter_model.dart';
 import 'package:ota_counter/services/database_service.dart';
+import 'package:ota_counter/services/face/face_models.dart';
+import 'package:ota_counter/services/face/face_sample_service.dart';
 import 'package:ota_counter/services/sync_service.dart';
 
 import '../mcp_server/lib/http_transport.dart';
@@ -121,6 +126,117 @@ void main() {
     expect(actions, isEmpty);
     final updated = await store.snapshot();
     expect(updated!['summary']['total_count'], 6);
+  });
+
+  test('face uploads round trip through the real sync server and App',
+      () async {
+    await DatabaseService.insertCounter(
+      CounterModel(name: '合成成员', groupName: '测试团', color: '#FF7A9E'),
+    );
+    await SyncService.pushSnapshot(settings);
+
+    final originalAnalyzer = FaceSampleService.analyzer;
+    var analyses = 0;
+    FaceSampleService.analyzer = (bytes) async {
+      expect(bytes, isNotEmpty);
+      analyses++;
+      if (analyses == 2) return [];
+      return [
+        FaceAnalysis(
+          face: const FaceDetection(
+            x: 2,
+            y: 3,
+            width: 4,
+            height: 5,
+            landmarks: [],
+            score: 0.9,
+          ),
+          embedding: Float32List.fromList([1, 0, 0]),
+        ),
+      ];
+    };
+    addTearDown(() => FaceSampleService.analyzer = originalAnalyzer);
+
+    final client = HttpClient();
+    addTearDown(() => client.close(force: true));
+
+    Future<Map<String, dynamic>> callTool(
+      String name,
+      Map<String, dynamic> arguments,
+    ) async {
+      final request =
+          await client.postUrl(Uri.parse('${settings.baseUrl}/mcp'));
+      request.headers.contentType = ContentType.json;
+      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer test-token');
+      request.write(jsonEncode({
+        'jsonrpc': '2.0',
+        'id': 1,
+        'method': 'tools/call',
+        'params': {'name': name, 'arguments': arguments},
+      }));
+      final response = await request.close();
+      expect(response.statusCode, HttpStatus.ok);
+      final envelope =
+          jsonDecode(await utf8.decoder.bind(response).join()) as Map;
+      expect(envelope['result']['isError'], isFalse);
+      return Map<String, dynamic>.from(
+          envelope['result']['structuredContent'] as Map);
+    }
+
+    final link = await callTool('create_face_upload_link', {
+      'member': '合成成员',
+      'group': '测试团',
+    });
+    final uri = Uri.parse(link['url'] as String);
+    expect(uri.port, server.actualPort);
+    final jpeg = image.encodeJpg(image.Image(width: 8, height: 8));
+    for (var i = 0; i < 2; i++) {
+      final request = await client.postUrl(uri);
+      request.headers.contentType = ContentType('image', 'jpeg');
+      request.add(jpeg);
+      final response = await request.close();
+      expect(response.statusCode, HttpStatus.created);
+      await response.drain<void>();
+    }
+
+    final pending = await SyncService.pullActions(settings);
+    expect(pending, hasLength(2));
+    final imageIds = pending
+        .map((action) => (action['payload'] as Map)['imageId'] as String)
+        .toList();
+    final unauthenticated = await client.getUrl(
+        Uri.parse('${settings.baseUrl}/api/v1/face-images/${imageIds.first}'));
+    final denied = await unauthenticated.close();
+    expect(denied.statusCode, HttpStatus.unauthorized);
+    await denied.drain<void>();
+
+    final result = await SyncService.syncNow(settings);
+    expect(result.pulled, 2);
+    expect(result.applied, 1);
+    expect(result.failures, hasLength(1));
+    expect(result.failures.single.message, contains('未检测到'));
+    expect(await store.actions(status: 'pending'), isEmpty);
+
+    final enrollmentList = await callTool('list_face_enrollments', {});
+    final enrollments = List<Map<String, dynamic>>.from(
+        (enrollmentList['enrollments'] as List)
+            .map((e) => Map<String, dynamic>.from(e as Map)));
+    final applied = enrollments.singleWhere((e) => e['status'] == 'applied');
+    final failed = enrollments.singleWhere((e) => e['status'] == 'failed');
+    expect(applied['result']['faces_found'], 1);
+    expect(applied['result']['used_face'], 1);
+    expect(applied['result']['samples_kept'], 1);
+    expect(applied['result']['used_face_bounds']['x'], 2);
+    expect(failed['failure'], contains('未检测到'));
+    expect(await FaceSampleService.getSamples(isSelf: false), hasLength(1));
+    for (final id in imageIds) {
+      final request = await client
+          .getUrl(Uri.parse('${settings.baseUrl}/api/v1/face-images/$id'));
+      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer test-token');
+      final response = await request.close();
+      expect(response.statusCode, HttpStatus.notFound);
+      await response.drain<void>();
+    }
   });
 
   test('ticket action is applied and missing members stay pending', () async {

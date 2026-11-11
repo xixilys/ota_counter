@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -13,6 +14,7 @@ import '../models/group_pricing_model.dart';
 import '../models/ticket_type_model.dart';
 import 'database_service.dart';
 import 'ticket_pricing_service.dart';
+import 'face/face_enrollment_sync_service.dart';
 
 class SyncSettings {
   const SyncSettings({
@@ -111,6 +113,10 @@ class SyncService {
   static const String _autoSyncKey = 'mcp_sync_auto';
   static const String _lastSyncKey = 'mcp_sync_last_at';
   static const String mcpSource = 'mcp';
+
+  /// Server gate: v1.6.0 apps never receive `enroll_face` pending actions.
+  static const String capabilitiesHeader = 'x-ota-capabilities';
+  static const String faceEnrollmentCapability = 'face-enroll-v1';
 
   static Future<SyncSettings> loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
@@ -224,6 +230,8 @@ class SyncService {
     };
     final appliedIds = <String>[];
     final failures = <SyncActionFailure>[];
+    final enrollmentFailures = <String, String>{};
+    final enrollmentResults = <String, Map<String, dynamic>>{};
     var skipped = 0;
 
     for (final action in actions) {
@@ -242,7 +250,29 @@ class SyncService {
           ? Map<String, dynamic>.from(action['payload'] as Map)
           : const <String, dynamic>{};
       try {
-        if (kind == 'counter_delta') {
+        if (kind == 'enroll_face') {
+          final result = await FaceEnrollmentSyncService.apply(
+            serverUrl: settings.normalizedBaseUrl,
+            actionId: actionId,
+            payload: payload,
+            counters: counters,
+            fetchImage: (imageId) => _fetchFaceImage(settings, imageId),
+          );
+          if (result.failure != null) {
+            if (!result.retryable) {
+              enrollmentFailures[actionId] = result.failure!;
+              if (result.summary != null) {
+                enrollmentResults[actionId] = result.summary!;
+              }
+            }
+            failures.add(SyncActionFailure(
+                actionId: actionId, message: result.failure!));
+          } else {
+            enrollmentResults[actionId] = result.summary!;
+            appliedIds.add(actionId);
+            if (result.replayed) skipped++;
+          }
+        } else if (kind == 'counter_delta') {
           var counter = _resolveCounter(counters, payload);
           if (counter == null && payload['allow_create'] == true) {
             final name = (payload['member_name'] ?? payload['name'] ?? '')
@@ -344,23 +374,32 @@ class SyncService {
         failures.add(
           SyncActionFailure(
             actionId: actionId,
-            message: error is SyncException ? error.message : '$error',
+            message: kind == 'enroll_face'
+                ? '人脸登记未保存，请稍后重试'
+                : error is SyncException
+                    ? error.message
+                    : '$error',
           ),
         );
       }
     }
 
-    if (appliedIds.isNotEmpty) {
+    if (appliedIds.isNotEmpty || enrollmentFailures.isNotEmpty) {
       try {
         await _request(
           settings,
           'POST',
           '/api/v1/actions/ack',
-          body: {'ids': appliedIds},
+          body: {
+            'ids': [...appliedIds, ...enrollmentFailures.keys],
+            if (enrollmentFailures.isNotEmpty) 'failures': enrollmentFailures,
+            if (enrollmentResults.isNotEmpty) 'results': enrollmentResults,
+          },
         );
       } catch (_) {
         // The next pull will see these ids again; the source_record_id
-        // dedupe check above prevents double counting.
+        // dedupe check above prevents double counting. Face enrollment has
+        // a separate transactional receipt, including failures and summaries.
       }
     }
     return SyncApplyResult(
@@ -643,6 +682,40 @@ class SyncService {
     return null;
   }
 
+  static Future<Uint8List> _fetchFaceImage(
+    SyncSettings settings,
+    String imageId,
+  ) async {
+    _requireConfigured(settings);
+    final uri = Uri.parse('${settings.normalizedBaseUrl}/api/v1/face-images/'
+        '${Uri.encodeComponent(imageId)}');
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+    try {
+      final request =
+          await client.getUrl(uri).timeout(const Duration(seconds: 12));
+      request.followRedirects = false;
+      request.headers.set(
+          HttpHeaders.authorizationHeader, 'Bearer ${settings.token.trim()}');
+      request.headers.set(capabilitiesHeader, faceEnrollmentCapability);
+      final response =
+          await request.close().timeout(const Duration(seconds: 25));
+      if (response.statusCode == HttpStatus.notFound ||
+          response.statusCode == HttpStatus.gone) {
+        throw const FaceEnrollmentImageNotFound();
+      }
+      if (response.statusCode != HttpStatus.ok) {
+        throw SyncException('登记照片下载失败 (HTTP ${response.statusCode})');
+      }
+      final bytes = await response
+          .fold<BytesBuilder>(
+              BytesBuilder(), (buffer, chunk) => buffer..add(chunk))
+          .timeout(const Duration(seconds: 25));
+      return bytes.takeBytes();
+    } finally {
+      client.close(force: true);
+    }
+  }
+
   static Future<Map<String, dynamic>> _request(
     SyncSettings settings,
     String method,
@@ -670,6 +743,7 @@ class SyncService {
         'Bearer ${settings.token.trim()}',
       );
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      request.headers.set(capabilitiesHeader, faceEnrollmentCapability);
       if (body != null) {
         request.headers.contentType = ContentType.json;
         request.write(jsonEncode(body));

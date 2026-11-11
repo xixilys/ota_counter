@@ -11,6 +11,7 @@ services:
       - "${OTA_SYNC_BIND:-127.0.0.1}:8787:8787"
     environment:
       OTA_SYNC_DATA_DIR: /data
+      OTA_SYNC_PUBLIC_BASE_URL: "${OTA_SYNC_PUBLIC_BASE_URL:-}"
       # Optional explicit token. Leave unset to auto-generate on first start.
       OTA_SYNC_TOKEN: "${OTA_SYNC_TOKEN:-}"
     volumes:

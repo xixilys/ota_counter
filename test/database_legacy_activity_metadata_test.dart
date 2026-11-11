@@ -46,7 +46,7 @@ void main() {
     await old.close();
 
     final db = await DatabaseService.database;
-    expect(await db.getVersion(), 21);
+    expect(await db.getVersion(), 22);
     final row = (await db.query('activity_records')).single;
     expect(row['subject_name'], 'Synthetic member');
     expect(row, containsPair('group_record_id', null));

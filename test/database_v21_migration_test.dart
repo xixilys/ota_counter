@@ -6,15 +6,17 @@ import 'package:ota_counter/services/database_service.dart';
 
 import 'support/isolated_test_databases.dart';
 
-/// A v20 database (the schema shipped in v1.5.4) upgraded by the v21
-/// migration keeps its data and gains face_samples + the media provenance
-/// columns.
+/// A v20 database (the schema shipped in v1.5.4) upgraded to the latest
+/// schema keeps its data and gains face samples, enrollment receipts and
+/// the media provenance columns.
 void main() {
   setUpAll(() async {
     await useIsolatedTestDatabases();
   });
 
-  test('v20 -> v21 adds face_samples and media columns, keeps rows', () async {
+  test(
+      'v20 -> latest adds face samples, enrollment receipts and media columns, keeps rows',
+      () async {
     final path = p.join(await getDatabasesPath(), 'counter_app.db');
     final old = await databaseFactory.openDatabase(
       path,
@@ -70,7 +72,14 @@ void main() {
     await old.close();
 
     final db = await DatabaseService.database;
-    expect(await db.getVersion(), 21);
+    expect(await db.getVersion(), 22);
+    final receiptColumns = (await db.rawQuery(
+      'PRAGMA table_info(face_enrollment_actions)',
+    ))
+        .map((row) => row['name'])
+        .toSet();
+    expect(receiptColumns,
+        containsAll(['server_url', 'action_id', 'result_json', 'failure']));
 
     final mediaColumns = (await db.rawQuery(
       'PRAGMA table_info(activity_record_media)',

@@ -26,7 +26,8 @@ Future<void> main(List<String> args) async {
     return;
   }
 
-  final store = SyncStore(options.dataDir);
+  final store =
+      SyncStore(options.dataDir, publicBaseUrl: options.publicBaseUrl);
   final token = await SyncConfig.loadOrCreateToken(options.dataDir);
   final explicitToken = options.token?.trim() ?? '';
   final effectiveToken = explicitToken.isEmpty ? token : explicitToken;
@@ -116,7 +117,6 @@ Future<void> _serve(
   final base = 'http://${options.host}:$port';
   stdout.writeln('OTA Counter Sync $kSyncServerVersion');
   stdout.writeln('Data dir : ${options.dataDir}');
-  stdout.writeln('Token    : $token');
   stdout.writeln('REST     : $base/api/v1/status');
   stdout.writeln('MCP HTTP : $base/mcp');
   stdout.writeln('MCP SSE  : $base/sse');
@@ -205,6 +205,7 @@ class _Options {
     required this.host,
     required this.port,
     this.token,
+    this.publicBaseUrl,
     this.importPath,
     this.showHelp = false,
     this.showVersion = false,
@@ -215,6 +216,7 @@ class _Options {
   final String host;
   final int port;
   final String? token;
+  final String? publicBaseUrl;
   final String? importPath;
   final bool showHelp;
   final bool showVersion;
@@ -229,6 +231,8 @@ class _Options {
     var host = _nonEmpty(Platform.environment['OTA_SYNC_HOST']) ?? '127.0.0.1';
     var port =
         int.tryParse(Platform.environment['OTA_SYNC_PORT'] ?? '') ?? 8787;
+    var publicBaseUrl =
+        _nonEmpty(Platform.environment['OTA_SYNC_PUBLIC_BASE_URL']);
     var token = _nonEmpty(Platform.environment['OTA_SYNC_TOKEN']);
     var help = false;
     var version = false;
@@ -261,6 +265,10 @@ class _Options {
         port = int.parse(nextValue(arg));
       } else if (arg.startsWith('--port=')) {
         port = int.parse(arg.substring('--port='.length));
+      } else if (arg == '--public-base-url') {
+        publicBaseUrl = nextValue(arg);
+      } else if (arg.startsWith('--public-base-url=')) {
+        publicBaseUrl = arg.substring('--public-base-url='.length);
       } else if (arg == '--token') {
         token = nextValue(arg);
       } else if (arg.startsWith('--token=')) {
@@ -283,6 +291,7 @@ class _Options {
       host: host,
       port: port,
       token: token,
+      publicBaseUrl: publicBaseUrl,
       importPath: importPath,
       showHelp: help,
       showVersion: version,
@@ -309,6 +318,7 @@ Options:
   --host <host>         Default: 127.0.0.1 (use 0.0.0.0 for LAN)
   --port <port>         Default: 8787
   --token <token>       Override and persist the bearer token
+  --public-base-url <url>  Public origin + proxy prefix (or OTA_SYNC_PUBLIC_BASE_URL); no auto-detection
   --help, --version
 
 Examples:

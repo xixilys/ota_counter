@@ -5,6 +5,8 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'mcp_protocol.dart';
+import 'face_images.dart';
+import 'face_upload_page.dart';
 import 'store.dart';
 
 const int _maxBodyBytes = 32 * 1024 * 1024;
@@ -24,12 +26,17 @@ class SyncHttpServer {
   final McpProtocol protocol;
 
   HttpServer? _server;
+  Timer? _faceSweep;
   final Map<String, _SseSession> _sseSessions = {};
 
   int get actualPort => _server?.port ?? port;
 
   Future<void> start() async {
+    await store.faceImages.sweep();
     final server = await HttpServer.bind(host, port, shared: false);
+    _faceSweep = Timer.periodic(const Duration(hours: 24), (_) {
+      unawaited(store.faceImages.sweep().catchError((Object _) => 0));
+    });
     _server = server;
     server.listen(_handle, onError: (Object error, StackTrace stack) {
       stderr.writeln('[ota-sync] server error: $error');
@@ -37,6 +44,7 @@ class SyncHttpServer {
   }
 
   Future<void> close() async {
+    _faceSweep?.cancel();
     for (final session in _sseSessions.values) {
       await session.close();
     }
@@ -55,6 +63,60 @@ class SyncHttpServer {
 
     final path = request.uri.path;
     try {
+      if (path == '/face-upload' && {'GET', 'POST'}.contains(request.method)) {
+        request.response.headers.set('cache-control', 'no-store');
+        request.response.headers.set('referrer-policy', 'no-referrer');
+        request.response.headers.set('x-content-type-options', 'nosniff');
+        request.response.headers.set('content-security-policy',
+            "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src blob:; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
+        final header = request.headers.value('authorization') ?? '';
+        final secret = header.toLowerCase().startsWith('bearer ')
+            ? header.substring(7).trim()
+            : request.uri.queryParameters['token'] ?? '';
+        final link = await store.faceUploadLink(secret);
+        final target = Map<String, dynamic>.from(link['target'] as Map);
+        if (request.method == 'GET') {
+          await _writeHtml(
+              request.response,
+              faceUploadPage(target['member_name'] as String,
+                  target['group_name'] as String));
+        } else {
+          if (request.contentLength > maxFaceImageBytes) {
+            await request.drain<void>();
+            throw FaceImageException('图片不能超过 15 MB', status: 413);
+          }
+          final imageId = await store.faceImages.save(
+              request, request.headers.value('content-type'),
+              contentLength: request.contentLength, drainOversize: true);
+          late final Map<String, dynamic> queued;
+          try {
+            queued = await store.queueFaceEnrollment(target, imageId, 'upload',
+                uploadSecret: secret);
+          } catch (_) {
+            await store.faceImages.delete(imageId);
+            rethrow;
+          }
+          await _writeJson(request.response, queued,
+              statusCode: HttpStatus.created);
+        }
+        return;
+      }
+      if (path.startsWith('/api/v1/face-images/') && request.method == 'GET') {
+        if (!await _requireAuth(request, bearerOnly: true)) return;
+        final id = path.substring('/api/v1/face-images/'.length);
+        final file = store.faceImages.file(id);
+        if (!await file.exists()) {
+          throw FaceImageException('图片不存在或已清理', status: 404);
+        }
+        request.response.headers.set('cache-control', 'no-store');
+        request.response.headers.set('x-content-type-options', 'nosniff');
+        request.response.headers.set('content-disposition', 'attachment');
+        request.response.headers
+            .set('content-type', await store.faceImages.mime(id));
+        await request.response.addStream(file.openRead());
+        await request.response.close();
+        return;
+      }
       if (path == '/' && request.method == 'GET') {
         await _writeHtml(request.response, _landingPage());
         return;
@@ -113,9 +175,12 @@ class SyncHttpServer {
         final status = request.uri.queryParameters['status'] ?? 'pending';
         final limit =
             int.tryParse(request.uri.queryParameters['limit'] ?? '') ?? 50;
+        final supportsFaceEnrollment = _supportsFaceEnrollment(request);
         final actions = await store.actions(
           status: status.isEmpty ? null : status,
           limit: limit.clamp(1, 200),
+          excludeKinds:
+              supportsFaceEnrollment ? null : const {kFaceEnrollmentActionKind},
         );
         await _writeJson(request.response, {
           'actions': actions,
@@ -152,6 +217,11 @@ class SyncHttpServer {
         final ids = (body['ids'] is List)
             ? (body['ids'] as List).map((value) => value.toString())
             : <String>[];
+        if (!_supportsFaceEnrollment(request) &&
+            (await store.faceEnrollments(status: 'pending'))
+                .any((action) => ids.contains(action['id']))) {
+          throw FaceImageException('当前 App 版本不支持脸照录入，请更新 App 后同步', status: 409);
+        }
         final failuresRaw = body['failures'];
         final failures = <String, String>{};
         if (failuresRaw is Map) {
@@ -162,6 +232,9 @@ class SyncHttpServer {
         final result = await store.acknowledgeActions(
           ids,
           failures: failures.isEmpty ? null : failures,
+          results: body['results'] is Map
+              ? Map<String, dynamic>.from(body['results'] as Map)
+              : null,
         );
         await _writeJson(request.response, {'ok': true, ...result});
         return;
@@ -178,7 +251,9 @@ class SyncHttpServer {
               request.response, HttpStatus.badRequest, 'Invalid JSON body');
           return;
         }
-        final response = await protocol.handle(decoded);
+        final response =
+            await McpProtocol(store, requestBaseUrl: _requestBaseUrl(request))
+                .handle(decoded);
         final sessionId =
             request.headers.value('mcp-session-id') ?? _newSessionId('mcp');
         request.response.headers.set('mcp-session-id', sessionId);
@@ -216,6 +291,8 @@ class SyncHttpServer {
         HttpStatus.notFound,
         'Not found. Try /health, /api/v1/status, /api/v1/snapshot, /mcp or /sse.',
       );
+    } on FaceImageException catch (error) {
+      await _writeError(request.response, error.status, error.message);
     } catch (error, stack) {
       stderr.writeln('[ota-sync] request error: $error');
       if (error is FormatException) {
@@ -231,6 +308,53 @@ class SyncHttpServer {
         // The response may already be closed.
       }
     }
+  }
+
+  String _requestBaseUrl(HttpRequest request) {
+    String? firstHeader(String name) {
+      final value = request.headers.value(name)?.split(',').first.trim();
+      return value == null || value.isEmpty ? null : value;
+    }
+
+    final forwarded = <String, String>{};
+    for (final part in (firstHeader('forwarded') ?? '').split(';')) {
+      final separator = part.indexOf('=');
+      if (separator < 0) continue;
+      final key = part.substring(0, separator).trim().toLowerCase();
+      var value = part.substring(separator + 1).trim();
+      if (value.startsWith('"') && value.endsWith('"') && value.length >= 2) {
+        value = value.substring(1, value.length - 1);
+      }
+      if (value.isNotEmpty) forwarded[key] = value;
+    }
+    final scheme = forwarded['proto'] ??
+        firstHeader('x-forwarded-proto') ??
+        request.requestedUri.scheme;
+    var authority = forwarded['host'] ??
+        firstHeader('x-forwarded-host') ??
+        request.requestedUri.authority;
+    final port = firstHeader('x-forwarded-port');
+    if (forwarded['host'] == null && port != null) {
+      final host = Uri.tryParse('$scheme://$authority');
+      if (host != null && !host.hasPort) {
+        authority =
+            '${host.host.contains(':') ? '[${host.host}]' : host.host}:$port';
+      }
+    }
+    var prefix = firstHeader('x-forwarded-prefix') ?? '';
+    if (prefix.isNotEmpty && !prefix.startsWith('/')) {
+      prefix = '/$prefix';
+    }
+    prefix = prefix.replaceFirst(RegExp(r'/+$'), '');
+    return '$scheme://$authority$prefix';
+  }
+
+  bool _supportsFaceEnrollment(HttpRequest request) {
+    final header = request.headers.value(kCapabilitiesHeader) ?? '';
+    return header
+        .split(',')
+        .map((value) => value.trim().toLowerCase())
+        .contains(kFaceEnrollmentCapability);
   }
 
   Future<void> _handleSse(HttpRequest request) async {
@@ -300,7 +424,9 @@ class SyncHttpServer {
       );
       return;
     }
-    final response = await protocol.handle(decoded);
+    final response =
+        await McpProtocol(store, requestBaseUrl: _requestBaseUrl(request))
+            .handle(decoded);
     if (response != null) {
       session.controller.add(
         'event: message\ndata: ${jsonEncode(response)}\n\n',
@@ -313,16 +439,17 @@ class SyncHttpServer {
     );
   }
 
-  Future<bool> _requireAuth(HttpRequest request) async {
+  Future<bool> _requireAuth(HttpRequest request,
+      {bool bearerOnly = false}) async {
     final header = request.headers.value(HttpHeaders.authorizationHeader) ?? '';
     var supplied = '';
     if (header.toLowerCase().startsWith('bearer ')) {
       supplied = header.substring(7).trim();
     }
-    if (supplied.isEmpty) {
+    if (supplied.isEmpty && !bearerOnly) {
       supplied = request.headers.value('x-ota-token') ?? '';
     }
-    if (supplied.isEmpty) {
+    if (supplied.isEmpty && !bearerOnly) {
       supplied = request.uri.queryParameters['token'] ?? '';
     }
     if (supplied.isNotEmpty && SyncConfig.constantTimeEquals(supplied, token)) {

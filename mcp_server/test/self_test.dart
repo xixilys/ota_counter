@@ -6,6 +6,7 @@ import 'dart:io';
 import '../lib/http_transport.dart';
 import '../lib/mcp_protocol.dart';
 import '../lib/store.dart';
+import 'face_enrollment_test.dart';
 
 Future<void> main() async {
   final dir = await Directory.systemTemp.createTemp('ota_sync_test');
@@ -201,6 +202,7 @@ Future<void> main() async {
 
     client.close(force: true);
     await server.close();
+    await testFaceEnrollment(check);
     stdout.writeln('All $passed sync server checks passed.');
   } finally {
     await dir.delete(recursive: true);

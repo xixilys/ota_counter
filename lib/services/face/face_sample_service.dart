@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
 import '../../models/activity_record_media_model.dart';
 import '../../models/activity_record_model.dart';
 import '../../models/counter_model.dart';
@@ -49,6 +51,14 @@ class FaceSampleService {
   FaceSampleService._();
 
   static FaceAnalyzer analyzer = FaceEngine.analyzeImageBytes;
+
+  /// Image dimensions for normalizing face boxes in chat enrollment feedback.
+  /// Injected in tests because synthetic bytes are not decodable images.
+  static Future<({int width, int height})> Function(Uint8List bytes) imageSize =
+      (bytes) async {
+    final image = await FaceEngine.decodeImageBytes(bytes);
+    return (width: image.width, height: image.height);
+  };
 
   static Future<List<FaceSampleModel>> getSamples({bool? isSelf}) async {
     final db = await DatabaseService.database;
@@ -133,6 +143,75 @@ class FaceSampleService {
         ..sort((a, b) => (b.face.width * b.face.height)
             .compareTo(a.face.width * a.face.height));
 
+  /// Faces ordered left to right by box center x; ties keep detector order.
+  static List<int> faceOrderFromLeft(List<FaceAnalysis> faces) {
+    final order = [for (var i = 0; i < faces.length; i++) i];
+    order.sort((a, b) {
+      final ax = faces[a].face.x + faces[a].face.width / 2;
+      final bx = faces[b].face.x + faces[b].face.width / 2;
+      final compare = ax.compareTo(bx);
+      return compare != 0 ? compare : a.compareTo(b);
+    });
+    return order;
+  }
+
+  /// Automatic chat enrollment, returning the original zero-based face index.
+  /// `auto` follows the photo-enrollment rules (drop "我", then similarity,
+  /// then a clearly largest face). `largest` picks the largest non-"我" face.
+  /// `left_N` picks the Nth face counted left to right, including "我".
+  /// Null means no pick (zero/ambiguous faces or an out-of-range left_N).
+  static int? selectEnrollmentFace(
+    List<FaceAnalysis> faces, {
+    String face = 'auto',
+    Iterable<List<double>> selfSamples = const [],
+    Iterable<List<double>> memberSamples = const [],
+  }) {
+    final candidates = [
+      for (var i = 0; i < faces.length; i++)
+        if (!isSelfFace(faces[i].embedding, selfSamples)) i,
+    ];
+    if (face == 'largest') {
+      if (candidates.isEmpty) return null;
+      candidates.sort((a, b) {
+        final compare = (faces[b].face.width * faces[b].face.height)
+            .compareTo(faces[a].face.width * faces[a].face.height);
+        return compare != 0 ? compare : a.compareTo(b);
+      });
+      return candidates.first;
+    }
+    final leftIndex = RegExp(r'^left_(\d+)$').firstMatch(face);
+    if (leftIndex != null) {
+      final index = int.tryParse(leftIndex.group(1)!);
+      final order = faceOrderFromLeft(faces);
+      if (index == null || index < 1 || index > order.length) return null;
+      return order[index - 1];
+    }
+    if (face != 'auto') {
+      throw ArgumentError.value(face, 'face', 'Unknown face selector');
+    }
+    if (candidates.isEmpty) return null;
+    if (candidates.length == 1) return candidates.single;
+    final scores = {
+      for (final i in candidates)
+        i: maxSimilarity(faces[i].embedding, memberSamples),
+    };
+    final bySimilarity = [...candidates]
+      ..sort((a, b) => scores[b]!.compareTo(scores[a]!));
+    final best = bySimilarity.first;
+    if (scores[best]! >= FaceMatchThresholds.reviewMin &&
+        scores[best]! - scores[bySimilarity[1]]! >=
+            FaceMatchThresholds.reviewMargin) {
+      return best;
+    }
+    candidates.sort((a, b) => (faces[b].face.width * faces[b].face.height)
+        .compareTo(faces[a].face.width * faces[a].face.height));
+    final largest = faces[candidates[0]].face;
+    final next = faces[candidates[1]].face;
+    return largest.width * largest.height >= 1.5 * next.width * next.height
+        ? candidates[0]
+        : null;
+  }
+
   static Future<void> clearAll() async {
     final db = await DatabaseService.database;
     await db.delete(DatabaseService.faceSamplesTableName);
@@ -170,10 +249,12 @@ class FaceSampleService {
   /// [FaceMatchThresholds.maxSamplesPerMember], the most redundant sample of
   /// that owner is dropped ([pickSampleToEvict]) — possibly the new one.
   /// Returns how many of [samples] were kept.
-  static Future<int> addSamples(List<FaceSampleModel> samples) async {
+  static Future<int> addSamples(
+    List<FaceSampleModel> samples, {
+    Transaction? transaction,
+  }) async {
     if (samples.isEmpty) return 0;
-    final db = await DatabaseService.database;
-    return db.transaction<int>((txn) async {
+    Future<int> write(DatabaseExecutor txn) async {
       final existing = (await txn.query(
         DatabaseService.faceSamplesTableName,
         where: 'model_id = ?',
@@ -206,7 +287,11 @@ class FaceSampleService {
         }
       }
       return kept;
-    });
+    }
+
+    if (transaction != null) return write(transaction);
+    final db = await DatabaseService.database;
+    return db.transaction<int>(write);
   }
 
   static FaceSampleModel sampleFromAnalysis(

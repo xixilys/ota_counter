@@ -180,6 +180,72 @@ void main() {
     expect((await IdolDatabaseService.getMembers()).single.name, '成员');
   });
 
+  test('idol sync refreshes a stale cache and skips a fresh one', () async {
+    payload = seed('2099-01-02T00:00:00Z', [
+      group('A', ['成员'])
+    ]);
+    await sync();
+    expect((await IdolDatabaseService.getMembers()).single.name, '成员');
+
+    payload = seed('2099-01-03T00:00:00Z', [
+      group('A', ['新成员'])
+    ]);
+    await IdolDatabaseService.syncFromRemoteIfStale(
+      url: 'http://127.0.0.1:${server.port}/seed.json',
+    );
+    expect(
+      (await IdolDatabaseService.getMembers()).single.name,
+      '成员',
+      reason: 'a fresh sync timestamp must suppress another download',
+    );
+
+    // Force the cache older than the 12h window.
+    final db = await IdolDatabaseService.database;
+    await db.update(
+      'idol_meta',
+      {'value': DateTime.now().subtract(const Duration(hours: 13)).toIso8601String()},
+      where: 'key = ?',
+      whereArgs: ['idol_seed_synced_at'],
+    );
+    await IdolDatabaseService.syncFromRemoteIfStale(
+      url: 'http://127.0.0.1:${server.port}/seed.json',
+    );
+    expect(
+      (await IdolDatabaseService.getMembers()).map((member) => member.name),
+      contains('新成员'),
+      reason: 'a stale cache must be refreshed while keeping old memberships',
+    );
+  });
+
+  test('empty idol payload throws and keeps the cached library', () async {
+    payload = seed('2099-01-02T00:00:00Z', [
+      group('A', ['成员'])
+    ]);
+    await sync();
+
+    payload = seed('2099-01-03T00:00:00Z', const []);
+    final syncedBefore =
+        (await IdolDatabaseService.getMeta())['idol_seed_synced_at'];
+    await expectLater(
+      IdolDatabaseService.syncFromRemote(
+        url: 'http://127.0.0.1:${server.port}/seed.json',
+      ),
+      throwsA(isA<FormatException>()),
+    );
+    expect((await IdolDatabaseService.getMembers()).single.name, '成员');
+    expect(
+      (await IdolDatabaseService.getMeta())['idol_seed_synced_at'],
+      syncedBefore,
+      reason: 'a rejected payload must not advance the stale-sync clock',
+    );
+
+    await expectLater(
+      IdolDatabaseService.syncFromRemote(url: 'file:///tmp/seed.json'),
+      throwsA(isA<FormatException>()),
+    );
+    expect((await IdolDatabaseService.getMembers()).single.name, '成员');
+  });
+
   test('event roster sync keeps cached rows on an empty or corrupt payload',
       () async {
     final now = DateTime.now();

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 class NoAutofillTextField extends StatelessWidget {
   final TextEditingController controller;
+  final FocusNode? focusNode;
   final InputDecoration decoration;
   final TextInputType? keyboardType;
   final bool autofocus;
@@ -16,6 +17,7 @@ class NoAutofillTextField extends StatelessWidget {
   const NoAutofillTextField({
     super.key,
     required this.controller,
+    this.focusNode,
     required this.decoration,
     this.keyboardType,
     this.autofocus = false,
@@ -32,6 +34,7 @@ class NoAutofillTextField extends StatelessWidget {
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
+      focusNode: focusNode,
       decoration: decoration,
       keyboardType: keyboardType,
       autofocus: autofocus,

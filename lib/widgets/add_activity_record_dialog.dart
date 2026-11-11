@@ -1652,7 +1652,7 @@ class _AddActivityRecordDialogState extends State<AddActivityRecordDialog> {
               if (_selectableMembers.isEmpty && !_idolLoading) ...[
                 const SizedBox(height: 12),
                 Text(
-                  '当前没有可选成员，请先在偶像数据库或主页计数器里补成员。',
+                  '当前没有可选成员，请先在偶像数据库或主页成员卡片里补成员。',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],

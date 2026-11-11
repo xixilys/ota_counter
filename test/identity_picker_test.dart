@@ -175,7 +175,7 @@ void main() {
               venueName = '',
               sessionLabel = '',
               baseCounter}) async =>
-          updated,
+          CounterSaveResult(counter: updated),
     ))));
     await settle(tester);
     expect(find.text('记录到团体'), findsNothing);

@@ -12,10 +12,10 @@ import 'package:ota_counter/widgets/counter_card.dart';
 
 import 'support/isolated_test_databases.dart';
 
-/// Quick count goes home page -> member detail -> count sheet. The sheet sends
-/// absolute counter values; these tests pin that the saved records add up to
-/// exactly the taps the user made, even when the home page's cached counters
-/// are stale or a save is still in flight.
+/// Quick count goes home page -> count sheet (a card tap opens it directly).
+/// The sheet sends absolute counter values; these tests pin that the saved
+/// records add up to exactly the taps the user made, even when the home page's
+/// cached counters are stale or a save is still in flight.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async {
@@ -64,8 +64,6 @@ void main() {
   Future<void> openQuickCountFor(WidgetTester tester, String name) async {
     await tester.tap(find.byWidgetPredicate(
         (widget) => widget is CounterCard && widget.counter.name == name));
-    await settle(tester);
-    await tester.tap(find.widgetWithText(FloatingActionButton, '快捷计数'));
     await settle(tester);
   }
 

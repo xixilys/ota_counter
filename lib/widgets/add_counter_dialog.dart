@@ -830,7 +830,7 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
         : Colors.black87;
 
     return AlertDialog(
-      title: Text(isEditing ? '编辑计数器' : '添加新计数器'),
+      title: Text(isEditing ? '编辑成员' : '添加成员'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -921,7 +921,7 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
                       if (selectedMember?.themeColorLabel != null) ...[
                         const SizedBox(height: 8),
                         Text(
-                          '已识别 ${selectedMember!.themeColorLabel!}，会自动带入计数器颜色',
+                          '已识别 ${selectedMember!.themeColorLabel!}，会自动带入成员颜色',
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ],

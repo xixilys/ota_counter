@@ -19,6 +19,7 @@ class MemberDetailPage extends StatefulWidget {
   final CounterModel primaryCounter;
   final List<CounterModel> sourceCounters;
   final CounterChangedCallback onCounterChanged;
+  final CounterRecordDeletedCallback? onRecordDeleted;
 
   const MemberDetailPage({
     super.key,
@@ -26,6 +27,7 @@ class MemberDetailPage extends StatefulWidget {
     required this.primaryCounter,
     required this.sourceCounters,
     required this.onCounterChanged,
+    this.onRecordDeleted,
   });
 
   @override
@@ -306,6 +308,7 @@ class _MemberDetailPageState extends State<MemberDetailPage> {
           _dirty = true;
           return saved;
         },
+        onRecordDeleted: widget.onRecordDeleted,
       ),
     );
     await _loadData();

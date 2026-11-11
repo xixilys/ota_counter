@@ -9,15 +9,57 @@ import 'package:ota_counter/widgets/counter_card.dart';
 const _physicalSize = Size(1440, 3168);
 const _devicePixelRatio = 3.5;
 const _horizontalPagePadding = 16.0;
-const _breakdown = <CounterCountBadgeData>[
-  CounterCountBadgeData(label: '3寸', value: 12),
-  CounterCountBadgeData(label: '5寸', value: 7),
-  CounterCountBadgeData(label: '3寸宿', value: 3),
-  CounterCountBadgeData(label: '5寸宿', value: 4),
-];
-const _memberNames = ['皮皮猪', '夏小米', '桃菓_momoka'];
 const _groupName = 'PokaPokaTime';
 const _cardScales = [1.0, 1.15, 1.3];
+
+class _CardFixture {
+  final String name;
+  final String color;
+  final int threeInch;
+  final int fiveInch;
+  final int threeInchShukudai;
+  final int fiveInchShukudai;
+
+  const _CardFixture({
+    required this.name,
+    required this.color,
+    this.threeInch = 0,
+    this.fiveInch = 0,
+    this.threeInchShukudai = 0,
+    this.fiveInchShukudai = 0,
+  });
+
+  int get total =>
+      threeInch + fiveInch + threeInchShukudai + fiveInchShukudai;
+
+  List<CounterCountBadgeData> get breakdown => [
+        CounterCountBadgeData(label: '3寸', value: threeInch),
+        CounterCountBadgeData(label: '5寸', value: fiveInch),
+        CounterCountBadgeData(label: '3寸宿', value: threeInchShukudai),
+        CounterCountBadgeData(label: '5寸宿', value: fiveInchShukudai),
+      ];
+}
+
+const _fixtures = <_CardFixture>[
+  _CardFixture(
+    name: '皮皮猪',
+    color: '#FF5C8A',
+    threeInch: 12,
+    fiveInch: 7,
+    threeInchShukudai: 3,
+    fiveInchShukudai: 4,
+  ),
+  _CardFixture(
+    name: '夏小米',
+    color: '#8B6CF0',
+    threeInch: 2,
+  ),
+  _CardFixture(
+    name: '桃菓_momoka',
+    color: '#FF9F43',
+  ),
+];
+const _allSpecLabels = ['3寸', '5寸', '3寸宿', '5寸宿'];
 
 double _logicalWidth() => _physicalSize.width / _devicePixelRatio;
 
@@ -45,10 +87,76 @@ double _nameLineHeight(int columns, double cardWidth, double scale) {
   return _nameFontSize(columns, cardWidth) * factor * scale;
 }
 
-Widget _gridApp({
-  required int columns,
-  required double cardHeight,
-}) {
+Widget _cardFor(_CardFixture fixture, int columns) {
+  return CounterCard(
+    key: ValueKey<String>('counter-card-${fixture.name}'),
+    counter: CounterModel(
+      name: fixture.name,
+      groupName: _groupName,
+      color: fixture.color,
+      threeInchCount: fixture.threeInch,
+      fiveInchCount: fixture.fiveInch,
+      threeInchShukudaiCount: fixture.threeInchShukudai,
+      fiveInchShukudaiCount: fixture.fiveInchShukudai,
+      isHidden: fixture.name == '桃菓_momoka',
+    ),
+    totalCount: fixture.total,
+    breakdownEntries: fixture.breakdown,
+    percentage: 0.42,
+    onTap: () {},
+    onDelete: () {},
+    onEdit: () {},
+    gridColumns: columns,
+  );
+}
+
+Widget _gridApp({required int columns, required double cardHeight}) {
+  final cards = [for (final fixture in _fixtures) _cardFor(fixture, columns)];
+
+  if (columns <= 2) {
+    // Mirrors the home page: 1/2 columns use intrinsically sized cards in
+    // rows, so a card with no chips does not reserve empty space.
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.light(),
+      home: Scaffold(
+        body: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.all(_horizontalPagePadding),
+            child: SizedBox(
+              width: _contentWidth(),
+              child: Column(
+                children: [
+                  for (var i = 0; i < cards.length; i += columns)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: i < cards.length
+                                ? cards[i]
+                                : const SizedBox.shrink(),
+                          ),
+                          if (columns == 2) const SizedBox(width: 12),
+                          if (columns == 2)
+                            Expanded(
+                              child: i + 1 < cards.length
+                                  ? cards[i + 1]
+                                  : const SizedBox.shrink(),
+                            ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   return MaterialApp(
     debugShowCheckedModeBanner: false,
     theme: AppTheme.light(),
@@ -61,37 +169,14 @@ Widget _gridApp({
             child: GridView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              itemCount: _memberNames.length,
+              itemCount: cards.length,
               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: columns,
                 crossAxisSpacing: _crossAxisSpacing(columns),
                 mainAxisSpacing: columns >= 3 ? 12 : 16,
                 mainAxisExtent: cardHeight,
               ),
-              itemBuilder: (context, index) {
-                final name = _memberNames[index];
-                final counter = CounterModel(
-                  name: name,
-                  groupName: _groupName,
-                  color: const ['#FF5C8A', '#8B6CF0', '#FF9F43'][index],
-                  threeInchCount: 12,
-                  fiveInchCount: 7,
-                  threeInchShukudaiCount: 3,
-                  fiveInchShukudaiCount: 4,
-                  isHidden: name == '桃菓_momoka',
-                );
-                return CounterCard(
-                  key: ValueKey('counter-card-$name'),
-                  counter: counter,
-                  totalCount: 26,
-                  breakdownEntries: _breakdown,
-                  percentage: 0.42,
-                  onTap: () {},
-                  onDelete: () {},
-                  onEdit: () {},
-                  gridColumns: columns,
-                );
-              },
+              itemBuilder: (context, index) => cards[index],
             ),
           ),
         ),
@@ -119,40 +204,8 @@ void _expectNameOnOneLine(
   );
 }
 
-void _expectBreakdownInsideCard(
-  WidgetTester tester,
-  Finder cardFinder,
-) {
-  final cardRect = tester.getRect(cardFinder);
-  for (final entry in _breakdown) {
-    final labelFinder = find.descendant(
-      of: cardFinder,
-      matching: find.text(entry.label),
-    );
-    expect(
-      labelFinder,
-      findsOneWidget,
-      reason: '${entry.label} should be painted in the card',
-    );
-    final badgeFinder = find.descendant(
-      of: cardFinder,
-      matching: find.byKey(ValueKey<String>('count-badge-${entry.label}')),
-    );
-    expect(
-      badgeFinder,
-      findsOneWidget,
-      reason: '${entry.label} badge should be painted in the card',
-    );
-    final labelRect = tester.getRect(labelFinder);
-    final badgeRect = tester.getRect(badgeFinder);
-    for (final rect in [labelRect, badgeRect]) {
-      expect(rect.top, greaterThanOrEqualTo(cardRect.top - 0.1));
-      expect(rect.bottom, lessThanOrEqualTo(cardRect.bottom + 0.1));
-      expect(rect.left, greaterThanOrEqualTo(cardRect.left - 0.1));
-      expect(rect.right, lessThanOrEqualTo(cardRect.right + 0.1));
-    }
-  }
-}
+Finder _cardFinder(String name) =>
+    find.byKey(ValueKey<String>('counter-card-$name'));
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -174,7 +227,6 @@ void main() {
           tester.view.devicePixelRatio = _devicePixelRatio;
           addTearDown(tester.view.reset);
 
-          // Exercise the real 卡片字号 setting path, not just a constructor arg.
           SettingsService.fontScale.value = scale;
           final cardWidth = _cardWidth(columns);
           final cardHeight = counterCardHeight(
@@ -182,7 +234,7 @@ void main() {
             availableWidth: _contentWidth(),
             crossAxisSpacing: _crossAxisSpacing(columns),
             textScale: scale,
-            breakdownEntryCount: _breakdown.length,
+            breakdownEntryCount: 4,
           );
 
           await tester.pumpWidget(
@@ -191,22 +243,22 @@ void main() {
           await tester.pump();
           expect(tester.takeException(), isNull);
 
-          for (final name in _memberNames) {
-            final cardFinder =
-                find.byKey(ValueKey<String>('counter-card-$name'));
-            expect(cardFinder, findsOneWidget);
-            final cardRect = tester.getRect(cardFinder);
+          for (final fixture in _fixtures) {
+            final finder = _cardFinder(fixture.name);
+            expect(finder, findsOneWidget);
+            final cardRect = tester.getRect(finder);
             expect(
               cardRect.width,
               closeTo(cardWidth, 0.1),
               reason: 'the grid should use the expected card width',
             );
+            expect(cardRect.height, greaterThan(0));
           }
 
-          for (final name in ['皮皮猪', '夏小米']) {
+          for (final fixture in _fixtures.take(2)) {
             _expectNameOnOneLine(
               tester,
-              name,
+              fixture.name,
               columns: columns,
               cardWidth: cardWidth,
               scale: scale,
@@ -214,22 +266,105 @@ void main() {
           }
 
           final groupFinder = find.text(_groupName);
-          expect(groupFinder, findsNWidgets(_memberNames.length));
+          expect(groupFinder, findsNWidgets(_fixtures.length));
           for (var i = 0; i < groupFinder.evaluate().length; i++) {
             final text = tester.widget<Text>(groupFinder.at(i));
             expect(text.maxLines, 1);
           }
 
           if (columns <= 2) {
-            for (final name in _memberNames) {
-              _expectBreakdownInsideCard(
-                tester,
-                find.byKey(ValueKey<String>('counter-card-$name')),
-              );
+            final fullCard = _cardFinder('皮皮猪');
+            _expectChipsInsideCard(tester, fullCard, [
+              for (final label in _allSpecLabels) (label, true)
+            ]);
+
+            final oneChipCard = _cardFinder('夏小米');
+            _expectChipsInsideCard(tester, oneChipCard, [
+              ('3寸', true),
+              ('5寸', false),
+              ('3寸宿', false),
+              ('5寸宿', false),
+            ]);
+
+            final emptyCard = _cardFinder('桃菓_momoka');
+            _expectChipsInsideCard(tester, emptyCard, [
+              for (final label in _allSpecLabels) (label, false)
+            ]);
+
+            // The empty card really is shorter instead of leaving the old
+            // four-row blank area at the bottom of a fixed grid extent.
+            final fullRect = tester.getRect(fullCard);
+            final emptyRect = tester.getRect(emptyCard);
+            expect(
+              emptyRect.height,
+              lessThan(fullRect.height),
+              reason: 'a card with no chips should shrink to its content',
+            );
+          } else {
+            // 3-5 columns stay on the compact layout: no chip row at all.
+            for (final label in _allSpecLabels) {
+              expect(find.text(label), findsNothing);
             }
           }
+
+          expect(tester.takeException(), isNull);
         },
       );
+    }
+  }
+
+  testWidgets('all-zero 2-column card draws no spec chips', (tester) async {
+    tester.view.physicalSize = _physicalSize;
+    tester.view.devicePixelRatio = _devicePixelRatio;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: _cardWidth(2),
+              child: _cardFor(_fixtures.last, 2),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('3寸'), findsNothing);
+    expect(find.text('5寸'), findsNothing);
+    expect(find.text('3寸宿'), findsNothing);
+    expect(find.text('5寸宿'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+}
+
+void _expectChipsInsideCard(
+  WidgetTester tester,
+  Finder cardFinder,
+  List<(String, bool)> expectations,
+) {
+  final cardRect = tester.getRect(cardFinder);
+  for (final entry in expectations) {
+    final label = entry.$1;
+    final shouldShow = entry.$2;
+    final chipFinder = find.descendant(
+      of: cardFinder,
+      matching: find.byKey(ValueKey<String>('count-chip-$label')),
+    );
+    expect(
+      chipFinder,
+      shouldShow ? findsOneWidget : findsNothing,
+      reason: '$label chip visibility at 2 columns',
+    );
+    if (shouldShow) {
+      final chipRect = tester.getRect(chipFinder);
+      expect(chipRect.top, greaterThanOrEqualTo(cardRect.top - 0.1));
+      expect(chipRect.bottom, lessThanOrEqualTo(cardRect.bottom + 0.1));
+      expect(chipRect.left, greaterThanOrEqualTo(cardRect.left - 0.1));
+      expect(chipRect.right, lessThanOrEqualTo(cardRect.right + 0.1));
     }
   }
 }

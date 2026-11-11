@@ -36,7 +36,6 @@ void main() {
           body: Center(
             child: SizedBox(
               width: 160,
-              height: 230,
               child: CounterCard(
                 counter: counter,
                 totalCount: counter.count,
@@ -112,8 +111,7 @@ void main() {
               venueName = "",
               sessionLabel = "",
               baseCounter,
-            }) async =>
-                updatedCounter,
+            }) async => CounterSaveResult(counter: updatedCounter),
           ),
         ),
       ),
@@ -122,7 +120,7 @@ void main() {
 
     expect(find.text('团切'), findsOneWidget);
     expect(find.text('只读'), findsOneWidget);
-    expect(find.text('团切请通过多人切记录处理，这里仅展示当前累计数量。'), findsOneWidget);
+    expect(find.text('团切请通过多人切记录处理，这里仅展示当前累计数量。'), findsNothing);
   });
 
   testWidgets('counter sheet quick count keeps edit and additive buttons', (
@@ -147,8 +145,7 @@ void main() {
               venueName = "",
               sessionLabel = "",
               baseCounter,
-            }) async =>
-                updatedCounter,
+            }) async => CounterSaveResult(counter: updatedCounter),
           ),
         ),
       ),
@@ -158,16 +155,16 @@ void main() {
     expect(find.byIcon(Icons.remove), findsNothing);
     expect(find.text('+1'), findsWidgets);
     expect(find.text('+5'), findsWidgets);
-    expect(find.text('+10'), findsWidgets);
-    expect(find.text('+50'), findsWidgets);
+    expect(find.text('+10'), findsNothing);
+    expect(find.text('+50'), findsNothing);
     expect(find.text('+100'), findsNothing);
 
-    await tester.tap(find.text('+10').first);
+    await tester.tap(find.text('+1').first);
     await tester.pumpAndSettle();
 
-    expect(find.text('总计 10'), findsOneWidget);
+    expect(find.text('总计 1'), findsOneWidget);
 
-    await tester.tap(find.text('10').first);
+    await tester.tap(find.text('1').first);
     await tester.pumpAndSettle();
 
     expect(find.text('修改3寸'), findsOneWidget);
@@ -209,7 +206,7 @@ void main() {
                 await firstSaveGate.future;
               }
               activeSaves -= 1;
-              return updatedCounter;
+              return CounterSaveResult(counter: updatedCounter);
             },
           ),
         ),
@@ -256,15 +253,15 @@ void main() {
               venueName = "",
               sessionLabel = "",
               baseCounter,
-            }) async =>
-                updatedCounter,
+            }) async => CounterSaveResult(counter: updatedCounter),
           ),
         ),
       ),
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('选择偶活场次'), findsOneWidget);
+    expect(find.text('选择演出'), findsOneWidget);
+    expect(find.text('自动填日期和场地'), findsOneWidget);
   });
 
   testWidgets('counter sheet direct edit cannot decrease a count', (
@@ -293,7 +290,7 @@ void main() {
               baseCounter,
             }) async {
               saveCalls += 1;
-              return updatedCounter;
+              return CounterSaveResult(counter: updatedCounter);
             },
           ),
         ),
@@ -309,6 +306,96 @@ void main() {
 
     expect(saveCalls, 0);
     expect(find.text('总计 10'), findsOneWidget);
+  });
+
+
+
+  testWidgets('quick sheet offers a detail action when wired', (
+    WidgetTester tester,
+  ) async {
+    final counter = CounterModel(
+      name: '成员A',
+      groupName: '团体A',
+      color: '#FFE135',
+    );
+    var detailOpened = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CounterCountSheet(
+            counter: counter,
+            allCounters: [counter],
+            onCounterChanged: (
+              updatedCounter,
+              occurredAt, {
+              activityName = "",
+              venueName = "",
+              sessionLabel = "",
+              baseCounter,
+            }) async =>
+                CounterSaveResult(counter: updatedCounter),
+            onViewDetails: () => detailOpened += 1,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('查看详情'), findsOneWidget);
+    await tester.tap(find.text('查看详情'));
+    await tester.pump();
+    expect(detailOpened, 1);
+  });
+
+  testWidgets('quick count +1 undo deletes the created record and restores total', (
+    WidgetTester tester,
+  ) async {
+    final counter = CounterModel(
+      id: 1,
+      name: '成员A',
+      groupName: '团体A',
+      color: '#FFE135',
+    );
+    int? deletedRecordId;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CounterCountSheet(
+            counter: counter,
+            allCounters: [counter],
+            onCounterChanged: (
+              updatedCounter,
+              occurredAt, {
+              activityName = "",
+              venueName = "",
+              sessionLabel = "",
+              baseCounter,
+            }) async =>
+                CounterSaveResult(counter: updatedCounter, recordId: 77),
+            onRecordDeleted: (recordId, beforeCounter) async {
+              deletedRecordId = recordId;
+              return counter;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('+1').first);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('总计 1'), findsOneWidget);
+    expect(find.text('3寸 +1'), findsOneWidget);
+
+    await tester.tap(find.text('撤销'));
+    await tester.pumpAndSettle();
+
+    expect(deletedRecordId, 77);
+    expect(find.text('总计 0'), findsOneWidget);
   });
 
   testWidgets('counter sheet keeps quick buttons on one row in compact width', (
@@ -336,8 +423,7 @@ void main() {
                   venueName = "",
                   sessionLabel = "",
                   baseCounter,
-                }) async =>
-                    updatedCounter,
+                }) async => CounterSaveResult(counter: updatedCounter),
               ),
             ),
           ),
@@ -349,7 +435,7 @@ void main() {
     expect(tester.takeException(), isNull);
 
     final firstButtonY = tester.getCenter(find.text('+1').first).dy;
-    for (final label in ['+5', '+10', '+50']) {
+    for (final label in ['+5']) {
       expect(
         (tester.getCenter(find.text(label).first).dy - firstButtonY).abs(),
         lessThan(1),

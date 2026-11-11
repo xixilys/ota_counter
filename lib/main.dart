@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -12,6 +13,7 @@ import 'models/activity_record_model.dart';
 import 'models/chart_stats_helpers.dart';
 import 'models/counter_model.dart';
 import 'models/ticket_type_model.dart';
+import 'pages/add_idol_page.dart';
 import 'pages/batch_capture_page.dart';
 import 'pages/chart_page.dart';
 import 'pages/face_recognition_settings_page.dart';
@@ -35,6 +37,7 @@ import 'widgets/add_counter_dialog.dart';
 import 'widgets/app_page_background.dart';
 import 'widgets/cheki_overview_parts.dart';
 import 'widgets/counter_card.dart';
+import 'widgets/counter_count_sheet.dart';
 import 'widgets/ticket_stub_card.dart';
 
 void main() async {
@@ -166,6 +169,14 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Future<void> _initializeIdolDatabase() async {
     await IdolDatabaseService.initializeBuiltInDataIfNeeded();
+  }
+
+  Future<void> _syncIdolLibraryInBackground() async {
+    try {
+      await IdolDatabaseService.syncFromRemoteIfStale();
+    } catch (_) {
+      // Offline or a bad upstream payload: keep the cached library.
+    }
   }
 
   Future<void> _loadPackageInfo() async {
@@ -302,6 +313,9 @@ class _MyHomePageState extends State<MyHomePage> {
         return;
       }
       await _idolDatabaseInit;
+      // Refresh the idol library in the background so the APK's built-in
+      // snapshot cannot stay stale. Failure is silent; cached data is kept.
+      unawaited(_syncIdolLibraryInBackground());
       await DatabaseService.syncActivityRecordsToCounters('ota_site');
       await DatabaseService.autoAssignCounterThemeColors();
       await DatabaseService.reconcileCounterIdentities();
@@ -1110,7 +1124,7 @@ class _MyHomePageState extends State<MyHomePage> {
     return requested;
   }
 
-  Future<void> _recordCounterChange({
+  Future<int?> _recordCounterChange({
     required CounterModel counter,
     required Map<CounterCountField, int> deltas,
     required DateTime occurredAt,
@@ -1120,14 +1134,14 @@ class _MyHomePageState extends State<MyHomePage> {
     String sessionLabel = '',
   }) async {
     if (deltas.values.every((value) => value == 0)) {
-      return;
+      return null;
     }
 
     final pricing = await DatabaseService.getGroupPricingByName(
       counter.groupName,
     );
 
-    await DatabaseService.insertActivityRecordWithCounterImpact(
+    return DatabaseService.insertActivityRecordWithCounterImpact(
       ActivityRecordModel.counterAdjustment(
         counter: counter,
         occurredAt: occurredAt,
@@ -1141,7 +1155,7 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
-  Future<CounterModel> _saveCounter(
+  Future<CounterSaveResult> _saveCounter(
     CounterModel updatedCounter, {
     required DateTime occurredAt,
     String note = '快捷计数',
@@ -1152,6 +1166,7 @@ class _MyHomePageState extends State<MyHomePage> {
   }) async {
     final index =
         _counters.indexWhere((counter) => counter.id == updatedCounter.id);
+    int? recordId;
     if (index == -1 || updatedCounter.id == null) {
       // Without a confirmed base this is a brand-new card: every count is new.
       final deltas = _buildCounterDeltas(
@@ -1160,7 +1175,7 @@ class _MyHomePageState extends State<MyHomePage> {
       );
 
       if (_hasCounterDeltas(deltas)) {
-        await _recordCounterChange(
+        recordId = await _recordCounterChange(
           // A queued tap may still carry the draft (id-less) copy although
           // the previous save already created the card; link to that card.
           counter: _counterWithZeroCounts(
@@ -1177,7 +1192,10 @@ class _MyHomePageState extends State<MyHomePage> {
         await DatabaseService.insertCounter(updatedCounter);
       }
       await _loadCounters();
-      return _resolveSavedCounter(updatedCounter);
+      return CounterSaveResult(
+        counter: _resolveSavedCounter(updatedCounter),
+        recordId: recordId,
+      );
     }
 
     // The sheet's confirmed base, not this page's cache: the cache can be
@@ -1187,7 +1205,7 @@ class _MyHomePageState extends State<MyHomePage> {
     final deltas = _buildCounterDeltas(previousCounter, updatedCounter);
 
     if (_hasCounterDeltas(deltas)) {
-      await _recordCounterChange(
+      recordId = await _recordCounterChange(
         counter: updatedCounter,
         deltas: deltas,
         occurredAt: occurredAt,
@@ -1199,12 +1217,26 @@ class _MyHomePageState extends State<MyHomePage> {
     }
 
     await _loadCounters();
-    return _resolveSavedCounter(updatedCounter);
+    return CounterSaveResult(
+      counter: _resolveSavedCounter(updatedCounter),
+      recordId: recordId,
+    );
   }
 
-  Future<void> _openCounterSheet(_HomeCounterEntry entry) async {
-    if (_isLocked) return;
+  Future<CounterModel?> _deleteCounterRecord(
+    int recordId,
+    CounterModel beforeCounter,
+  ) async {
+    final deleted =
+        await DatabaseService.deleteActivityRecordsWithCounterImpact([recordId]);
+    await _loadCounters();
+    if (deleted == 0) {
+      return null;
+    }
+    return _resolveSavedCounter(beforeCounter);
+  }
 
+  Future<void> _openMemberDetail(_HomeCounterEntry entry) async {
     final changed = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (context) => MemberDetailPage(
@@ -1228,6 +1260,7 @@ class _MyHomePageState extends State<MyHomePage> {
               baseCounter: baseCounter,
             );
           },
+          onRecordDeleted: _deleteCounterRecord,
         ),
       ),
     );
@@ -1236,34 +1269,76 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
-  Future<void> _addCounter() async {
-    try {
-      final result = await showDialog<CounterDialogResult>(
-        context: context,
-        builder: (context) => const AddCounterDialog(),
-      );
+  Future<void> _openCounterSheet(_HomeCounterEntry entry) async {
+    if (_isLocked) return;
 
-      if (result != null) {
-        final deltas = {
-          for (final field in CounterCountField.values)
-            field: result.counter.countForField(field),
-        };
-        if (_hasCounterDeltas(deltas)) {
-          await _recordCounterChange(
-            counter: _counterWithZeroCounts(result.counter),
-            deltas: deltas,
-            occurredAt: result.occurredAt,
-            note: '初始化录入',
+    var dirty = false;
+    final openDetails = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => CounterCountSheet(
+        counter: entry.primaryCounter,
+        allCounters: _counters,
+        onCounterChanged: (
+          updatedCounter,
+          occurredAt, {
+          activityName = '',
+          venueName = '',
+          sessionLabel = '',
+          baseCounter,
+        }) async {
+          dirty = true;
+          return _saveCounter(
+            updatedCounter,
+            occurredAt: occurredAt,
+            activityName: activityName,
+            venueName: venueName,
+            sessionLabel: sessionLabel,
+            baseCounter: baseCounter,
           );
-        } else {
-          await DatabaseService.insertCounter(result.counter);
-        }
-        await _loadCounters();
+        },
+        onRecordDeleted: _deleteCounterRecord,
+        onViewDetails: () {
+          Navigator.of(sheetContext).pop(true);
+        },
+      ),
+    );
+    if (dirty) {
+      await _loadCounters();
+    }
+    if (openDetails == true && mounted) {
+      await _openMemberDetail(entry);
+    }
+  }
+
+  Future<void> _addIdol() async {
+    try {
+      final counters = await Navigator.of(context).push<List<CounterModel>>(
+        MaterialPageRoute(
+          builder: (context) => AddIdolPage(
+            existingCounters: _counters,
+          ),
+        ),
+      );
+      if (counters == null || counters.isEmpty) {
+        return;
+      }
+
+      for (final counter in counters) {
+        await DatabaseService.insertCounter(counter);
+      }
+      await DatabaseService.autoAssignCounterThemeColors();
+      await _loadCounters();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已添加 ${counters.length} 位成员')),
+        );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('添加失败: ${e.toString()}')),
+          SnackBar(content: Text('添加失败：$e')),
         );
       }
     }
@@ -1282,7 +1357,7 @@ class _MyHomePageState extends State<MyHomePage> {
         }
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('不能通过编辑计数器减少数量，请删除对应流水后再重算计数。'),
+            content: Text('不能通过编辑成员减少数量，请删除对应流水后再重算计数。'),
           ),
         );
         return;
@@ -1356,7 +1431,7 @@ class _MyHomePageState extends State<MyHomePage> {
         title: const Text('确认删除'),
         content: Text(
           entry.sourceCounters.length == 1
-              ? '确定要删除这个计数器吗？会同时删除这张卡对应的成员流水；包含该成员的多人流水会整条删除，并同步更新其他成员计数。'
+              ? '确定要删除这位成员吗？会同时删除这张卡对应的成员流水；包含该成员的多人流水会整条删除，并同步更新其他成员计数。'
               : '确定删除 ${entry.displayCounter.name} 名下的 ${entry.sourceCounters.length} 张团体计数卡吗？对应成员流水会一起删除；相关多人流水也会整条删除，并同步更新其他成员计数。',
         ),
         actions: [
@@ -1427,7 +1502,7 @@ class _MyHomePageState extends State<MyHomePage> {
           builder: (context) => AlertDialog(
             title: const Text('从记录重算计数'),
             content: const Text(
-              '会把所有计数器数量清零，再按现有流水记录重新计算。计数器名称、颜色、隐藏状态会保留。',
+              '会把所有成员数量清零，再按现有流水记录重新计算。成员名称、颜色、隐藏状态会保留。',
             ),
             actions: [
               TextButton(
@@ -1976,8 +2051,8 @@ class _MyHomePageState extends State<MyHomePage> {
           builder: (context) => AlertDialog(
             title: const Text('导入旧版备份'),
             content: Text(
-              '检测到 ${payload.fileName} 是旧版计数器备份。\n'
-              '继续后会清空当前计数器、价格和流水数据，再导入备份内容。',
+              '检测到 ${payload.fileName} 是旧版备份。\n'
+              '继续后会清空当前成员、价格和流水数据，再导入备份内容。',
             ),
             actions: [
               TextButton(
@@ -2007,7 +2082,7 @@ class _MyHomePageState extends State<MyHomePage> {
         }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('已导入旧版计数器备份，共 ${payload.counters.length} 项'),
+            content: Text('已导入旧版备份，共 ${payload.counters.length} 项'),
           ),
         );
         return;
@@ -2157,6 +2232,23 @@ class _MyHomePageState extends State<MyHomePage> {
         );
       }
     }
+  }
+
+  Widget _buildHomeCounterCard(_HomeCounterEntry entry, int gridColumns) {
+    return CounterCard(
+      key: ValueKey(entry.key),
+      counter: entry.displayCounter,
+      totalCount: entry.totalCount,
+      breakdownEntries: entry.breakdownEntries,
+      percentage: _getPercentage(entry.totalCount),
+      onTap: () => _openCounterSheet(entry),
+      onLongPress: () => _showHomeEntryActions(entry),
+      onEdit: () => _editHomeEntry(entry),
+      onDelete: () => _deleteHomeEntry(entry),
+      isLocked: _isLocked,
+      gridColumns: gridColumns,
+      textScale: _cardTextScale,
+    );
   }
 
   double _calculateCardHeight({
@@ -2505,9 +2597,9 @@ class _MyHomePageState extends State<MyHomePage> {
             )
           else
             FilledButton.icon(
-              onPressed: _addCounter,
+              onPressed: _addIdol,
               icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
-              label: const Text('添加第一位成员'),
+              label: const Text('添加第一位偶像'),
             ),
         ],
       ),
@@ -3021,6 +3113,60 @@ class _MyHomePageState extends State<MyHomePage> {
                         child: _buildEmptyHome(context),
                       ),
                     )
+                  else if (gridColumns <= 2)
+                    SliverPadding(
+                      padding: EdgeInsets.fromLTRB(
+                        horizontalPadding,
+                        0,
+                        horizontalPadding,
+                        0,
+                      ),
+                      sliver: SliverList(
+                        delegate: SliverChildBuilderDelegate(
+                          (context, rowIndex) {
+                            if (gridColumns == 1) {
+                              return Padding(
+                                padding:
+                                    const EdgeInsets.only(bottom: 16),
+                                child: _buildHomeCounterCard(
+                                  homeEntries[rowIndex],
+                                  gridColumns,
+                                ),
+                              );
+                            }
+                            final firstIndex = rowIndex * 2;
+                            final secondIndex = firstIndex + 1;
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 16),
+                              child: Row(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    child: _buildHomeCounterCard(
+                                      homeEntries[firstIndex],
+                                      gridColumns,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: secondIndex < homeEntries.length
+                                        ? _buildHomeCounterCard(
+                                            homeEntries[secondIndex],
+                                            gridColumns,
+                                          )
+                                        : const SizedBox.shrink(),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                          childCount: gridColumns == 1
+                              ? homeEntries.length
+                              : (homeEntries.length + 1) ~/ 2,
+                        ),
+                      ),
+                    )
                   else
                     SliverPadding(
                       padding: EdgeInsets.fromLTRB(
@@ -3032,21 +3178,9 @@ class _MyHomePageState extends State<MyHomePage> {
                       sliver: SliverGrid(
                         delegate: SliverChildBuilderDelegate(
                           (context, index) {
-                            final entry = homeEntries[index];
-                            final counter = entry.displayCounter;
-                            return CounterCard(
-                              key: ValueKey(entry.key),
-                              counter: counter,
-                              totalCount: entry.totalCount,
-                              breakdownEntries: entry.breakdownEntries,
-                              percentage: _getPercentage(entry.totalCount),
-                              onTap: () => _openCounterSheet(entry),
-                              onLongPress: () => _showHomeEntryActions(entry),
-                              onEdit: () => _editHomeEntry(entry),
-                              onDelete: () => _deleteHomeEntry(entry),
-                              isLocked: _isLocked,
-                              gridColumns: gridColumns,
-                              textScale: _cardTextScale,
+                            return _buildHomeCounterCard(
+                              homeEntries[index],
+                              gridColumns,
                             );
                           },
                           childCount: homeEntries.length,
@@ -3069,11 +3203,11 @@ class _MyHomePageState extends State<MyHomePage> {
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _addCounter,
+        onPressed: _addIdol,
         backgroundColor: AppTheme.oshi(theme.brightness),
         foregroundColor: AppTheme.onOshi(theme.brightness),
         icon: const Icon(Icons.person_add_alt_1_rounded, size: 20),
-        label: const Text('添加成员'),
+        label: const Text('添加偶像'),
       ),
     );
   }

@@ -1,34 +1,38 @@
 {
   "sourceUrl": "https://chinaidols.fandom.com/zh/wiki/%E4%B8%AD%E5%9B%BD%E5%81%B6%E5%83%8F_Wiki",
   "sourceLabel": "中国偶像 Wiki（社区）+ 人工补充",
-  "generatedAt": "2026-10-02T11:06:40.940690+00:00",
+  "generatedAt": "2026-11-11T17:21:21.044365+00:00",
   "groups": [
     {
       "name": "0n!ine",
       "members": [
         {
-          "name": "Neruko",
-          "status": "正式成员 / 蓝色担当"
-        },
-        {
           "name": "哇啦",
           "status": "正式成员 / 水色担当"
-        },
-        {
-          "name": "素素",
-          "status": "正式成员 / 黑色担当"
         },
         {
           "name": "小美Mimi",
           "status": "正式成员 / 绿色担当"
         },
         {
-          "name": "喏呜",
+          "name": "叶子茶",
           "status": "正式成员"
         },
         {
-          "name": "叶子茶",
-          "status": "正式成员"
+          "name": "安特Toku",
+          "status": "兼任成员 / 紫色担当"
+        },
+        {
+          "name": "暂休中",
+          "status": "兼任成员"
+        },
+        {
+          "name": "Neruko",
+          "status": "兼任成员 / 蓝色担当"
+        },
+        {
+          "name": "素素",
+          "status": "兼任成员 / 黑色担当"
         },
         {
           "name": "蓝闷",
@@ -41,6 +45,10 @@
         {
           "name": "太阿",
           "status": "前成员 / 绿色担当"
+        },
+        {
+          "name": "喏呜",
+          "status": "前成员"
         }
       ],
       "sourceLabel": "中国偶像 Wiki（社区）",
@@ -831,6 +839,33 @@
       "sourceUrl": "https://chinaidols.fandom.com/zh/wiki/AntiSmoke"
     },
     {
+      "name": "粼风序章AquaLume",
+      "members": [
+        {
+          "name": "豆工Douku",
+          "status": "未分类 / 蓝色担当"
+        },
+        {
+          "name": "菟菟Iris",
+          "status": "未分类 / 粉色担当"
+        },
+        {
+          "name": "泡芙Noeri",
+          "status": "未分类 / 黄色担当"
+        },
+        {
+          "name": "绫零Rei",
+          "status": "未分类 / 白色担当"
+        },
+        {
+          "name": "豹豹Ringo",
+          "status": "未分类 / 红色担当"
+        }
+      ],
+      "sourceLabel": "中国偶像 Wiki（社区）",
+      "sourceUrl": "https://chinaidols.fandom.com/zh/wiki/%E7%B2%BC%E9%A3%8E%E5%BA%8F%E7%AB%A0AquaLume"
+    },
+    {
       "name": "Arena",
       "members": [
         {
@@ -1050,16 +1085,16 @@
           "status": "现役成员 / 水色担当"
         },
         {
-          "name": "凛华Rinka",
-          "status": "现役成员 / 黄色担当"
-        },
-        {
           "name": "饭饭Amai",
           "status": "现役成员 / 黄色担当"
         },
         {
           "name": "凉子Ryouko",
           "status": "现役成员 / 紫色担当"
+        },
+        {
+          "name": "凛华Rinka",
+          "status": "前成员 / 黄色担当"
         },
         {
           "name": "小圆Madoka",
@@ -2221,14 +2256,6 @@
       "name": "Chosen Star",
       "members": [
         {
-          "name": "Iris肆九",
-          "status": "正式成员 / 红色担当"
-        },
-        {
-          "name": "小白shiro",
-          "status": "正式成员 / 紫色担当"
-        },
-        {
           "name": "素雨soyo",
           "status": "正式成员 / 绿色担当"
         },
@@ -2239,6 +2266,14 @@
         {
           "name": "轻悠yura",
           "status": "前成员 / 绿色担当"
+        },
+        {
+          "name": "小白shiro",
+          "status": "前成员 / 紫色担当"
+        },
+        {
+          "name": "Iris肆九",
+          "status": "前成员 / 红色担当"
         }
       ],
       "sourceLabel": "中国偶像 Wiki（社区）",
@@ -2453,10 +2488,6 @@
           "status": "正式成员"
         },
         {
-          "name": "桜Sakura",
-          "status": "正式成员"
-        },
-        {
           "name": "妍宝Kenni",
           "status": "正式成员"
         },
@@ -2474,6 +2505,10 @@
         },
         {
           "name": "灯Akarin",
+          "status": "前成员"
+        },
+        {
+          "name": "桜Sakura",
           "status": "前成员"
         }
       ],
@@ -4693,7 +4728,7 @@
       "name": "FAnAA-",
       "members": [
         {
-          "name": "Kamiya咪酱",
+          "name": "M1 /咪酱",
           "status": "正式成员 / 白色担当"
         },
         {
@@ -4701,8 +4736,12 @@
           "status": "正式成员 / 紫色担当"
         },
         {
+          "name": "Kira / 绮罗",
+          "status": "正式成员 / 粉色担当"
+        },
+        {
           "name": "Kona / 小奈",
-          "status": "正式成员 / 黄色担当"
+          "status": "前成员 / 黄色担当"
         }
       ],
       "sourceLabel": "中国偶像 Wiki（社区）",
@@ -4896,6 +4935,21 @@
       ],
       "sourceLabel": "中国偶像 Wiki（社区）",
       "sourceUrl": "https://chinaidols.fandom.com/zh/wiki/FINA%E5%A4%A2"
+    },
+    {
+      "name": "FloatingWingS",
+      "members": [
+        {
+          "name": "泯Mie",
+          "status": "未分类 / 水色担当"
+        },
+        {
+          "name": "雪雪Yukiro",
+          "status": "未分类 / 黄色担当"
+        }
+      ],
+      "sourceLabel": "中国偶像 Wiki（社区）",
+      "sourceUrl": "https://chinaidols.fandom.com/zh/wiki/FloatingWingS"
     },
     {
       "name": "FluffyDoll软绒小偶",
@@ -6171,19 +6225,15 @@
       "members": [
         {
           "name": "肉包Niku",
-          "status": "正式成员 / 粉色担当"
+          "status": "最终成员 / 粉色担当"
         },
         {
-          "name": "月之tsuki",
-          "status": "正式成员 / 红色担当"
+          "name": "夜宵kurumi",
+          "status": "最终成员 / 紫色担当"
         },
         {
-          "name": "果冻Zeri",
-          "status": "正式成员 / 青色担当"
-        },
-        {
-          "name": "箖言Ian",
-          "status": "常驻飞行成员 / 蓝色担当"
+          "name": "小祈Haruki",
+          "status": "最终成员 / 薄荷色担当"
         },
         {
           "name": "绵绵Saki",
@@ -6192,6 +6242,18 @@
         {
           "name": "灯灯Yui",
           "status": "前成员 / 黄色担当"
+        },
+        {
+          "name": "月之tsuki",
+          "status": "前成员 / 红色担当"
+        },
+        {
+          "name": "果冻Zeri",
+          "status": "前成员 / 青色担当"
+        },
+        {
+          "name": "箖言Ian",
+          "status": "前成员 / 蓝色担当"
         }
       ],
       "sourceLabel": "中国偶像 Wiki（社区）",
@@ -6948,31 +7010,31 @@
       "members": [
         {
           "name": "骸囹 Hitori",
-          "status": "正式成员"
+          "status": "最终成员"
         },
         {
           "name": "芝芝 Monina",
-          "status": "正式成员"
+          "status": "最终成员"
         },
         {
           "name": "愛唄 Aita",
-          "status": "正式成员"
+          "status": "最终成员"
         },
         {
           "name": "亚菈 Ara",
-          "status": "正式成员"
+          "status": "最终成员"
         },
         {
           "name": "柚愛 Yuai",
-          "status": "正式成员"
+          "status": "最终成员"
         },
         {
           "name": "凜也 Reno",
-          "status": "正式成员"
+          "status": "最终成员"
         },
         {
           "name": "雾雾 Mist",
-          "status": "正式成员"
+          "status": "最终成员"
         }
       ],
       "sourceLabel": "中国偶像 Wiki（社区）",
@@ -9160,6 +9222,33 @@
       "sourceUrl": "https://chinaidols.fandom.com/zh/wiki/Luckyspell"
     },
     {
+      "name": "LuckySunshine",
+      "members": [
+        {
+          "name": "柏溪",
+          "status": "正式成员 / 绿色担当"
+        },
+        {
+          "name": "句号",
+          "status": "正式成员 / 红色担当"
+        },
+        {
+          "name": "LOVE",
+          "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "碳酸",
+          "status": "正式成员"
+        },
+        {
+          "name": "森林",
+          "status": "正式成员"
+        }
+      ],
+      "sourceLabel": "中国偶像 Wiki（社区）",
+      "sourceUrl": "https://chinaidols.fandom.com/zh/wiki/LuckySunshine"
+    },
+    {
       "name": "Lumina",
       "members": [
         {
@@ -9924,6 +10013,14 @@
           "status": "正式成员 / 粉色担当"
         },
         {
+          "name": "Anna",
+          "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "豆豆Moe",
+          "status": "正式成员 / 水色担当"
+        },
+        {
           "name": "Bana",
           "status": "前成员 / 黄色担当"
         },
@@ -10625,10 +10722,6 @@
       "name": "末裔幻想Matsuei Gensou",
       "members": [
         {
-          "name": "Ruri",
-          "status": "正式成员 / 水色担当"
-        },
-        {
           "name": "弥弥生Yayoi",
           "status": "正式成员"
         },
@@ -10637,23 +10730,31 @@
           "status": "正式成员"
         },
         {
-          "name": "小白kinako",
-          "status": "常驻飞行成员"
+          "name": "哩哩Erii",
+          "status": "正式成员"
         },
         {
           "name": "小柚Hime",
           "status": "常驻飞行成员"
         },
         {
-          "name": "小羊Tokki",
-          "status": "研修生"
+          "name": "暂休中",
+          "status": "常驻飞行成员"
         },
         {
-          "name": "哩哩Erii",
-          "status": "研修生"
+          "name": "Ruri",
+          "status": "常驻飞行成员 / 水色担当"
+        },
+        {
+          "name": "小羊Tokki",
+          "status": "常驻飞行成员"
         },
         {
           "name": "余音Mahiru",
+          "status": "前成员"
+        },
+        {
+          "name": "小白kinako",
           "status": "前成员"
         }
       ],
@@ -11754,39 +11855,39 @@
       "members": [
         {
           "name": "余音Shiori",
-          "status": "正式成员 / 紫色担当"
+          "status": "最终成员 / 紫色担当"
         },
         {
           "name": "果冻zeri",
-          "status": "正式成员 / 蓝色担当"
+          "status": "最终成员 / 蓝色担当"
         },
         {
           "name": "肉包Niku",
-          "status": "正式成员 / 红色担当"
+          "status": "最终成员 / 红色担当"
         },
         {
           "name": "酥糖Momoka",
-          "status": "正式成员 / 水色担当"
+          "status": "最终成员 / 水色担当"
         },
         {
           "name": "冰冰icey",
-          "status": "正式成员 / 黄色担当"
+          "status": "最终成员 / 黄色担当"
         },
         {
           "name": "布谷Unia",
-          "status": "正式成员 / 橙色担当"
+          "status": "最终成员 / 橙色担当"
         },
         {
           "name": "乐乐raku",
-          "status": "正式成员 / 粉色担当"
+          "status": "最终成员 / 粉色担当"
         },
         {
           "name": "之之Aino",
-          "status": "正式成员 / 白色担当"
+          "status": "最终成员 / 白色担当"
         },
         {
           "name": "芋圆komo",
-          "status": "正式成员"
+          "status": "最终成员"
         }
       ],
       "sourceLabel": "中国偶像 Wiki（社区）",
@@ -12731,6 +12832,10 @@
         {
           "name": "小葵Aoi",
           "status": "支援成员 / 紫色担当"
+        },
+        {
+          "name": "句号Maru",
+          "status": "研修生 / 红色担当"
         },
         {
           "name": "小圆大王Moka",
@@ -15162,6 +15267,25 @@
       "sourceUrl": "https://chinaidols.fandom.com/zh/wiki/LifeRevolution"
     },
     {
+      "name": "+ChiP+療癒院",
+      "members": [
+        {
+          "name": "水音Nori",
+          "status": "未分类 / 水色担当"
+        },
+        {
+          "name": "星野Sakura",
+          "status": "未分类 / 桃色担当"
+        },
+        {
+          "name": "月見Mona",
+          "status": "未分类 / 紫色担当"
+        }
+      ],
+      "sourceLabel": "中国偶像 Wiki（社区）",
+      "sourceUrl": "https://chinaidols.fandom.com/zh/wiki/%2BChiP%2B%E7%99%82%E7%99%92%E9%99%A2"
+    },
+    {
       "name": "十分钟意 Tentolove",
       "members": [
         {
@@ -16005,6 +16129,14 @@
           "status": "正式成员 / 黄色担当"
         },
         {
+          "name": "店员】阿渔Ayumi",
+          "status": "正式成员 / 白色担当"
+        },
+        {
+          "name": "店员】阳葵Himari",
+          "status": "正式成员 / 红色担当"
+        },
+        {
           "name": "店长】日和Hiyori",
           "status": "前成员 / 粉色担当"
         },
@@ -16693,6 +16825,33 @@
       "sourceUrl": "https://chinaidols.fandom.com/zh/wiki/StarLight"
     },
     {
+      "name": "Starling椋鸟镜辉",
+      "members": [
+        {
+          "name": "麒麟",
+          "status": "正式成员"
+        },
+        {
+          "name": "妖妖",
+          "status": "正式成员 / 紫色担当"
+        },
+        {
+          "name": "純",
+          "status": "正式成员 / 白色担当"
+        },
+        {
+          "name": "比巴卜",
+          "status": "正式成员 / 银色担当"
+        },
+        {
+          "name": "燕子",
+          "status": "飞行成员"
+        }
+      ],
+      "sourceLabel": "中国偶像 Wiki（社区）",
+      "sourceUrl": "https://chinaidols.fandom.com/zh/wiki/Starling%E6%A4%8B%E9%B8%9F%E9%95%9C%E8%BE%89"
+    },
+    {
       "name": "StarMelody",
       "members": [
         {
@@ -16772,6 +16931,10 @@
         {
           "name": "星茶Rakki",
           "status": "正式成员 / 薄荷色担当"
+        },
+        {
+          "name": "树Kanon",
+          "status": "正式成员 / 水色担当"
         },
         {
           "name": "糯依Mimi",
@@ -17373,10 +17536,6 @@
           "status": "正式成员 / 白色担当"
         },
         {
-          "name": "晴香Hinaki",
-          "status": "正式成员 / 红色担当"
-        },
-        {
           "name": "熠然Yrane",
           "status": "正式成员 / 金色担当"
         },
@@ -17407,6 +17566,10 @@
         {
           "name": "侑纱Arisa",
           "status": "前成员"
+        },
+        {
+          "name": "晴香Hinaki",
+          "status": "前成员 / 红色担当"
         }
       ],
       "sourceLabel": "中国偶像 Wiki（社区）",
@@ -19685,6 +19848,10 @@
           "status": "正式成员 / 黄色担当"
         },
         {
+          "name": "小淅",
+          "status": "正式成员 / 白色担当"
+        },
+        {
           "name": "张文涵",
           "status": "前成员 / 紫色担当"
         }
@@ -19944,6 +20111,10 @@
         {
           "name": "瑜芒SoLLaR",
           "status": "未分类 / 绿色担当"
+        },
+        {
+          "name": "小泠Tsukino",
+          "status": "未分类 / 白色担当"
         }
       ],
       "sourceLabel": "中国偶像 Wiki（社区）",
@@ -20266,15 +20437,27 @@
       "members": [
         {
           "name": "神奇的田甜",
-          "status": "现成员 / 蓝色担当"
+          "status": "正式成员 / 蓝色担当"
         },
         {
           "name": "Hane鸡翅",
-          "status": "现成员 / 紫色担当"
+          "status": "正式成员 / 紫色担当"
         },
         {
           "name": "上上",
-          "status": "现成员 / 黑色担当"
+          "status": "正式成员 / 黑色担当"
+        },
+        {
+          "name": "训练生",
+          "status": "正式成员"
+        },
+        {
+          "name": "朲目久",
+          "status": "正式成员"
+        },
+        {
+          "name": "小卅",
+          "status": "正式成员"
         }
       ],
       "sourceLabel": "中国偶像 Wiki（社区）",
@@ -20510,10 +20693,6 @@
           "status": "正式成员 / 深蓝色担当"
         },
         {
-          "name": "啾嗯Jyun",
-          "status": "正式成员 / 青蓝色担当"
-        },
-        {
           "name": "秋凪Akina",
           "status": "正式成员 / 橙色担当"
         },
@@ -20540,6 +20719,10 @@
         {
           "name": "葵奈Minako",
           "status": "前成员 / 水色担当"
+        },
+        {
+          "name": "啾嗯Jyun",
+          "status": "前成员 / 青蓝色担当"
         }
       ],
       "sourceLabel": "中国偶像 Wiki（社区）",
@@ -20820,6 +21003,33 @@
       ],
       "sourceLabel": "中国偶像 Wiki（社区）",
       "sourceUrl": "https://chinaidols.fandom.com/zh/wiki/%E6%B0%B8%E6%98%BCEternal"
+    },
+    {
+      "name": "Youmy-Youmy",
+      "members": [
+        {
+          "name": "理念Rinen",
+          "status": "最终成员 / 绿色担当"
+        },
+        {
+          "name": "小鱼Kiko",
+          "status": "最终成员 / 紫色担当"
+        },
+        {
+          "name": "七濑雪Yuki",
+          "status": "暂休成员 / 粉色担当"
+        },
+        {
+          "name": "澪Yukari",
+          "status": "前成员 / 水色担当"
+        },
+        {
+          "name": "真夜Mayo",
+          "status": "前成员 / 红色担当"
+        }
+      ],
+      "sourceLabel": "中国偶像 Wiki（社区）",
+      "sourceUrl": "https://chinaidols.fandom.com/zh/wiki/Youmy-Youmy"
     },
     {
       "name": "愉粤冰室",
@@ -21997,6 +22207,37 @@
       "sourceUrl": "https://chinaidols.fandom.com/zh/wiki/%E6%97%A0%E9%99%90%E6%97%85%E5%A2%83INFINITE"
     },
     {
+      "name": "星巡Hoshimeguri",
+      "members": [
+        {
+          "name": "鱼小妖",
+          "status": "正式成员"
+        },
+        {
+          "name": "乐乐",
+          "status": "正式成员"
+        },
+        {
+          "name": "冰冰",
+          "status": "正式成员"
+        },
+        {
+          "name": "杉菜",
+          "status": "正式成员"
+        },
+        {
+          "name": "木木",
+          "status": "正式成员"
+        },
+        {
+          "name": "小和",
+          "status": "支援成员"
+        }
+      ],
+      "sourceLabel": "中国偶像 Wiki（社区）",
+      "sourceUrl": "https://chinaidols.fandom.com/zh/wiki/%E6%98%9F%E5%B7%A1Hoshimeguri"
+    },
+    {
       "name": "极恶NEO",
       "members": [
         {
@@ -22184,6 +22425,3265 @@
       ],
       "sourceLabel": "中国偶像 Wiki（社区）",
       "sourceUrl": "https://chinaidols.fandom.com/zh/wiki/%E9%9C%A7%E9%9F%BFKiriHibiki"
+    },
+    {
+      "name": "终到站Terminus",
+      "members": [
+        {
+          "name": "早川",
+          "status": "正式成员",
+          "sourceLabel": "人工补充"
+        },
+        {
+          "name": "一绪",
+          "status": "正式成员",
+          "sourceLabel": "人工补充"
+        },
+        {
+          "name": "盈盈",
+          "status": "正式成员",
+          "sourceLabel": "人工补充"
+        },
+        {
+          "name": "透",
+          "status": "正式成员",
+          "sourceLabel": "人工补充"
+        }
+      ],
+      "sourceLabel": "人工补充"
+    },
+    {
+      "name": "Cherishffon",
+      "members": [
+        {
+          "name": "酥酥",
+          "status": "正式成员",
+          "sourceLabel": "人工补充"
+        },
+        {
+          "name": "小鸟Torine",
+          "status": "正式成员",
+          "sourceLabel": "人工补充"
+        }
+      ],
+      "sourceLabel": "人工补充"
+    },
+    {
+      "name": "NiiCORE",
+      "members": [
+        {
+          "name": "骷Kukuro",
+          "status": "正式成员",
+          "sourceLabel": "人工补充"
+        }
+      ],
+      "sourceLabel": "人工补充"
+    },
+    {
+      "name": "neokoro",
+      "members": [
+        {
+          "name": "祈桉Yuukari",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "团月Marutsuki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "桔芋MikanImo",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "晓苏Suki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "Aunova星愿一纪",
+      "members": [
+        {
+          "name": "月歌且且",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "奈绪saki",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "子淇Mio",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小葵kiki",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小妍kiku",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "Dessugary_午後糖霜",
+      "members": [
+        {
+          "name": "米饼",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "莳千",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "土豆",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "奶茶包",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "月城",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "芊洛",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小加",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "恬恬",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "Diamond_Percent",
+      "members": [
+        {
+          "name": "小乱vikina",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "不渝uyuna",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小诗shiorin",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "殷殷moiko",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "暮暮towa",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "愛咪miyano",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "噜噜gururu",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "MoonArc",
+      "members": [
+        {
+          "name": "筱筱Sakono",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "光光Yumeki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "礼礼Koari",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "桃茶Momotya",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "雪咲Nyako",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "INVADER-未定义领域",
+      "members": [
+        {
+          "name": "Kira",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Reitsuki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Lemon",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Ayi",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "NeoX_ARCHIVE",
+      "members": [
+        {
+          "name": "消失ShouSitu",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "糸墓Kiya",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "夜弥Ayame",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "薄桜Hakuo",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "樱茉Yunashi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "虚影Shadow",
+      "members": [
+        {
+          "name": "炸鱼Yuri",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Aomi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Hibiki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Hirori",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "iceLova",
+      "members": [
+        {
+          "name": "椰梨Aeri",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "雨季Yui",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "咪噜Miru",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "狸狸Riri",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小雲Kumoo",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "汽水调色盘",
+      "members": [
+        {
+          "name": "雪理yuki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "鹿七Ruki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "秋奈Aki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "娜娜酱Kiyona",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "九夜Sakuya",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "心动存档",
+      "members": [
+        {
+          "name": "小樱花",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "柿子",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "xixi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "空空",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "夜明未满",
+      "members": [
+        {
+          "name": "空音KongYin",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "由Yukari",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "冽序RASiN_",
+      "members": [
+        {
+          "name": "小以Ryoko",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "葱葱Asagi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "四七Seki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "祈祈Inori",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "二丿Nino",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "天枢Polaris",
+      "members": [
+        {
+          "name": "比比Beri",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "西西Shiori",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "菜包Riku",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "卷饼Taco",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "奈加Naka",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "PANDORA",
+      "members": [
+        {
+          "name": "黎灿",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小言",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "妖姬",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "晃晃",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "比菲",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "道咲Misa-Ku",
+      "members": [
+        {
+          "name": "夏树Natsuki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "波洛Boro",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "柚月Yuzuki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "祈祈Inori",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "水曜日Suiyoubi",
+      "members": [
+        {
+          "name": "小八",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "泪泪",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "五碳糖ATUGC",
+      "members": [
+        {
+          "name": "PiPi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Muko",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Yumi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Rin",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "火伤游乐园",
+      "members": [
+        {
+          "name": "莉莉卡Lilika",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "屿鸢Yuan",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "NiceQ",
+      "members": [
+        {
+          "name": "子钰Tamashi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "语纱Yusa",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "忍忍Ninnin",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "祺祺Yuki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "異面DIVERSE",
+      "members": [
+        {
+          "name": "九條鵺紗Nuesa",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "词烟Kemuri",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "REX狂想曲",
+      "members": [
+        {
+          "name": "伢伢Yaha",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "糖糖Hana",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "鸣岐nariki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "见习魔女_kokome",
+      "members": [
+        {
+          "name": "千千",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "茉莉",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "阿花",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "等等",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "魅隐EvilSecret",
+      "members": [
+        {
+          "name": "安琪Angel-",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "鲸鱼汽水_花音",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "橙Seiko",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "泠川Eri",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "TripleOne",
+      "members": [
+        {
+          "name": "小繁Zaki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "小狗俱乐部_PuppyClub",
+      "members": [
+        {
+          "name": "Arisu",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Kenro",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Gigi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Nyanya",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Hikari",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "MIXUP缤纷派",
+      "members": [
+        {
+          "name": "可猫Cocona",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "澈锣Kidora",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "稚野Chiya",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "NeoQ",
+      "members": [
+        {
+          "name": "七又Chiio",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "澄子Sumi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "千树Nagi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "之夏yuika",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "念念Nyan",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "MoonTide月光计划",
+      "members": [
+        {
+          "name": "Kaki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Nanakei七景",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "JiU慈雨",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Taeko",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Toge",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "_Prince_Official_",
+      "members": [
+        {
+          "name": "绯爻Fiyo",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "奈祁Nasuki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "葵亦Aoi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "佧理Kaii",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "炎诺ENO",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "雾海星桥KiriHashi",
+      "members": [
+        {
+          "name": "叁六_sensen",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "乔哥kyokyo",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "丸子",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "AuroraWhisper",
+      "members": [
+        {
+          "name": "绪Yukio",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "纱音Sarin",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "凉奈Ryona",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "悠悠Meeloo",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "乌君Rin",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "柳柳_Roku",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "KamiZaku神經質",
+      "members": [
+        {
+          "name": "小朝asa",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "V-Dream仮想夢",
+      "members": [
+        {
+          "name": "虔海Umi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "夢素Enhancer_Offcial",
+      "members": [
+        {
+          "name": "柑焄Tsuki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "惹兔Kitty",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "柒柒Kyoka",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小师Sei",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "澪夜Sakuya",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "羽津Suumi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小郁Yuki",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "呢喃fuwari",
+      "members": [
+        {
+          "name": "飒飒",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Lena",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小翎kohane",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Ririn",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小雪",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "今日晴",
+      "members": [
+        {
+          "name": "盐盐Shio",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "芽咪Hina",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小莓Yomiko",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "甜时 Hikari",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小标Nezumi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "MAINPART",
+      "members": [
+        {
+          "name": "ame",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "kuriko",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "nami",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "shion",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "季节微醺",
+      "members": [
+        {
+          "name": "加酒saki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "秋槐aki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "OROCHI",
+      "members": [
+        {
+          "name": "kayo_kilig",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "尼莫Nemo",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "大貓Kiri",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "星群-Asterism",
+      "members": [
+        {
+          "name": "小特toku",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小蕊hanami",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "梨猫Rineko",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "幸幸MyuKi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "黑匣星_SKStern",
+      "members": [
+        {
+          "name": "多莉Dolly",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "純夏Junka",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "昼Hiru",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "佑隹Kaki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "陌竹Moki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "夜明序曲Liora",
+      "members": [
+        {
+          "name": "小缘Ena",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "奈米Naomi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小卷Makii",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小蜗koi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小久kyuu",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Yuzuki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "ChuPid",
+      "members": [
+        {
+          "name": "赛怜Sairen",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "桔子Mikan",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "雪見Yukimi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "妍宝Kenni",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "糯糯Minako",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "JuiceBrew-汽汐果酿",
+      "members": [
+        {
+          "name": "桃巳Momoshi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "藤乃Fujino",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "柠可Nemoko",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "粟理SooLi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "青茉Morinti",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "泠夏Rinka",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "空号-Number404",
+      "members": [
+        {
+          "name": "小赤Aka",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "纯白Shiro",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "蛋蛋Tamako",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "喵宅Nyao",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "Abysstar深海逐星",
+      "members": [
+        {
+          "name": "小鼠Konezume",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小黎Riri",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "花咲Saki",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "-猫猫兔Momoto-",
+      "members": [
+        {
+          "name": "Kuro",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "兔奈",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "0nline_offical",
+      "members": [
+        {
+          "name": "哇啦",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "叶子茶",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小美Mimi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "TSDD-土笋冻冻",
+      "members": [
+        {
+          "name": "椰椰",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "沁沁",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "晴天",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "蝴蝶",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "千绪",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "MAMOHOSHI",
+      "members": [
+        {
+          "name": "恰恰",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "momo",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小伍kogo",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "冬蜜Fuyumi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "橙香buta",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "蓝星蓝星蓝星星星_ccd",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "DeLigent_潜望星",
+      "members": [
+        {
+          "name": "咲咲saki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小阮Sayo",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小梨Rinka",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小加Kafii",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "心一koko",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "Yours_official_",
+      "members": [
+        {
+          "name": "Lala",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Rainy",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Cookie",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Elisa",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "SweetQuartet_甜蜜四重奏",
+      "members": [
+        {
+          "name": "柳柳Roku",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "呜呜Haru",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "界瞳Hitomi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "熠熠Bunrye",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "奈奈希Nanaki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "柠柠_Yomi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "绪Yukio",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "UKIYO",
+      "members": [
+        {
+          "name": "寿司susie",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "墨漓Sumi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "瞳频TriOculus",
+      "members": [
+        {
+          "name": "Mizuha",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "ROTR",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Anomi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "Gleams",
+      "members": [
+        {
+          "name": "白菜Hakusai",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "云团Kumo",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "柚子Yuzi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "YAIX",
+      "members": [
+        {
+          "name": "耶耶Yeri",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "琴奈Lulu",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "米亚MYA",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "STEP-ONE第一歩",
+      "members": [
+        {
+          "name": "薇薇Vivi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "香香Winsa",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "饭团Misaki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "苏岚Solan",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "明理Akari",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "七海_心電SiGNAL",
+      "members": [
+        {
+          "name": "七海",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "苏苏",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小尧",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "初原",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "绣球来信-Hydrangea",
+      "members": [
+        {
+          "name": "爪爪zume",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "青痕kihen",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "口米口米Mion",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "雾吏kirri",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "LoveLoading",
+      "members": [
+        {
+          "name": "小织hana",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "奶糖meru",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "妍妍yui",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小优yuko",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "PunkySweety朋克甜心",
+      "members": [
+        {
+          "name": "梁汐烔",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "段安晞",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "周沐桐",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "夜燐REYN",
+      "members": [
+        {
+          "name": "夏凪Natsu",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "烟Kitsumi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "炫Rei",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "柒柒Saki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "终电爱丽丝",
+      "members": [
+        {
+          "name": "草草",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "崽崽",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Hina",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "妮妮",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "乐安",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Sakkaku卡卡",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "梦迹YUMEATO",
+      "members": [
+        {
+          "name": "小莓Kiyo",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "初代Hana",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "美玥Mizuki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "海悠Kaiyu",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "漓央Rio",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "烬钥LaClef",
+      "members": [
+        {
+          "name": "白神狼",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "澜星",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "北枳",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "冰月",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "熠然",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "Cascade",
+      "members": [
+        {
+          "name": "Mizore",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "水穗言Sui",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "折纸Kami",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Hiyori",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "MagicalStar",
+      "members": [
+        {
+          "name": "AIRI",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "SAKI",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "REVEAL",
+      "members": [
+        {
+          "name": "小绝Kalei",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "祁琦Kiki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "光希mitsuki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "啾啾Akuma",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "坠入流星之前_BeFaS",
+      "members": [
+        {
+          "name": "安兜Endl",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "佩佩露达Ruru",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "伍亿Winny",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "绵绵yuuka",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "失落星环",
+      "members": [
+        {
+          "name": "鹿島Manako",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "月影Nanari",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小唯Hime",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "猫沢鈴Rei",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "CupiLove",
+      "members": [
+        {
+          "name": "小咪Miyuki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "栗奈Rina",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "bb",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "瑶香Haruka",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "千里Senri",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "淅璃kiko",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "ReComi",
+      "members": [
+        {
+          "name": "泡芙Kurimu",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "铃铃RinRin",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "途途TwoTwo",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "云云Yumiko",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小白Shiro",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "恋栀Zhizhi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "伊猫Eneko",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "纪星GenkiNova",
+      "members": [
+        {
+          "name": "明雨Akira",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "千鹤Chizuru",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "澪奈miona",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "猫又Moa",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "土豆imori",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "MAY",
+      "members": [
+        {
+          "name": "漓央Rio",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "梨香rika",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "饭饭Jinseki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "玛琳Marin",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "多莉dori",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "塩芽Shioya",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "绝星悖论_info",
+      "members": [
+        {
+          "name": "柠萌Lemoon",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "锈蚀革命REvolution",
+      "members": [
+        {
+          "name": "黑桃momo",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "月喰Tsukui",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "稻荷堇Sumire",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "苌杦Towa",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "雪代葵Aoi",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "MonoCord",
+      "members": [
+        {
+          "name": "eniar",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "fufu",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Mendako",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "零食Toki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小绪Tsuori",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "捏捏Une",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "NARUEKO",
+      "members": [
+        {
+          "name": "裂Retsu",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "木木Moku",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "江眠Kusumi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "佳期Kaki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "Party2x",
+      "members": [
+        {
+          "name": "Piiko",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Mizuki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Minato",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "曌Terasu",
+      "members": [
+        {
+          "name": "白祈弥Fumiya",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "薯饼Tamako",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "仙贝Tokki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "厭Kirai",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "迷光MIRAST",
+      "members": [
+        {
+          "name": "Aika艾卡",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Kururuku",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "汐菱yuria",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "SHINEMOON",
+      "members": [
+        {
+          "name": "苺音",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "瑠芽",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "溺糖",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "琉绯",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "NezMax",
+      "members": [
+        {
+          "name": "树莓Razuberi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Akane",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "晴昼Hare",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "砂秋子Sakiko",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "凉咪Ryo",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "SugarHeart_糖心计划",
+      "members": [
+        {
+          "name": "贝晞",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "PyonPyonIinkai",
+      "members": [
+        {
+          "name": "秋雪Cyuki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "花凛karin",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "Nebulight_星愿绮绽",
+      "members": [
+        {
+          "name": "海眠Hami",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "酥鱼suki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "永恆劇場_ETERNAL",
+      "members": [
+        {
+          "name": "雾音kirion",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Kyou",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "雨宮蛍Hotaru",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "一冬Kazuto",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "白蘭Hakuran",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "YouthAria青春咏叹调",
+      "members": [
+        {
+          "name": "奈菓NAKO",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "九九koko",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "Mewtel",
+      "members": [
+        {
+          "name": "小雨Ame",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "阳仁Hini",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小空良Kuura",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "結音Yune",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "奈咪Nananya",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "烟火契_OFFICAL",
+      "members": [
+        {
+          "name": "小逸miemie",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小鈴Suzi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "GERMINATE研修生",
+      "members": [
+        {
+          "name": "月月Tuski",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "momori",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "库库suzaku",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "缪Miu",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "林司Tsukasa",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小咪domi",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "鲤鱼kakari",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "Rimiri_TypeC",
+      "members": [
+        {
+          "name": "Rimiri",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "古德古德电力司",
+      "members": [
+        {
+          "name": "挞挞",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Piko",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "咕咕",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "Vuslat",
+      "members": [
+        {
+          "name": "鼠饼Guru",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "宇宙Uni",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "呓梦Eev",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "末日倒计时",
+      "members": [
+        {
+          "name": "Momoko小桃子",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "阳栗Yokuri",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "普吉pugee",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "無理GENOME",
+      "members": [
+        {
+          "name": "里安Rian",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "晔晔Aiko",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小契Chigiri",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "十六Haru",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "乐乐Rika",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "響彻之岛HibikiLand",
+      "members": [
+        {
+          "name": "安笙anson",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "凹凹wasaki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "雨音Amane",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "-Elara_Official-",
+      "members": [
+        {
+          "name": "雪鱼muki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "栗花riri",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "夏日青空_AzuraSummer",
+      "members": [
+        {
+          "name": "云羽Kumoha",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "花凌Hanarin",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "熙彤Kitone",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "幺幺Yoharu",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "羽生Risaki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "Hatsutori",
+      "members": [
+        {
+          "name": "大貓KiRi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "虹奈Hanako",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "伊甸idya",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "集体噩梦症候群",
+      "members": [
+        {
+          "name": "夜雲Yorumo",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "宥子Yuzki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "刀刀Knife",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "不梦Yumemi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "CinderellaAcademy辛德瑞拉学院",
+      "members": [
+        {
+          "name": "朔粒sherii",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "柑奈Canna",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "怜空Sora",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "壹壹Ichika",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "-REIZEN-",
+      "members": [
+        {
+          "name": "越橘Neko",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "芥之Jeri",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "伊甸Eden_KuriLand",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小棱Reu",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "柯栗Mori",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "ARCHE_PIECE",
+      "members": [
+        {
+          "name": "饼干",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "花伶",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "真雪",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "丸丸",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Hina",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "Chu2",
+      "members": [
+        {
+          "name": "绫依Ayano",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "-观铃misuzu",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "咪小鹿ovo",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "月見Nana",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "ProbablyLove大抵是爱",
+      "members": [
+        {
+          "name": "楪祈Kurage",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "椰椰misaki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "Boundless_IDOL",
+      "members": [
+        {
+          "name": "川川Kawa",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "贝贝Beibo",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小眠Nemui",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "本我象限EgoAxis",
+      "members": [
+        {
+          "name": "冴子Saeko",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "铃果Appuru",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "琉也Ryuya",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "桃雾AwA",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "华乐神应纪",
+      "members": [
+        {
+          "name": "卿牧",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Kyi",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Giki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "樱樱子",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "蔚蓝",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "黎灿",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "好大一颗芝麻汤圆",
+          "status": "见习成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "夜明之前-Yoakemae",
+      "members": [
+        {
+          "name": "Yuriko",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Riria",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "KATRiNA",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Haru",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "眠梦Hokkori",
+      "members": [
+        {
+          "name": "梦梦Kumito",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "酸酸Sasaran",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "亦亦Rino",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "枳奎Kina",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "H2O戀",
+      "members": [
+        {
+          "name": "Yume",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Itsuko",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Tori",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Rinrin",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Roroku",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Kawana",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "Mistake",
+      "members": [
+        {
+          "name": "浅香",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "神乐",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "芝芝",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小春",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "柚凛",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "恋薬KUSURI",
+      "members": [
+        {
+          "name": "莓可Meico",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "弥色iya",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小雨Ame",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "水音sora",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "薯桃mirai",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "StarAx1s",
+      "members": [
+        {
+          "name": "天照芥RIRIKA",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "須川Kieru",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "無名Hana",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "小柴Chai",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "出雲Ayaha",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "真霜Tora",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "海城Shiyo",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "SunnyPetit",
+      "members": [
+        {
+          "name": "小莹Yuri",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "厘厘Ririko",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "于南Minami",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "咩咩羊Momoki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "TENKI",
+      "members": [
+        {
+          "name": "Asano",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Miari",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "zeo",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Ririmu",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Enani",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "Nakiya",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "TriMoment",
+      "members": [
+        {
+          "name": "梓夏Azuka",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "月与Mitsuki",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "安悦Anna",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
+    },
+    {
+      "name": "初翼回响公学理事会",
+      "members": [
+        {
+          "name": "晓月晚Aka_W",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "月眠琉璃Ruri_W",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "金沢默默Momo_W",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        },
+        {
+          "name": "森茉昕Uki_W",
+          "status": "正式成员",
+          "sourceLabel": "微博自动补充"
+        }
+      ],
+      "sourceLabel": "微博自动补充"
     }
   ]
 }

@@ -80,6 +80,29 @@ class IdolGroup {
       source: (map['source'] ?? 'manual') as String,
     );
   }
+
+  /// Pinyin of the group name, used by the add-idol search.
+  String get namePinyin => PinyinHelper.getPinyinE(
+        name,
+        defPinyin: '#',
+        format: PinyinFormat.WITHOUT_TONE,
+      ).toLowerCase();
+
+  /// First letters of each character's pinyin (e.g. 终到站 -> zdz).
+  String get nameInitials =>
+      PinyinHelper.getShortPinyin(name).toLowerCase();
+
+  bool matchesQuery(String query) {
+    final normalized = query.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return true;
+    }
+    final compact = normalized.replaceAll(RegExp(r'\s+'), '');
+    return name.toLowerCase().contains(normalized) ||
+        namePinyin.contains(normalized) ||
+        namePinyin.replaceAll(' ', '').contains(compact) ||
+        nameInitials.contains(normalized);
+  }
 }
 
 class IdolMember {
@@ -95,6 +118,9 @@ class IdolMember {
   final String namePinyin;
   final String groupPinyin;
   final String personPinyin;
+  final String nameInitials;
+  final String groupInitials;
+  final String personInitials;
 
   IdolMember({
     this.id,
@@ -120,7 +146,11 @@ class IdolMember {
           personName,
           defPinyin: '#',
           format: PinyinFormat.WITHOUT_TONE,
-        );
+        ),
+        nameInitials = PinyinHelper.getShortPinyin(name).toLowerCase(),
+        groupInitials = PinyinHelper.getShortPinyin(groupName).toLowerCase(),
+        personInitials =
+            PinyinHelper.getShortPinyin(personName).toLowerCase();
 
   IdolMember copyWith({
     int? id,
@@ -205,6 +235,10 @@ class IdolMember {
     if (normalized.isEmpty) {
       return true;
     }
+    final compact = normalized.replaceAll(RegExp(r'\s+'), '');
+    bool pinyinMatches(String pinyin) =>
+        pinyin.contains(normalized) ||
+        pinyin.replaceAll(' ', '').contains(compact);
 
     return name.toLowerCase().contains(normalized) ||
         displayName.toLowerCase().contains(normalized) ||
@@ -212,9 +246,12 @@ class IdolMember {
         resolvedPersonName.toLowerCase().contains(normalized) ||
         status.toLowerCase().contains(normalized) ||
         (themeColorLabel?.toLowerCase().contains(normalized) ?? false) ||
-        namePinyin.toLowerCase().contains(normalized) ||
-        groupPinyin.toLowerCase().contains(normalized) ||
-        personPinyin.toLowerCase().contains(normalized);
+        pinyinMatches(namePinyin) ||
+        pinyinMatches(groupPinyin) ||
+        pinyinMatches(personPinyin) ||
+        nameInitials.contains(normalized) ||
+        groupInitials.contains(normalized) ||
+        personInitials.contains(normalized);
   }
 }
 

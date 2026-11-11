@@ -17,7 +17,7 @@ import 'no_autofill_text_field.dart';
 /// target. The saved record must contain exactly `updated - base`; comparing
 /// against any other copy (for example the home page cache) double-counts or
 /// drops taps when that copy is stale or a previous save is still in flight.
-typedef CounterChangedCallback = Future<CounterModel> Function(
+typedef CounterChangedCallback = Future<CounterSaveResult> Function(
   CounterModel updatedCounter,
   DateTime occurredAt, {
   String activityName,
@@ -25,6 +25,25 @@ typedef CounterChangedCallback = Future<CounterModel> Function(
   String sessionLabel,
   CounterModel? baseCounter,
 });
+
+/// Deletes exactly one saved activity record and returns the refreshed
+/// counter. Used by the quick-count undo snackbar.
+typedef CounterRecordDeletedCallback = Future<CounterModel?> Function(
+  int recordId,
+  CounterModel beforeCounter,
+);
+
+class CounterSaveResult {
+  final CounterModel counter;
+
+  /// Id of the activity record created by this save, when one was created.
+  final int? recordId;
+
+  const CounterSaveResult({
+    required this.counter,
+    this.recordId,
+  });
+}
 
 class CounterRecordTarget {
   final String key;
@@ -38,15 +57,37 @@ class CounterRecordTarget {
   });
 }
 
+class _UndoBarData {
+  final String message;
+  final _PendingCounterSave? request;
+  final int? recordId;
+
+  const _UndoBarData({
+    required this.message,
+    this.request,
+    this.recordId,
+  });
+
+  bool get canUndo => request != null && recordId != null;
+}
+
 class _PendingCounterSave {
+  final String targetKey;
   final CounterModel counter;
+  final CounterModel beforeCounter;
+  final CounterCountField field;
+  final int delta;
   final DateTime occurredAt;
   final String activityName;
   final String venueName;
   final String sessionLabel;
 
   const _PendingCounterSave({
+    required this.targetKey,
     required this.counter,
+    required this.beforeCounter,
+    required this.field,
+    required this.delta,
     required this.occurredAt,
     required this.activityName,
     required this.venueName,
@@ -58,12 +99,16 @@ class CounterCountSheet extends StatefulWidget {
   final CounterModel counter;
   final List<CounterModel> allCounters;
   final CounterChangedCallback onCounterChanged;
+  final CounterRecordDeletedCallback? onRecordDeleted;
+  final VoidCallback? onViewDetails;
 
   const CounterCountSheet({
     super.key,
     required this.counter,
     required this.allCounters,
     required this.onCounterChanged,
+    this.onRecordDeleted,
+    this.onViewDetails,
   });
 
   @override
@@ -82,10 +127,13 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
   bool _enableUnsignedOptions = false;
   bool _targetsLoading = false;
   bool _activityEventsLoading = false;
+  bool _showMoreSpecs = false;
   String? _activitySyncWarning;
-  final Map<String, _PendingCounterSave> _pendingCounterSaves = {};
+  final List<_PendingCounterSave> _pendingCounterSaves = [];
   final Map<String, CounterModel> _lastPersistedCounters = {};
   bool _saveQueueRunning = false;
+  _UndoBarData? _undoBar;
+  Timer? _undoBarTimer;
 
   @override
   void initState() {
@@ -106,6 +154,12 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
     _lastPersistedCounters[_selectedTargetKey] = widget.counter;
     _loadUnsignedOptions();
     _loadRecordTargets();
+  }
+
+  @override
+  void dispose() {
+    _undoBarTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadUnsignedOptions() async {
@@ -406,9 +460,8 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
     _targets = nextTargets;
   }
 
-  Future<CounterModel> _persistCounter(
+  Future<CounterSaveResult> _persistCounter(
     _PendingCounterSave request,
-    String targetKey,
   ) async {
     return widget.onCounterChanged(
       request.counter,
@@ -418,21 +471,16 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
       sessionLabel: request.sessionLabel,
       // Read at drain time: an earlier save for this target may have just
       // completed (and created the card) while this request was queued.
-      baseCounter: _lastPersistedCounters[targetKey],
+      baseCounter: _lastPersistedCounters[request.targetKey],
     );
   }
 
-  void _enqueueCounterSave(
-    CounterModel updatedCounter,
-    String targetKey,
-  ) {
-    _pendingCounterSaves[targetKey] = _PendingCounterSave(
-      counter: updatedCounter,
-      occurredAt: _occurredAt,
-      activityName: _activityName,
-      venueName: _venueName,
-      sessionLabel: _sessionLabel,
-    );
+  bool _hasPendingSaveFor(String targetKey) {
+    return _pendingCounterSaves.any((entry) => entry.targetKey == targetKey);
+  }
+
+  void _enqueueCounterSave(_PendingCounterSave request) {
+    _pendingCounterSaves.add(request);
     if (!_saveQueueRunning) {
       unawaited(_drainCounterSaveQueue());
     }
@@ -446,35 +494,38 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
 
     try {
       while (_pendingCounterSaves.isNotEmpty) {
-        final entry = _pendingCounterSaves.entries.first;
-        final targetKey = entry.key;
-        final request = entry.value;
-        _pendingCounterSaves.remove(targetKey);
+        final request = _pendingCounterSaves.removeAt(0);
 
         try {
-          final savedCounter = await _persistCounter(request, targetKey);
-          _lastPersistedCounters[targetKey] = savedCounter;
-          if (!mounted || _pendingCounterSaves.containsKey(targetKey)) {
+          final result = await _persistCounter(request);
+          _lastPersistedCounters[request.targetKey] = result.counter;
+          if (!mounted) {
             continue;
           }
 
-          setState(() {
-            _replaceTargetCounter(savedCounter);
-            if (_selectedTargetKey == targetKey) {
-              _counter = savedCounter;
+          final hasNewerSave = _hasPendingSaveFor(request.targetKey);
+          if (!hasNewerSave) {
+            setState(() {
+              _replaceTargetCounter(result.counter);
+              if (_selectedTargetKey == request.targetKey) {
+                _counter = result.counter;
+              }
+            });
+            if (result.recordId != null) {
+              _showUndoBar(request, result.recordId!);
             }
-          });
+          }
         } catch (error) {
           if (!mounted) {
             continue;
           }
 
-          final fallbackCounter = _lastPersistedCounters[targetKey];
-          if (!_pendingCounterSaves.containsKey(targetKey) &&
+          final fallbackCounter = _lastPersistedCounters[request.targetKey];
+          if (!_hasPendingSaveFor(request.targetKey) &&
               fallbackCounter != null) {
             setState(() {
               _replaceTargetCounter(fallbackCounter);
-              if (_selectedTargetKey == targetKey) {
+              if (_selectedTargetKey == request.targetKey) {
                 _counter = fallbackCounter;
               }
             });
@@ -490,6 +541,88 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
         unawaited(_drainCounterSaveQueue());
       }
     }
+  }
+
+  void _showUndoBar(_PendingCounterSave request, int recordId) {
+    _undoBarTimer?.cancel();
+    setState(() {
+      _undoBar = _UndoBarData(
+        message: '${request.field.label} +${request.delta}',
+        request: request,
+        recordId: recordId,
+      );
+    });
+    _undoBarTimer = Timer(const Duration(seconds: 4), () {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _undoBar = null;
+      });
+    });
+  }
+
+  void _hideUndoBar() {
+    _undoBarTimer?.cancel();
+    if (_undoBar != null) {
+      setState(() {
+        _undoBar = null;
+      });
+    }
+  }
+
+  Future<void> _undoSavedRecord(
+    _PendingCounterSave request,
+    int recordId,
+  ) async {
+    final onRecordDeleted = widget.onRecordDeleted;
+    if (onRecordDeleted == null) {
+      return;
+    }
+
+    CounterModel? refreshed;
+    try {
+      refreshed = await onRecordDeleted(recordId, request.beforeCounter);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _undoBar = _UndoBarData(message: '撤销失败：$error');
+        _undoBarTimer?.cancel();
+        _undoBarTimer = Timer(const Duration(seconds: 3), () {
+          if (!mounted) {
+            return;
+          }
+          setState(() {
+            _undoBar = null;
+          });
+        });
+      });
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+
+    final counter = refreshed ?? request.beforeCounter;
+    setState(() {
+      _lastPersistedCounters[request.targetKey] = counter;
+      _replaceTargetCounter(counter);
+      if (_selectedTargetKey == request.targetKey) {
+        _counter = counter;
+      }
+      _undoBar = const _UndoBarData(message: '已撤销');
+      _undoBarTimer?.cancel();
+      _undoBarTimer = Timer(const Duration(seconds: 2), () {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _undoBar = null;
+        });
+      });
+    });
   }
 
   Future<void> _loadActivityEvents({bool syncRemote = false}) async {
@@ -621,6 +754,7 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
   }
 
   void _changeCount(CounterCountField field, int delta) {
+    final beforeCounter = _counter;
     final updatedCounter = _counter.changeCount(field, delta);
     if (updatedCounter.countForField(field) == _counter.countForField(field)) {
       return;
@@ -631,7 +765,20 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
       _counter = updatedCounter;
       _replaceTargetCounter(updatedCounter);
     });
-    _enqueueCounterSave(updatedCounter, targetKey);
+    _hideUndoBar();
+    _enqueueCounterSave(
+      _PendingCounterSave(
+        targetKey: targetKey,
+        counter: updatedCounter,
+        beforeCounter: beforeCounter,
+        field: field,
+        delta: delta,
+        occurredAt: _occurredAt,
+        activityName: _activityName,
+        venueName: _venueName,
+        sessionLabel: _sessionLabel,
+      ),
+    );
   }
 
   Future<void> _editCount(CounterCountField field) async {
@@ -697,89 +844,104 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
     _changeCount(field, delta);
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final visibleFields = CounterCountField.visibleValues(
-      enableUnsigned: _enableUnsignedOptions,
+  List<CounterCountField> get _visibleSpecFields {
+    return CounterCountField.visibleValues(
+      enableUnsigned:
+          _enableUnsignedOptions || _counter.hasUnsignedCounts,
       includeGroupCut: false,
     );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final visibleFields = _visibleSpecFields;
+    final usedFields = visibleFields
+        .where((field) => _counter.countForField(field) > 0)
+        .toList(growable: false);
+    // A member who has never been counted still gets one easy row: 3寸.
+    final primaryFields = usedFields.isEmpty
+        ? [visibleFields.first]
+        : usedFields;
+    final moreFields = visibleFields
+        .where((field) => !primaryFields.contains(field))
+        .toList(growable: false);
+
+    Widget specRow(CounterCountField field) {
+      return _SpecCountRow(
+        field: field,
+        value: _counter.countForField(field),
+        onEditValue: () => _editCount(field),
+        onAddOne: () => _changeCount(field, 1),
+        onAddFive: () => _changeCount(field, 5),
+      );
+    }
+
     return SafeArea(
       child: SingleChildScrollView(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          padding: const EdgeInsets.fromLTRB(20, 8, 16, 20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _counter.name,
-                          style: Theme.of(context).textTheme.headlineSmall,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '总计 ${_counter.count}',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                      ],
+              Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _counter.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.headlineSmall?.copyWith(
+                              fontSize: 24,
+                            ),
+                          ),
+                          if (_counter.groupName.trim().isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              _counter.groupName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 4),
+                          Text(
+                            '总计 ${_counter.count}',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '快捷计数不提供减少按钮；点数字可以直接编辑总数，点按 +1 / +5 / +10 / +50 会立即保存，误点请到最近提交记录里删除对应记录。',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 8),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.schedule_outlined),
-                title: const Text('记录日期'),
-                subtitle: Text(_formatDate(_occurredAt)),
-                trailing: const Icon(Icons.edit_calendar_outlined),
-                onTap: _pickDateTime,
-              ),
-              const SizedBox(height: 8),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  side: BorderSide(
-                    color: Theme.of(context).colorScheme.outlineVariant,
-                  ),
+                    if (widget.onViewDetails != null)
+                      TextButton(
+                        onPressed: widget.onViewDetails,
+                        child: const Text('查看详情'),
+                      ),
+                    IconButton(
+                      tooltip: '关闭',
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
                 ),
-                leading: _activityEventsLoading
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.event_available_outlined),
-                title: const Text('选择偶活场次'),
-                subtitle: Text(
-                  _activityName.isEmpty
-                      ? '从 MineCool 偶活行程填入日期、活动和场地'
-                      : [
-                          _activityName,
-                          if (_venueName.isNotEmpty) _venueName,
-                          if (_sessionLabel.isNotEmpty) _sessionLabel,
-                        ].join(' · '),
-                ),
-                trailing: const Icon(Icons.search),
-                onTap: _pickActivityEvent,
               ),
               if (_targetsLoading) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
                 const LinearProgressIndicator(),
               ],
               if (_targets.length > 1) ...[
@@ -788,7 +950,7 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
                   initialValue: _selectedTargetKey,
                   decoration: const InputDecoration(
                     labelText: '记录到团体',
-                    helperText: '默认当前卡片所属团体，也可以切到这个真人的其他团籍',
+                    helperText: '默认当前团体，也可以切到这个真人的其他团籍',
                   ),
                   items: _targets.map((target) {
                     return DropdownMenuItem<String>(
@@ -804,36 +966,102 @@ class _CounterCountSheetState extends State<CounterCountSheet> {
                   },
                 ),
               ],
-              const SizedBox(height: 16),
-              ...visibleFields.map((field) {
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: _CountAdjustRow(
-                    field: field,
-                    value: _counter.countForField(field),
-                    onEditValue: () => _editCount(field),
-                    onAddOne: () => _changeCount(field, 1),
-                    onAddFive: () => _changeCount(field, 5),
-                    onAddTen: () => _changeCount(field, 10),
-                    onAddFifty: () => _changeCount(field, 50),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: _CompactInfoTile(
+                      icon: Icons.schedule_outlined,
+                      label: '记录日期',
+                      value: _formatDate(_occurredAt),
+                      onTap: _pickDateTime,
+                    ),
                   ),
-                );
-              }),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: _ReadOnlyCountRow(
-                  field: CounterCountField.groupCut,
-                  value: _counter.groupCutCount,
-                  helperText: '团切请通过多人切记录处理，这里仅展示当前累计数量。',
-                ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _CompactInfoTile(
+                      icon: Icons.event_available_outlined,
+                      label: '选择演出',
+                      value: _activityName.isEmpty
+                          ? '自动填日期和场地'
+                          : [
+                              _activityName,
+                              if (_venueName.isNotEmpty) _venueName,
+                              if (_sessionLabel.isNotEmpty) _sessionLabel,
+                            ].join(' · '),
+                      busy: _activityEventsLoading,
+                      onTap: _pickActivityEvent,
+                    ),
+                  ),
+                ],
               ),
+              const SizedBox(height: 14),
+              _SpecGroup(
+                children: [
+                  for (var i = 0; i < primaryFields.length; i++) ...[
+                    if (i > 0) const Divider(height: 1),
+                    specRow(primaryFields[i]),
+                  ],
+                ],
+              ),
+              if (moreFields.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                TextButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _showMoreSpecs = !_showMoreSpecs;
+                    });
+                  },
+                  icon: Icon(
+                    _showMoreSpecs
+                        ? Icons.expand_less_rounded
+                        : Icons.expand_more_rounded,
+                    size: 20,
+                  ),
+                  label: Text(
+                    _showMoreSpecs
+                        ? '收起更多规格'
+                        : '更多规格（${moreFields.length}）',
+                  ),
+                ),
+                if (_showMoreSpecs) ...[
+                  const SizedBox(height: 2),
+                  _SpecGroup(
+                    children: [
+                      for (var i = 0; i < moreFields.length; i++) ...[
+                        if (i > 0) const Divider(height: 1),
+                        specRow(moreFields[i]),
+                      ],
+                    ],
+                  ),
+                ],
+              ],
               const SizedBox(height: 8),
+              _ReadOnlyGroupCutRow(
+                field: CounterCountField.groupCut,
+                value: _counter.groupCutCount,
+              ),
+              if (_undoBar != null) ...[
+                const SizedBox(height: 10),
+                _CounterUndoBar(
+                  data: _undoBar!,
+                  onUndo: () {
+                    final request = _undoBar?.request;
+                    final recordId = _undoBar?.recordId;
+                    if (request == null || recordId == null) {
+                      return;
+                    }
+                    _hideUndoBar();
+                    unawaited(_undoSavedRecord(request, recordId));
+                  },
+                ),
+              ],
+              const SizedBox(height: 14),
               SizedBox(
                 width: double.infinity,
-                child: FilledButton.icon(
+                child: FilledButton(
                   onPressed: () => Navigator.of(context).pop(),
-                  icon: const Icon(Icons.check),
-                  label: const Text('完成'),
+                  child: const Text('完成'),
                 ),
               ),
             ],
@@ -942,195 +1170,344 @@ class _ActivityEventSearchSheetState extends State<_ActivityEventSearchSheet> {
   }
 }
 
-class _ReadOnlyCountRow extends StatelessWidget {
-  final CounterCountField field;
-  final int value;
-  final String helperText;
+class _CounterUndoBar extends StatelessWidget {
+  final _UndoBarData data;
+  final VoidCallback onUndo;
 
-  const _ReadOnlyCountRow({
-    required this.field,
-    required this.value,
-    required this.helperText,
+  const _CounterUndoBar({
+    required this.data,
+    required this.onUndo,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  field.label,
-                  style: theme.textTheme.titleMedium,
+    final scheme = theme.colorScheme;
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
+        decoration: BoxDecoration(
+          color: scheme.inverseSurface,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                data.message,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: scheme.onInverseSurface,
+                  fontWeight: FontWeight.w600,
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  helperText,
-                  style: theme.textTheme.bodySmall,
-                ),
-              ],
+              ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 4,
+            if (data.canUndo)
+              TextButton(
+                onPressed: onUndo,
+                style: TextButton.styleFrom(
+                  foregroundColor: scheme.inversePrimary,
+                  visualDensity: VisualDensity.compact,
                 ),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surface,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  '只读',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+                child: const Text('撤销'),
               ),
-              const SizedBox(height: 8),
-              Text(
-                '$value',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
-class _CountAdjustRow extends StatelessWidget {
+class _SpecGroup extends StatelessWidget {
+  final List<Widget> children;
+
+  const _SpecGroup({required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(children: children),
+    );
+  }
+}
+
+class _SpecCountRow extends StatelessWidget {
   final CounterCountField field;
   final int value;
   final VoidCallback onEditValue;
   final VoidCallback onAddOne;
   final VoidCallback onAddFive;
-  final VoidCallback onAddTen;
-  final VoidCallback onAddFifty;
 
-  const _CountAdjustRow({
+  const _SpecCountRow({
     required this.field,
     required this.value,
     required this.onEditValue,
     required this.onAddOne,
     required this.onAddFive,
-    required this.onAddTen,
-    required this.onAddFifty,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 7, 8, 7),
+      child: Row(
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  field.label,
-                  style: theme.textTheme.titleMedium,
-                ),
-              ),
-              InkWell(
-                borderRadius: BorderRadius.circular(999),
-                onTap: onEditValue,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surface,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    '$value',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-              ),
-            ],
+          Expanded(
+            child: Text(
+              field.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.titleMedium,
+            ),
           ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: _IncrementButton(label: '+1', onPressed: onAddOne),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: _IncrementButton(label: '+5', onPressed: onAddFive),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: _IncrementButton(label: '+10', onPressed: onAddTen),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: _IncrementButton(label: '+50', onPressed: onAddFifty),
-              ),
-            ],
+          _CountValueChip(
+            key: ValueKey<String>('quick-count-value-${field.key}'),
+            value: value,
+            onTap: onEditValue,
           ),
+          const SizedBox(width: 8),
+          _AddCountButton(
+            key: ValueKey<String>('quick-add-one-${field.key}'),
+            label: '+1',
+            emphasized: true,
+            onPressed: onAddOne,
+          ),
+          const SizedBox(width: 6),
+          _AddCountButton(
+            key: ValueKey<String>('quick-add-five-${field.key}'),
+            label: '+5',
+            onPressed: onAddFive,
+          ),
+          const SizedBox(width: 2),
         ],
       ),
     );
   }
 }
 
-class _IncrementButton extends StatelessWidget {
-  final String label;
-  final VoidCallback onPressed;
+class _CountValueChip extends StatelessWidget {
+  final int value;
+  final VoidCallback onTap;
 
-  const _IncrementButton({
-    required this.label,
-    required this.onPressed,
+  const _CountValueChip({
+    super.key,
+    required this.value,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return FilledButton.tonal(
-      onPressed: onPressed,
-      style: FilledButton.styleFrom(
-        minimumSize: const Size(0, 36),
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Tooltip(
+      message: '点数字修改总数',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Container(
+          constraints: const BoxConstraints(minWidth: 38, minHeight: 36),
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: scheme.surface,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: scheme.outlineVariant),
+          ),
+          child: Text(
+            '$value',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
         ),
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
+    );
+  }
+}
+
+class _AddCountButton extends StatelessWidget {
+  final String label;
+  final bool emphasized;
+  final VoidCallback onPressed;
+
+  const _AddCountButton({
+    super.key,
+    required this.label,
+    required this.onPressed,
+    this.emphasized = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final style = emphasized
+        ? FilledButton.styleFrom(
+            minimumSize: const Size(58, 44),
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          )
+        : FilledButton.styleFrom(
+            backgroundColor: scheme.surface,
+            foregroundColor: scheme.primary,
+            minimumSize: const Size(48, 44),
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: scheme.outlineVariant),
+            ),
+          );
+    return FilledButton(
+      onPressed: onPressed,
+      style: style,
       child: Text(
         label,
         style: Theme.of(context).textTheme.labelLarge?.copyWith(
               fontWeight: FontWeight.w800,
             ),
+      ),
+    );
+  }
+}
+
+class _CompactInfoTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final bool busy;
+  final VoidCallback onTap;
+
+  const _CompactInfoTile({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.onTap,
+    this.busy = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(10, 9, 10, 9),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: scheme.outlineVariant),
+        ),
+        child: Row(
+          children: [
+            if (busy)
+              const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              Icon(icon, size: 18, color: scheme.onSurfaceVariant),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 1),
+                  Text(
+                    value,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurface,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ReadOnlyGroupCutRow extends StatelessWidget {
+  final CounterCountField field;
+  final int value;
+
+  const _ReadOnlyGroupCutRow({
+    required this.field,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Row(
+              children: [
+                Text(field.label, style: theme.textTheme.titleSmall),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    '只读',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Text(
+            '$value',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: scheme.onSurfaceVariant,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ],
       ),
     );
   }

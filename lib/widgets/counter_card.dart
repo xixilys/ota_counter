@@ -166,7 +166,6 @@ class CounterCard extends StatelessWidget {
                               countFontSize: countFontSize,
                               isLocked: isLocked,
                               showBreakdown: showBreakdown,
-                              textScale: effectiveTextScale,
                               onEdit: onEdit,
                               onDelete: onDelete,
                               onLongPress: onLongPress,
@@ -210,7 +209,6 @@ class _RegularCardBody extends StatelessWidget {
   final double countFontSize;
   final bool isLocked;
   final bool showBreakdown;
-  final double textScale;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback? onLongPress;
@@ -225,7 +223,6 @@ class _RegularCardBody extends StatelessWidget {
     required this.countFontSize,
     required this.isLocked,
     required this.showBreakdown,
-    required this.textScale,
     required this.onEdit,
     required this.onDelete,
     required this.onLongPress,
@@ -235,8 +232,12 @@ class _RegularCardBody extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final visibleBreakdown = breakdownEntries
+        .where((entry) => entry.value > 0)
+        .toList(growable: false);
 
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Avatar, status icons and the menu share the top row; the name and
@@ -336,16 +337,14 @@ class _RegularCardBody extends StatelessWidget {
           ],
         ),
         if (showBreakdown) ...[
-          const SizedBox(height: 10),
-          Expanded(
-            child: _CountGrid(
-              entries: breakdownEntries,
+          if (visibleBreakdown.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _CountChips(
+              entries: visibleBreakdown,
               accent: accent,
-              textScale: textScale,
             ),
-          ),
-        ] else
-          const Spacer(),
+          ],
+        ],
       ],
     );
   }
@@ -676,166 +675,79 @@ class _MenuItem extends StatelessWidget {
   }
 }
 
-class _CountGrid extends StatelessWidget {
+class _CountChips extends StatelessWidget {
   final List<CounterCountBadgeData> entries;
   final Color accent;
-  final double textScale;
 
-  const _CountGrid({
+  const _CountChips({
     required this.entries,
     required this.accent,
-    required this.textScale,
   });
-
-  static double tileHeightFor(double textScale) =>
-      32.0 * math.max(1.0, textScale);
 
   @override
   Widget build(BuildContext context) {
-    final visibleEntries = entries.isEmpty
-        ? const <CounterCountBadgeData>[
-            CounterCountBadgeData(label: '3寸', value: 0),
-            CounterCountBadgeData(label: '5寸', value: 0),
-            CounterCountBadgeData(label: '3寸宿', value: 0),
-            CounterCountBadgeData(label: '5寸宿', value: 0),
-          ]
-        : entries;
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        const spacing = 6.0;
-        const minTileWidth = 64.0;
-        final maxWidth = constraints.maxWidth;
-        var columns = math
-            .max(1, ((maxWidth + spacing) / (minTileWidth + spacing)).floor())
-            .clamp(1, 3);
-        final tileHeight = tileHeightFor(textScale);
-
-        // Never paint a series of badges taller than the space the card gave
-        // us. Whole rows only, so a row is never cut in half. If the usual
-        // column count leaves rows outside the card, first try a denser grid
-        // (up to three badges per row) before dropping anything.
-        final maxRows = constraints.maxHeight.isFinite
-            ? math.max(
-                0,
-                ((constraints.maxHeight + spacing) / (tileHeight + spacing))
-                    .floor(),
-              )
-            : visibleEntries.length;
-        if (visibleEntries.length > maxRows * columns) {
-          for (var candidate = columns + 1; candidate <= 3; candidate++) {
-            if (visibleEntries.length <= maxRows * candidate) {
-              columns = candidate;
-              break;
-            }
-          }
-        }
-        final itemWidth = math.max(
-          0.0,
-          (maxWidth - ((columns - 1) * spacing)) / columns,
-        );
-        final count = math.min(visibleEntries.length, maxRows * columns);
-        if (count == 0) {
-          return const SizedBox.shrink();
-        }
-        final shown = visibleEntries.take(count).toList(growable: false);
-
-        return Align(
-          alignment: Alignment.topLeft,
-          child: Wrap(
-            spacing: spacing,
-            runSpacing: spacing,
-            children: [
-              for (var i = 0; i < shown.length; i++)
-                SizedBox(
-                  // A lone tile on the last row stretches to the full width.
-                  width: (i == shown.length - 1 && shown.length % columns == 1)
-                      ? maxWidth
-                      : itemWidth,
-                  child: _CountBadge(
-                    key: ValueKey<String>('count-badge-${shown[i].label}'),
-                    label: shown[i].label,
-                    value: shown[i].value,
-                    accent: accent,
-                    height: tileHeight,
-                  ),
-                ),
-            ],
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        for (final entry in entries)
+          _SpecChip(
+            key: ValueKey<String>('count-chip-${entry.label}'),
+            label: entry.label,
+            value: entry.value,
+            accent: accent,
           ),
-        );
-      },
+      ],
     );
   }
 }
 
-class _CountBadge extends StatelessWidget {
+class _SpecChip extends StatelessWidget {
   final String label;
   final int value;
   final Color accent;
-  final double height;
 
-  const _CountBadge({
+  const _SpecChip({
     super.key,
     required this.label,
     required this.value,
     required this.accent,
-    required this.height,
   });
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final isZero = value == 0;
-    final textColor = isZero
-        ? scheme.onSurfaceVariant.withValues(alpha: 0.62)
-        : scheme.onSurface;
-
+    final scheme = Theme.of(context).colorScheme;
     return Container(
-      height: height,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: accent.withValues(alpha: isZero ? 0.045 : 0.075),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: accent.withValues(alpha: isZero ? 0.06 : 0.12),
-        ),
+        color: accent.withValues(alpha: 0.075),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: accent.withValues(alpha: 0.14)),
       ),
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Expanded(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text(
-                label,
-                maxLines: 1,
-                softWrap: false,
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: textColor.withValues(alpha: isZero ? 0.72 : 0.9),
-                ),
-              ),
+          Text(
+            label,
+            maxLines: 1,
+            softWrap: false,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: scheme.onSurfaceVariant,
             ),
           ),
-          const SizedBox(width: 4),
-          Flexible(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerRight,
-              child: Text(
-                '$value',
-                maxLines: 1,
-                softWrap: false,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w900,
-                  height: 1,
-                  color: textColor,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
+          const SizedBox(width: 5),
+          Text(
+            '$value',
+            maxLines: 1,
+            softWrap: false,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+              height: 1,
+              color: scheme.onSurface,
+              fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
         ],
@@ -866,18 +778,26 @@ double counterCardHeight({
     final nameFontSize = itemWidth < 190 ? 15.0 : 17.0;
     final countFontSize = itemWidth < 190 ? 38.0 : 44.0;
     final innerWidth = math.max(0.0, itemWidth - 31.0);
-    const spacing = 6.0;
-    const minTileWidth = 64.0;
-    final tileColumns = math
-        .max(1, ((innerWidth + spacing) / (minTileWidth + spacing)).floor())
-        .clamp(1, 3);
-    final breakdownRows = breakdownEntryCount <= 0
+
+    // Compact count chips sit in a Wrap. Estimate their width from the label
+    // plus a two-digit value; the estimate is intentionally a little wide so
+    // scaled-up text never makes the last chip spill out of the card.
+    final chipWidth = 80.0 * scale;
+    final chipHeight = 24.0 + 6.0 * math.max(1.0, scale);
+    final chipColumns = breakdownEntryCount <= 0
         ? 0
-        : (breakdownEntryCount + tileColumns - 1) ~/ tileColumns;
-    final tileHeight = _CountGrid.tileHeightFor(math.max(1.0, scale));
-    final breakdownHeight = breakdownRows == 0
+        : math
+            .max(
+              1,
+              ((innerWidth + 6.0) / (chipWidth + 6.0)).floor(),
+            )
+            .clamp(1, 5);
+    final chipRows = chipColumns == 0
+        ? 0
+        : (breakdownEntryCount + chipColumns - 1) ~/ chipColumns;
+    final chipBlockHeight = chipRows == 0
         ? 0.0
-        : breakdownRows * tileHeight + (breakdownRows - 1) * spacing;
+        : 10.0 + chipRows * chipHeight + (chipRows - 1) * 6.0;
 
     final contentHeight = 2 * 13.0 +
         38.0 +
@@ -887,10 +807,8 @@ double counterCardHeight({
         11.0 * 1.2 * scale +
         10.0 +
         countFontSize * 0.95 * scale +
-        10.0 +
-        breakdownHeight +
-        10.0;
-    return math.max(gridColumns == 1 ? 248.0 : 228.0, contentHeight);
+        chipBlockHeight;
+    return math.max(0.0, contentHeight);
   }
 
   final verticalPadding = gridColumns >= 5 ? 7.0 : 9.0;

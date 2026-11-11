@@ -352,7 +352,7 @@ class ExportImportService {
     }
 
     throw const FormatException(
-      '文件格式错误：当前仅支持完整备份、旧版计数器备份或 OTA 历史导出文件',
+      '文件格式错误：当前仅支持完整备份、旧版备份或 OTA 历史导出文件',
     );
   }
 

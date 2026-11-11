@@ -231,6 +231,11 @@ class IdolDatabaseService {
   }
 
   static Future<void> _syncBundle(IdolSeedBundle bundle) async {
+    if (bundle.groups.isEmpty) {
+      // Never wipe the local library because an upstream fetch returned an
+      // empty or truncated payload. Both the generator and the app guard this.
+      throw const FormatException('偶像数据为空，已保留本地资料');
+    }
     final db = await database;
 
     await db.transaction((txn) async {
@@ -387,9 +392,41 @@ class IdolDatabaseService {
 
       final bundle = IdolSeedBundle.fromJson(decoded);
       await _syncBundle(bundle);
+      await _markSeedSyncedAt();
     } finally {
       client.close(force: true);
     }
+  }
+
+  static Future<void> syncFromRemoteIfStale({
+    String? url,
+    Duration maxAge = const Duration(hours: 12),
+  }) async {
+    final meta = await getMeta();
+    final lastSyncedAt = DateTime.tryParse(
+      meta['idol_seed_synced_at'] ?? '',
+    );
+    if (lastSyncedAt != null) {
+      final age = DateTime.now().difference(lastSyncedAt);
+      // A future timestamp (clock skew) should force a refresh instead of
+      // suppressing it forever.
+      if (!age.isNegative && age < maxAge) {
+        return;
+      }
+    }
+    await syncFromRemote(url: url);
+  }
+
+  static Future<void> _markSeedSyncedAt() async {
+    final db = await database;
+    await db.insert(
+      'idol_meta',
+      {
+        'key': 'idol_seed_synced_at',
+        'value': DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   static Future<void> syncActivityEventsFromRemote({String? url}) async {

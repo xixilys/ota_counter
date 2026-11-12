@@ -1,7 +1,7 @@
 {
   "sourceUrl": "https://chinaidols.fandom.com/zh/wiki/%E4%B8%AD%E5%9B%BD%E5%81%B6%E5%83%8F_Wiki",
   "sourceLabel": "中国偶像 Wiki（社区）+ 人工补充",
-  "generatedAt": "2026-11-11T17:21:21.044365+00:00",
+  "generatedAt": "2026-11-12T12:01:32.073866+00:00",
   "groups": [
     {
       "name": "0n!ine",
@@ -22474,6 +22474,27 @@
         {
           "name": "骷Kukuro",
           "status": "正式成员",
+          "sourceLabel": "人工补充"
+        }
+      ],
+      "sourceLabel": "人工补充"
+    },
+    {
+      "name": "DustStar",
+      "members": [
+        {
+          "name": "刘沫Momo",
+          "status": "正式成员 / 浅蓝色担当",
+          "sourceLabel": "人工补充"
+        },
+        {
+          "name": "明里Akari",
+          "status": "正式成员 / 红色担当",
+          "sourceLabel": "人工补充"
+        },
+        {
+          "name": "恋鲨Yumeko",
+          "status": "正式成员 / 粉色担当",
           "sourceLabel": "人工补充"
         }
       ],

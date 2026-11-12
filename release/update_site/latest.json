@@ -3,15 +3,14 @@
   "versionName": "1.6.2",
   "versionCode": 23,
   "versionLabel": "v1.6.2",
-  "title": "OTA Counter v1.6.2 测试版",
+  "title": "OTA Counter v1.6.2",
   "notes": [
-    "【测试版】这是测试版本，新功能可能还不稳定；更新前建议先在菜单里做一次完整备份",
+    "更新前建议先在菜单里做一次完整备份",
     "批量拍切：没指定完也能保存，没指定成员的卡会跳过、不入账；每张卡右上角可以直接删除，误删能撤销",
     "批量拍切认人：所有登记过脸的成员都参与比对，其他成员也会当对手比较；当天记过账或场次里的人可直接认出，名单外的人只标「待确认」",
-    "复核时选人面板新增「名单里没有？添加新成员」，可从偶像库搜索或手动加人，加完自动勾选",
     "偶像资料库补充 DustStar（刘沫Momo、明里Akari、恋鲨Yumeko）"
   ],
-  "publishedAt": "2026-11-12T20:10:03+08:00",
+  "publishedAt": "2026-11-12T20:39:44+08:00",
   "force": false,
   "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.6.2.apk",
   "downloadPageUrl": "https://ota-counter.huangxuanqi.top/ota-counter/",

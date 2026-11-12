@@ -691,12 +691,16 @@ class BatchImportService {
   /// day's counts as soft caps. Without samples (or with recognition off)
   /// every card is 未认出. [groupCandidates] retains the day's separate
   /// affiliations when a single recognised person belongs to several groups.
+  /// Pass every member as [candidates] with the day's / session's members
+  /// first; [preferredCount] of them may be auto-accepted, the rest only
+  /// suggested for review.
   static List<BatchReviewCard> recognize({
     required List<BatchSourceResult> sources,
     required List<FaceMember> candidates,
     required List<FaceSampleModel> samples,
     List<FaceMember>? groupCandidates,
     BatchDayContext? day,
+    int? preferredCount,
   }) {
     final selfSamples = [
       for (final s in samples)
@@ -704,6 +708,9 @@ class BatchImportService {
     ];
     final memberSamples =
         FaceSampleService.samplesByMember(candidates, samples);
+    final rivalSamples = FaceSampleService.rivalSamples(candidates, samples);
+    final sampledPeople =
+        memberSamples.where((s) => s.isNotEmpty).length + rivalSamples.length;
     final caps = <int, int>{};
     if (day != null) {
       for (var i = 0; i < candidates.length; i++) {
@@ -715,6 +722,7 @@ class BatchImportService {
     final flat = <({BatchSourceResult source, BatchCard card})>[];
     final faceLists = <List<FaceAnalysis>>[];
     final scoreLists = <List<List<double>>>[];
+    final rivalLists = <List<double>>[];
     for (final source in sources) {
       for (final card in source.cards) {
         final faces = [
@@ -730,12 +738,22 @@ class BatchImportService {
                 s.isEmpty ? -1.0 : maxSimilarity(f.embedding, s),
             ],
         ]);
+        rivalLists.add([
+          for (final f in faces)
+            rivalSamples.fold<double>(
+              -1.0,
+              (best, s) => math.max(best, maxSimilarity(f.embedding, s)),
+            ),
+        ]);
       }
     }
     final assignments = assignFacesToMembers(
       cards: scoreLists,
       candidateCount: candidates.length,
       caps: caps,
+      rivals: rivalLists,
+      sampledPeople: sampledPeople,
+      preferredCount: preferredCount,
     );
     final reviewCards = <BatchReviewCard>[];
     for (var i = 0; i < flat.length; i++) {

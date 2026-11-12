@@ -3,12 +3,15 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../models/counter_model.dart';
 import '../models/face_sample_model.dart';
 import '../services/batch_import_service.dart';
 import '../services/database_service.dart';
 import '../services/face/face_recognition_rules.dart';
+import '../services/face/face_sample_service.dart';
 import '../services/idol_database_service.dart';
 import '../services/record_scan_service.dart';
+import 'add_idol_page.dart';
 import 'manual_scan_crop_page.dart';
 
 /// 批量拍切 step 2: check every cut polaroid, its member(s) and size, see
@@ -41,6 +44,10 @@ class BatchReviewPage extends StatefulWidget {
 
 class _BatchReviewPageState extends State<BatchReviewPage> {
   late final List<BatchReviewCard> _cards = [...widget.cards];
+
+  /// Members added from the picker during this review (new counters).
+  final List<FaceMember> _addedMembers = [];
+  final List<CounterModel> _addedCounters = [];
   final Set<String> _disabledLines = {};
   bool _saving = false;
   Map<String, String> _avatars = {};
@@ -87,6 +94,28 @@ class _BatchReviewPageState extends State<BatchReviewPage> {
 
   int get _unassigned => _cards.where((c) => !c.hasRequiredDetails).length;
 
+  /// Cards that will be saved; unassigned ones are skipped.
+  List<BatchReviewCard> get _ready =>
+      _cards.where((c) => c.hasRequiredDetails).toList();
+
+  void _deleteCard(BatchReviewCard card) {
+    final index = _cards.indexOf(card);
+    if (index < 0) return;
+    setState(() => _cards.removeAt(index));
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(SnackBar(
+      content: const Text('已删除这张'),
+      action: SnackBarAction(
+        label: '撤销',
+        onPressed: () {
+          if (!mounted || _cards.contains(card)) return;
+          setState(() => _cards.insert(index.clamp(0, _cards.length), card));
+        },
+      ),
+    ));
+  }
+
   String get _dayLabel {
     final d = widget.day.day;
     return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
@@ -106,6 +135,7 @@ class _BatchReviewPageState extends State<BatchReviewPage> {
       dayMembers: [
         ...widget.groupCandidates,
         ...widget.allMembers,
+        ..._addedMembers,
         ...groupMembers,
       ].where(inGroup),
       sessionGroupMembers: const [],
@@ -120,6 +150,7 @@ class _BatchReviewPageState extends State<BatchReviewPage> {
         candidates: widget.candidates.where(inGroup).toList(),
         allMembers: allMembers,
         avatars: _avatars,
+        onAddMembers: _addMembers,
       ),
     );
     if (result == null || !mounted) return;
@@ -312,7 +343,7 @@ class _BatchReviewPageState extends State<BatchReviewPage> {
       case 'crop':
         await _fixCrop(card);
       case 'delete':
-        setState(() => _cards.remove(card));
+        _deleteCard(card);
     }
   }
 
@@ -321,7 +352,7 @@ class _BatchReviewPageState extends State<BatchReviewPage> {
     setState(() => _saving = true);
     try {
       final plan = await BatchImportService.buildSavePlan(
-        cards: _cards,
+        cards: _ready,
         day: widget.day,
         session: widget.session,
         disabledLines: _disabledLines,
@@ -367,7 +398,7 @@ class _BatchReviewPageState extends State<BatchReviewPage> {
               Text('$duplicates 张原图之前导入过',
                   style: TextStyle(color: theme.colorScheme.error)),
             if (_unassigned > 0)
-              Text('还有 $_unassigned 张没有指定成员或团体',
+              Text('还有 $_unassigned 张没有指定成员或团体，保存时会跳过',
                   style: TextStyle(color: theme.colorScheme.error)),
             for (final entry in entries)
               Row(
@@ -419,6 +450,29 @@ class _BatchReviewPageState extends State<BatchReviewPage> {
     );
   }
 
+  /// Opens 添加偶像 from the picker, saves the new members right away (so
+  /// the ledger can point at them) and returns them for selection.
+  Future<List<FaceMember>> _addMembers(BuildContext pickerContext) async {
+    final counters = await Navigator.of(pickerContext).push<List<CounterModel>>(
+      MaterialPageRoute(
+        builder: (context) => AddIdolPage(
+          existingCounters: [...widget.day.counters, ..._addedCounters],
+        ),
+      ),
+    );
+    if (counters == null || counters.isEmpty) return const [];
+    final added = <FaceMember>[];
+    for (final counter in counters) {
+      final id = await DatabaseService.insertCounter(counter);
+      final saved = counter.copyWith(id: id);
+      _addedCounters.add(saved);
+      added.add(FaceSampleService.memberFromCounter(saved));
+    }
+    await DatabaseService.autoAssignCounterThemeColors();
+    if (mounted) setState(() => _addedMembers.addAll(added));
+    return added;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -443,6 +497,7 @@ class _BatchReviewPageState extends State<BatchReviewPage> {
                   card: _cards[i],
                   onTap: () => _editMembers(_cards[i]),
                   onMore: () => _showCardActions(_cards[i]),
+                  onDelete: () => _deleteCard(_cards[i]),
                   onSize: () => _toggleSize(_cards[i]),
                   onType: (type) => _chooseType(_cards[i], type),
                 ),
@@ -457,13 +512,14 @@ class _BatchReviewPageState extends State<BatchReviewPage> {
           padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
           child: FilledButton(
             key: const ValueKey('batch_save'),
-            onPressed:
-                _saving || _cards.isEmpty || _unassigned > 0 ? null : _save,
+            onPressed: _saving || _ready.isEmpty ? null : _save,
             child: Text(_saving
                 ? '保存中…'
-                : _unassigned > 0
-                    ? '还有 $_unassigned 张没指定成员或团体'
-                    : '确认保存 ${_cards.length} 张'),
+                : _ready.isEmpty
+                    ? '先给至少一张指定成员或团体'
+                    : _unassigned > 0
+                        ? '保存 ${_ready.length} 张，跳过 $_unassigned 张未指定'
+                        : '确认保存 ${_cards.length} 张'),
           ),
         ),
       ),
@@ -475,6 +531,7 @@ class _CardTile extends StatelessWidget {
   final BatchReviewCard card;
   final VoidCallback onTap;
   final VoidCallback onMore;
+  final VoidCallback onDelete;
   final VoidCallback onSize;
   final ValueChanged<BatchCutType> onType;
 
@@ -483,6 +540,7 @@ class _CardTile extends StatelessWidget {
     required this.card,
     required this.onTap,
     required this.onMore,
+    required this.onDelete,
     required this.onSize,
     required this.onType,
   });
@@ -546,10 +604,23 @@ class _CardTile extends StatelessWidget {
                   Positioned(
                     right: 0,
                     top: 0,
-                    child: IconButton(
-                      onPressed: onMore,
-                      icon: const Icon(Icons.more_vert, color: Colors.white),
-                      tooltip: '更多',
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          key: const ValueKey('batch_card_delete'),
+                          onPressed: onDelete,
+                          icon: const Icon(Icons.delete_outline,
+                              color: Colors.white),
+                          tooltip: '删除这张',
+                        ),
+                        IconButton(
+                          onPressed: onMore,
+                          icon:
+                              const Icon(Icons.more_vert, color: Colors.white),
+                          tooltip: '更多',
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -702,12 +773,14 @@ class _MemberPickerSheet extends StatefulWidget {
   final List<FaceMember> candidates;
   final List<FaceMember> allMembers;
   final Map<String, String> avatars;
+  final Future<List<FaceMember>> Function(BuildContext context)? onAddMembers;
 
   const _MemberPickerSheet({
     required this.card,
     required this.candidates,
     required this.allMembers,
     required this.avatars,
+    this.onAddMembers,
   });
 
   @override
@@ -716,7 +789,19 @@ class _MemberPickerSheet extends StatefulWidget {
 
 class _MemberPickerSheetState extends State<_MemberPickerSheet> {
   late final List<FaceMember> _selected = [...widget.card.members];
+  final List<FaceMember> _added = [];
   String _query = '';
+
+  Future<void> _addNew() async {
+    final added = await widget.onAddMembers?.call(context) ?? const [];
+    if (added.isEmpty || !mounted) return;
+    setState(() {
+      _added.addAll(added);
+      for (final m in added) {
+        if (!_isSelected(m)) _selected.add(m);
+      }
+    });
+  }
 
   bool _isSelected(FaceMember m) => _selected.any((x) => x.sameAs(m));
 
@@ -756,8 +841,11 @@ class _MemberPickerSheetState extends State<_MemberPickerSheet> {
   @override
   Widget build(BuildContext context) {
     final card = widget.card;
+    // Suggestions may name members outside the day's list; keep them.
     final suggestions = card.suggestions
-        .where((s) => widget.candidates.any((c) => c.sameAs(s)))
+        .where((s) =>
+            widget.candidates.any((c) => c.sameAs(s)) ||
+            widget.allMembers.any((c) => c.sameAs(s)))
         .toList();
     final query = _query.trim().toLowerCase();
     bool matches(FaceMember m) =>
@@ -765,11 +853,16 @@ class _MemberPickerSheetState extends State<_MemberPickerSheet> {
         m.name.toLowerCase().contains(query) ||
         m.groupName.toLowerCase().contains(query) ||
         m.personName.toLowerCase().contains(query);
-    final others = widget.allMembers
-        .where((m) => !widget.candidates.any((c) => c.sameAs(m)) && matches(m))
+    final others = [...widget.allMembers, ..._added]
+        .where((m) =>
+            !widget.candidates.any((c) => c.sameAs(m)) &&
+            (query.isNotEmpty || !suggestions.any((s) => s.sameAs(m))) &&
+            matches(m))
         .toList();
     final candidates = widget.candidates
-        .where((m) => !suggestions.any((s) => s.sameAs(m)) && matches(m))
+        .where((m) =>
+            (query.isNotEmpty || !suggestions.any((s) => s.sameAs(m))) &&
+            matches(m))
         .toList();
     return SafeArea(
       child: SizedBox(
@@ -822,6 +915,14 @@ class _MemberPickerSheetState extends State<_MemberPickerSheet> {
                     const ListTile(dense: true, title: Text('其他成员')),
                     for (final m in others) _tile(m),
                   ],
+                  if (widget.onAddMembers != null)
+                    ListTile(
+                      key: const ValueKey('member_picker_add_new'),
+                      leading: const Icon(Icons.person_add_alt_1_outlined),
+                      title: const Text('名单里没有？添加新成员'),
+                      subtitle: const Text('从偶像库搜，或手动输入名字'),
+                      onTap: _addNew,
+                    ),
                 ],
               ),
             ),

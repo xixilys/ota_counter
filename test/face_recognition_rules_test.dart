@@ -268,6 +268,89 @@ void main() {
       expect(r.topCandidates, [0, 1]);
     });
 
+    // 2026-11-12 desk photos: the day had one candidate (兔兔, 2 samples),
+    // so strangers had no runner-up and were pre-filled as her.
+    List<CardAssignment> withRivals(
+      List<double> scores,
+      double rival, {
+      required int sampledPeople,
+    }) =>
+        assignFacesToMembers(
+          cards: [
+            [scores],
+          ],
+          candidateCount: scores.length,
+          rivals: [
+            [rival],
+          ],
+          sampledPeople: sampledPeople,
+        );
+
+    test('a face closer to someone outside the candidates is not pre-filled',
+        () {
+      final r = withRivals([0.55], 0.60, sampledPeople: 2).single;
+      expect(r.status, FaceMatchStatus.unknown);
+      expect(r.candidates, isEmpty);
+      expect(r.topCandidates, [0]);
+    });
+
+    test('a candidate barely ahead of an outside person is not pre-filled',
+        () {
+      final r = withRivals([0.66], 0.61, sampledPeople: 2).single;
+      expect(r.status, FaceMatchStatus.unknown);
+      expect(r.candidates, isEmpty);
+    });
+
+    test('members off the day list are only suggested for review', () {
+      List<CardAssignment> run(List<double> scores) => assignFacesToMembers(
+            cards: [
+              [scores],
+            ],
+            candidateCount: scores.length,
+            sampledPeople: 2,
+            preferredCount: 1,
+          );
+      final onList = run([0.80, 0.40]).single;
+      expect(onList.status, FaceMatchStatus.auto);
+      expect(onList.candidates, [0]);
+      final offList = run([0.40, 0.80]).single;
+      expect(offList.status, FaceMatchStatus.review);
+      expect(offList.candidates, [1]);
+      // An empty day list means nobody is preferred: normal rules apply.
+      final open = assignFacesToMembers(
+        cards: [
+          [
+            [0.40, 0.80],
+          ],
+        ],
+        candidateCount: 2,
+        sampledPeople: 2,
+        preferredCount: 0,
+      ).single;
+      expect(open.status, FaceMatchStatus.auto);
+    });
+
+    test('an outside person counts as runner-up for auto', () {
+      expect(withRivals([0.75], 0.70, sampledPeople: 2).single.status,
+          FaceMatchStatus.unknown);
+      final review = withRivals([0.58], 0.45, sampledPeople: 2).single;
+      expect(review.status, FaceMatchStatus.review);
+      expect(review.candidates, [0]);
+      final auto = withRivals([0.80], 0.55, sampledPeople: 2).single;
+      expect(auto.status, FaceMatchStatus.auto);
+    });
+
+    test('alone, a member needs 0.60 to be suggested and 0.70 for auto', () {
+      final stranger = withRivals([0.55], -1, sampledPeople: 1).single;
+      expect(stranger.status, FaceMatchStatus.unknown);
+      expect(stranger.candidates, isEmpty);
+      final unsure = withRivals([0.65], -1, sampledPeople: 1).single;
+      expect(unsure.status, FaceMatchStatus.review);
+      expect(unsure.candidates, [0]);
+      final sure = withRivals([0.75], -1, sampledPeople: 1).single;
+      expect(sure.status, FaceMatchStatus.auto);
+    });
+
     test('a card without faces is unknown', () {
       final r = assignFacesToMembers(
         cards: const [[]],

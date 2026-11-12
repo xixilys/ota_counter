@@ -37,6 +37,14 @@ class FaceMatchThresholds {
   /// member (leads 0.02–0.07), while true matches led by 0.08–0.32.
   static const double reviewMargin = 0.08;
 
+  /// When at most one person has samples there is no runner-up to measure a
+  /// lead against, so any face clearing [reviewMin] used to be pre-filled
+  /// as that person (2026-11-12 desk photos: with only 兔兔 enrolled, about
+  /// nine strangers were suggested as her). Alone, a member must reach
+  /// [soloReviewMin] to be suggested and [soloAutoMin] to be auto-accepted.
+  static const double soloReviewMin = 0.60;
+  static const double soloAutoMin = 0.70;
+
   /// Gain lost when a face is assigned beyond a member's known count for
   /// the day (soft cap). Such faces are always shown as 待确认.
   static const double overCapPenalty = 0.08;
@@ -383,11 +391,26 @@ class CardAssignment {
 /// most once per polaroid (a multi-member cut has distinct members): any
 /// clash is resolved by forbidding the weaker face that member and solving
 /// again.
+///
+/// [rivals] holds, per polaroid, per face, the best score against enrolled
+/// people who are not candidates (-1 = none). They are never assigned, but a
+/// face that is at least as close to one of them — or not clearly closer to
+/// its candidate — stays 未认出, and they count as runner-up for 自动.
+/// [sampledPeople] is how many people (candidates and rivals) have samples;
+/// below two the [FaceMatchThresholds.soloReviewMin] /
+/// [FaceMatchThresholds.soloAutoMin] bars apply. When [preferredCount] is
+/// set and positive, candidates from that index on are never auto-accepted.
 List<CardAssignment> assignFacesToMembers({
   required List<List<List<double>>> cards,
   required int candidateCount,
   Map<int, int> caps = const {},
+  List<List<double>>? rivals,
+  int? sampledPeople,
+  int? preferredCount,
 }) {
+  double rivalOf(int card, int face) =>
+      rivals == null ? -1.0 : rivals[card][face];
+  final solo = sampledPeople != null && sampledPeople < 2;
   final faces = <({int card, int face, List<double> scores})>[];
   for (var c = 0; c < cards.length; c++) {
     for (var f = 0; f < cards[c].length; f++) {
@@ -485,6 +508,15 @@ List<CardAssignment> assignFacesToMembers({
         .take(FaceMatchThresholds.reviewChoices)
         .toList(growable: false);
     var m = result[r].candidate;
+    final rival = rivalOf(faces[r].card, faces[r].face);
+    if (m != null &&
+        rival >= 0 &&
+        scores[m] - rival < FaceMatchThresholds.reviewMargin) {
+      m = null;
+    }
+    if (m != null && solo && scores[m] < FaceMatchThresholds.soloReviewMin) {
+      m = null;
+    }
     if (m != null &&
         !result[r].overCap &&
         scores[m] < FaceMatchThresholds.autoMin) {
@@ -508,17 +540,25 @@ List<CardAssignment> assignFacesToMembers({
       continue;
     }
     final score = scores[m];
-    var runnerUp = -1.0;
+    var runnerUp = rival;
     for (var other = 0; other < candidateCount; other++) {
       if (other != m && scores[other] > runnerUp) runnerUp = scores[other];
     }
     final overCap = result[r].overCap;
     final someoneUnsampled = scores.any((value) => value < 0);
+    // Candidates after the first [preferredCount] are not on the day's
+    // ledger or session: still suggested, but only for review.
+    final offList = preferredCount != null &&
+        preferredCount > 0 &&
+        m >= preferredCount;
     final isAuto = !overCap &&
+        !offList &&
         score >=
-            (someoneUnsampled
-                ? FaceMatchThresholds.autoMinWithUnsampled
-                : FaceMatchThresholds.autoMin) &&
+            (solo
+                ? FaceMatchThresholds.soloAutoMin
+                : someoneUnsampled
+                    ? FaceMatchThresholds.autoMinWithUnsampled
+                    : FaceMatchThresholds.autoMin) &&
         score - runnerUp >= FaceMatchThresholds.autoMargin;
     perCard[faces[r].card].add(FaceAssignment(
       candidate: m,

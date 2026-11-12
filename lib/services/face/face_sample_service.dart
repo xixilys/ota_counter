@@ -468,6 +468,31 @@ class FaceSampleService {
     );
   }
 
+  /// Samples of every enrolled member who is not one of [candidates], one
+  /// list per member. Recognition compares faces against them too, so a face
+  /// that looks more like someone outside the day's candidates is not
+  /// pre-filled as a candidate.
+  static List<List<List<double>>> rivalSamples(
+    List<FaceMember> candidates,
+    List<FaceSampleModel> samples,
+  ) {
+    final owners = <FaceMember>[];
+    final groups = <List<List<double>>>[];
+    for (final s in samples) {
+      if (s.isSelf) continue;
+      final owner = _sampleOwner(s);
+      if (candidates.any((c) => _sameMemberIdentity(c, owner))) continue;
+      final index = owners.indexWhere((o) => _sameMemberIdentity(o, owner));
+      if (index < 0) {
+        owners.add(owner);
+        groups.add([s.embedding]);
+      } else {
+        groups[index].add(s.embedding);
+      }
+    }
+    return groups;
+  }
+
   /// Samples of each member, in [members] order.
   static List<List<List<double>>> samplesByMember(
     List<FaceMember> members,

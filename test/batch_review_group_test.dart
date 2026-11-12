@@ -245,4 +245,144 @@ void main() {
     expect(review.members.single.personId, 101);
     expect(review.confirmedFaces.single.member.personId, 101);
   });
+
+  testWidgets('picker keeps an off-list suggestion and offers adding a member',
+      (tester) async {
+    const onDay = FaceMember(counterId: 1, name: '甲', groupName: '一团');
+    const offDay = FaceMember(counterId: 3, name: '丁', groupName: '二团');
+    final card = BatchCard(
+      bytes:
+          Uint8List.fromList(img.encodeJpg(img.Image(width: 10, height: 10))),
+      fileExtension: '.jpg',
+      processingMode: ActivityRecordMediaProcessingMode.antiGlareBasic,
+      quad: const RecordScanQuad(
+        topLeftX: 0,
+        topLeftY: 0,
+        topRightX: 10,
+        topRightY: 0,
+        bottomLeftX: 0,
+        bottomLeftY: 10,
+        bottomRightX: 10,
+        bottomRightY: 10,
+      ),
+      sizeClass: RecordScanCardSize.mini,
+      confidence: 1,
+      splitFromMerged: false,
+      faces: const [],
+    );
+    final review = BatchReviewCard(
+      source: BatchSourceResult(
+        photo: const BatchSourcePhoto(
+            path: '/tmp/unused', capturedAt: null, fromCamera: false),
+        sourceHash: 'test',
+        cards: [card],
+      ),
+      card: card,
+      members: [offDay],
+      status: FaceMatchStatus.review,
+      suggestions: [offDay],
+      size: ChekiSize.threeInch,
+      sizeUncertain: false,
+      faceMatches: const [],
+      groupSuggested: false,
+    );
+    await tester.pumpWidget(MaterialApp(
+        home: BatchReviewPage(
+      cards: [review],
+      day: BatchDayContext(
+          day: DateTime(2026, 3, 14),
+          records: const [],
+          sessions: const [],
+          dayMembers: const [onDay],
+          counters: const []),
+      session: null,
+      candidates: const [onDay],
+      allMembers: const [onDay, offDay],
+    )));
+
+    await tester.tap(find.text('丁'));
+    await tester.pumpAndSettle();
+    expect(find.text('最像的'), findsOneWidget);
+    // Listed once, under 最像的, even though 丁 is not on the day's list.
+    expect(find.byKey(ValueKey('member_${offDay.key}')), findsOneWidget);
+    expect(find.byKey(const ValueKey('member_picker_add_new')), findsOneWidget);
+  });
+
+  testWidgets('unassigned cards are skipped on save and cards can be deleted',
+      (tester) async {
+    const a = FaceMember(counterId: 1, name: '甲', groupName: '一团');
+    BatchReviewCard make(List<FaceMember> members) {
+      final card = BatchCard(
+        bytes:
+            Uint8List.fromList(img.encodeJpg(img.Image(width: 10, height: 10))),
+        fileExtension: '.jpg',
+        processingMode: ActivityRecordMediaProcessingMode.antiGlareBasic,
+        quad: const RecordScanQuad(
+          topLeftX: 0,
+          topLeftY: 0,
+          topRightX: 10,
+          topRightY: 0,
+          bottomLeftX: 0,
+          bottomLeftY: 10,
+          bottomRightX: 10,
+          bottomRightY: 10,
+        ),
+        sizeClass: RecordScanCardSize.mini,
+        confidence: 1,
+        splitFromMerged: false,
+        faces: const [],
+      );
+      return BatchReviewCard(
+        source: BatchSourceResult(
+          photo: const BatchSourcePhoto(
+              path: '/tmp/unused', capturedAt: null, fromCamera: false),
+          sourceHash: 'test',
+          cards: [card],
+        ),
+        card: card,
+        members: members,
+        status:
+            members.isEmpty ? FaceMatchStatus.unknown : FaceMatchStatus.auto,
+        suggestions: const [],
+        size: ChekiSize.threeInch,
+        sizeUncertain: false,
+        faceMatches: const [],
+        groupSuggested: false,
+      );
+    }
+
+    await tester.pumpWidget(MaterialApp(
+        home: BatchReviewPage(
+      cards: [
+        make([a]),
+        make(const [])
+      ],
+      day: BatchDayContext(
+          day: DateTime(2026, 3, 14),
+          records: const [],
+          sessions: const [],
+          dayMembers: const [],
+          counters: const []),
+      session: null,
+      candidates: const [a],
+      allMembers: const [a],
+    )));
+    FilledButton save() =>
+        tester.widget<FilledButton>(find.byKey(const ValueKey('batch_save')));
+    expect(find.text('保存 1 张，跳过 1 张未指定'), findsOneWidget);
+    expect(save().onPressed, isNotNull);
+
+    await tester.tap(find.byKey(const ValueKey('batch_card_delete')).last);
+    await tester.pumpAndSettle();
+    expect(find.text('确认保存 1 张'), findsOneWidget);
+
+    await tester.tap(find.text('撤销'));
+    await tester.pumpAndSettle();
+    expect(find.text('保存 1 张，跳过 1 张未指定'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('batch_card_delete')).first);
+    await tester.pumpAndSettle();
+    expect(find.text('先给至少一张指定成员或团体'), findsOneWidget);
+    expect(save().onPressed, isNull);
+  });
 }

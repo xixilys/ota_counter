@@ -259,9 +259,23 @@ class _BatchCapturePageState extends State<BatchCapturePage>
       final samples = _recognition
           ? await FaceSampleService.getSamples()
           : const <FaceSampleModel>[];
+      // Cheki are usually photographed before the day is booked, so every
+      // member is compared; the day's / session's members come first and
+      // only they can be auto-accepted.
+      final preferred = buildCandidateMembers(
+        dayMembers: context0.dayMembers,
+        sessionGroupMembers: sessionMembers,
+        allMembers: const [],
+      );
+      final everyone = buildCandidateMembers(
+        dayMembers: [...preferred, ...all],
+        sessionGroupMembers: const [],
+        allMembers: const [],
+      );
       final cards = BatchImportService.recognize(
         sources: sources,
-        candidates: candidates,
+        candidates: everyone,
+        preferredCount: preferred.length,
         groupCandidates: groupCandidates,
         samples: samples,
         day: context0,

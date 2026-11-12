@@ -36,7 +36,176 @@ def fetch_json(session: requests.Session, url: str) -> dict[str, Any]:
 
 
 def normalize_text(value: Any) -> str:
-    return str(value or "").strip()
+    # Upstream descriptions and titles sometimes contain HTML entities.
+    return html.unescape(str(value or "")).strip()
+
+
+_MATCH_NOISE_RE = re.compile(
+    r"[\s·•・_\-~/\\()\[\]{}（）【】「」『』“”\"\'’&\u200b\u200c\u200d\ufeff]+"
+)
+
+
+def normalize_for_match(value: Any) -> str:
+    return _MATCH_NOISE_RE.sub("", normalize_text(value)).casefold()
+
+
+_VENUE_PREFIX_RE = re.compile(
+    r"^(?:📍\s*)?(?:活动地点|活动地址|演出地点|演出地址|地点|地址|会場|会场)\s*[：:]\s*"
+)
+# A venue that starts mid-word is a fragment of the post title, not a venue.
+_LOWERCASE_VENUE_RE = re.compile(r"^[a-z]")
+_GARBLED_VENUE_RE = re.compile(r"&(?:amp|lt|gt|quot|#\d+);|^mp;", re.I)
+_PLACEHOLDER_EVENTS = {"", "？？？", "???", "（日）？？？", "(日)？？？", "待定", "tba", "tbd"}
+
+
+def clean_venue(venue: Any, city: Any, event_name: Any) -> str:
+    value = _VENUE_PREFIX_RE.sub("", normalize_text(venue)).strip(" ·，,。;；")
+    if not value:
+        return ""
+    if normalize_for_match(value) == normalize_for_match(city):
+        return ""
+    if _GARBLED_VENUE_RE.search(value) or _LOWERCASE_VENUE_RE.match(value):
+        return ""
+    # A title suffix such as "rellas熠期一会Live" is a broken venue; keep it
+    # only when it still looks like a real venue name.
+    normalized_venue = normalize_for_match(value)
+    if (
+        len(normalized_venue) >= 4
+        and normalized_venue in normalize_for_match(event_name)
+        and not re.search(r"live|house|space|剧场|中心|馆|厅|店|场|club|bar", value, re.I)
+    ):
+        return ""
+    return value
+
+
+_WEEKDAY_RE = re.compile(r"周[一二三四五六日天]")
+
+
+def _is_placeholder_event(value: Any, city: Any) -> bool:
+    """A post such as 广州 ？？？ only announces that a date is undecided."""
+    text = normalize_text(value)
+    if "？？？" in text or "???" in text:
+        return True
+    if (
+        text.endswith(("？", "?"))
+        and not text.endswith(("！？", "!?", "？!", "?!", "！?", "?！"))
+        and len(text) <= 20
+    ):
+        return True
+    normalized = normalize_for_match(value)
+    if normalized in {
+        normalize_for_match(item) for item in _PLACEHOLDER_EVENTS
+    }:
+        return True
+    for token in ("？", "?", "待定", "tba", "tbd"):
+        normalized = normalized.replace(normalize_for_match(token), "")
+    normalized = _WEEKDAY_RE.sub("", normalized)
+    city_key = normalize_for_match(city)
+    if city_key:
+        normalized = normalized.replace(city_key, "")
+    return len(normalized) <= 2
+
+
+def clean_event_name(name: Any, city: Any = "") -> str:
+    value = normalize_text(name)
+    if len(value) > 80:
+        return ""
+    if _is_placeholder_event(value, city):
+        return ""
+    return value
+
+
+_TIME_RE = re.compile(r"(?<!\d)([01]?\d|2[0-3])[:：]([0-5]\d)(?!\d)")
+
+
+def _clock(value: str) -> str:
+    hour, minute = re.split(r"[:：]", value, maxsplit=1)
+    return f"{int(hour):02d}:{minute}"
+
+
+def extract_times(description: Any) -> dict[str, str]:
+    """Fill OPEN/START from explicit wording in the post, never guess."""
+    text = normalize_text(description)
+    times = {"openTime": "", "startTime": ""}
+    if not text:
+        return times
+    open_patterns = (
+        re.compile(r"\bOPEN\s*[-–—]?\s*(\d{1,2}[:：]\d{2})", re.I),
+        re.compile(r"开(?:场|始)(?:时间)?\s*[:：]?\s*(\d{1,2}[:：]\d{2})"),
+    )
+    start_patterns = (
+        re.compile(r"\bSTART\s*[-–—]?\s*(\d{1,2}[:：]\d{2})", re.I),
+        re.compile(r"开演(?:时间)?\s*[:：]?\s*(\d{1,2}[:：]\d{2})"),
+    )
+    pair = re.search(
+        r"(\d{1,2}[:：]\d{2})\s*(?:入场|開場|开场)[^\d]{0,15}?"
+        r"(\d{1,2}[:：]\d{2})\s*(?:正式)?(?:开演|開演|开始|START)",
+        text,
+        re.I,
+    )
+    if pair:
+        times["openTime"] = _clock(pair.group(1))
+        times["startTime"] = _clock(pair.group(2))
+        return times
+    for pattern in open_patterns:
+        match = pattern.search(text)
+        if match:
+            times["openTime"] = _clock(match.group(1))
+            break
+    for pattern in start_patterns:
+        match = pattern.search(text)
+        if match:
+            times["startTime"] = _clock(match.group(1))
+            break
+    if not times["startTime"]:
+        match = re.search(
+            r"(?:演出时间|活动时间|Live\s*时间|时间)\s*[:：]\s*(\d{1,2}[:：]\d{2})",
+            text,
+            re.I,
+        )
+        if match:
+            times["startTime"] = _clock(match.group(1))
+    return times
+
+
+def _group_identity(group: dict[str, Any]) -> str:
+    return normalize_text(group.get("uid")) or normalize_for_match(group.get("name"))
+
+
+def merge_event(target: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    """Merge two rows for the same date/city/title; detail data wins."""
+    target_is_detail = target["sourceEventId"].startswith("minecool-detail")
+    incoming_is_detail = incoming["sourceEventId"].startswith("minecool-detail")
+    if incoming_is_detail and not target_is_detail:
+        base, extra = incoming, target
+    else:
+        base, extra = target, incoming
+    merged = dict(base)
+    for field in ("venue", "openTime", "startTime", "description", "sourceLink", "posterUrl"):
+        if not merged.get(field) and extra.get(field):
+            merged[field] = extra[field]
+    merged["isFree"] = bool(target.get("isFree") or incoming.get("isFree"))
+    tiers: list[dict[str, Any]] = []
+    seen_tiers: set[str] = set()
+    for source in (target, incoming):
+        for tier in source.get("ticketTiers") or []:
+            key = normalize_for_match(tier.get("name"))
+            if not key or key in seen_tiers:
+                continue
+            seen_tiers.add(key)
+            tiers.append(tier)
+    merged["ticketTiers"] = tiers
+    groups: list[dict[str, str]] = []
+    seen_groups: set[str] = set()
+    for source in (target, incoming):
+        for group in source.get("groups") or []:
+            key = _group_identity(group)
+            if not key or key in seen_groups:
+                continue
+            seen_groups.add(key)
+            groups.append(group)
+    merged["groups"] = groups
+    return merged
 
 
 def source_id(*parts: str) -> str:
@@ -182,19 +351,21 @@ def extract_ticket_info(texts: list[Any]) -> dict[str, Any]:
 
 def event_from_detail(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
     date = normalize_text(raw.get("date"))
-    name = normalize_text(raw.get("event_name"))
+    city = normalize_text(raw.get("city"))
+    name = clean_event_name(raw.get("event_name"), city)
     if not date or not name:
         return None
 
-    groups = [
-        group
-        for group in (
-            normalize_group(item)
-            for item in raw.get("groups", [])
-            if isinstance(item, dict)
-        )
-        if group["name"]
-    ]
+    groups = []
+    seen_groups: set[str] = set()
+    for item in raw.get("groups", []):
+        if not isinstance(item, dict):
+            continue
+        group = normalize_group(item)
+        key = _group_identity(group)
+        if group["name"] and key and key not in seen_groups:
+            seen_groups.add(key)
+            groups.append(group)
     stable_id = normalize_text(raw.get("original_mid") or raw.get("detail_mid"))
     if not stable_id:
         stable_id = source_id(
@@ -217,15 +388,16 @@ def event_from_detail(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
             raw.get("text_raw"),
         ]
     )
+    times = extract_times(raw.get("description"))
 
     return {
         "sourceEventId": f"minecool-detail-{stable_id}",
         "date": date,
-        "city": normalize_text(raw.get("city")),
-        "venue": normalize_text(raw.get("venue")),
+        "city": city,
+        "venue": clean_venue(raw.get("venue"), city, name),
         "eventName": name,
-        "openTime": normalize_text(raw.get("open_time")),
-        "startTime": normalize_text(raw.get("start_time")),
+        "openTime": normalize_text(raw.get("open_time")) or times["openTime"],
+        "startTime": normalize_text(raw.get("start_time")) or times["startTime"],
         "description": normalize_text(raw.get("description")),
         "sourceLink": normalize_text(
             raw.get("original_link") or raw.get("source_link")
@@ -239,27 +411,23 @@ def event_from_detail(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
 
 def event_from_group(group: dict[str, Any], raw: dict[str, Any]) -> Optional[dict[str, Any]]:
     date = normalize_text(raw.get("date"))
-    name = normalize_text(raw.get("event"))
+    city = normalize_text(raw.get("city"))
+    name = clean_event_name(raw.get("event"), city)
     if not date or not name:
         return None
 
     group_name = normalize_text(group.get("username"))
     uid = normalize_text(group.get("uid"))
-    stable_id = source_id(
-        "group",
-        uid,
-        group_name,
-        date,
-        normalize_text(raw.get("city")),
-        normalize_text(raw.get("venue")),
-        name,
-    )
+    # One post per group means many rows per actual event.  A stable ID based
+    # on the event identity lets the payload writer merge those rows; keeping
+    # group order out of the ID also keeps it stable across runs.
+    stable_id = source_id("merged", date, city, name)
 
     return {
         "sourceEventId": f"minecool-group-{stable_id}",
         "date": date,
-        "city": normalize_text(raw.get("city")),
-        "venue": normalize_text(raw.get("venue")),
+        "city": city,
+        "venue": clean_venue(raw.get("venue"), city, name),
         "eventName": name,
         "openTime": "",
         "startTime": "",
@@ -283,14 +451,23 @@ def generate_payload(
     events_data: dict[str, Any],
     events_detail: dict[str, Any],
 ) -> dict[str, Any]:
-    events_by_id: dict[str, dict[str, Any]] = {}
+    events_by_key: dict[tuple[str, str, str], dict[str, Any]] = {}
+
+    def add(event: dict[str, Any]) -> None:
+        key = (
+            event["date"],
+            normalize_for_match(event["city"]),
+            normalize_for_match(event["eventName"]),
+        )
+        existing = events_by_key.get(key)
+        events_by_key[key] = event if existing is None else merge_event(existing, event)
 
     for raw in events_detail.get("events", []):
         if not isinstance(raw, dict):
             continue
         event = event_from_detail(raw)
         if event is not None:
-            events_by_id[event["sourceEventId"]] = event
+            add(event)
 
     for group in events_data.get("groups", []):
         if not isinstance(group, dict):
@@ -300,10 +477,10 @@ def generate_payload(
                 continue
             event = event_from_group(group, raw)
             if event is not None:
-                events_by_id.setdefault(event["sourceEventId"], event)
+                add(event)
 
     events = sorted(
-        events_by_id.values(),
+        events_by_key.values(),
         key=lambda item: (
             item["date"],
             item["city"],

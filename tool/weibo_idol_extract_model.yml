@@ -1,0 +1,10 @@
+# Extraction model for tool/weibo_idol_updater.py.
+#
+# The headless profile's default is a Codex model; when that quota runs out
+# the updater cannot extract members at all.  This overlay switches the
+# extraction step to a small DeepSeek model on the local Magpie gateway.
+# Delete this file to fall back to the profile's own default.
+- id: agent-default-model
+  config:
+    provider: magpie
+    model: "auto/deepseek-v4.1-flash-eco"

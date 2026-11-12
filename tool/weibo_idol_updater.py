@@ -26,6 +26,16 @@ import requests
 SEED_URL = "https://ota-counter.huangxuanqi.top/ota-counter/data/china_idols_seed.json"
 EVENTS_URL = "https://ota-counter.huangxuanqi.top/ota-counter/data/idol_activity_events.json"
 WEIBO_URL = "https://weibo.com"
+WIKI_API = "https://chinaidols.fandom.com/zh/api.php"
+UNCREATED_ENTRIES_TITLE = "未建立页面的条目"
+# The dsh headless profile defaults to a Codex model whose quota can be
+# exhausted for weeks.  A small DeepSeek model handles the extraction just
+# as well; the patch is optional so a manual run can remove it and fall
+# back to the profile default.
+EXTRACT_MODEL_PATCH = Path(__file__).with_name("weibo_idol_extract_model.yml")
+WIKI_LINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]")
+WIKI_WEIBO_UID_RE = re.compile(r"weibo\s*=\s*([0-9]{5,})", re.I)
+WIKI_IGNORED_TARGETS = ("category:", "file:", "template:", "user:", "special:", "help:")
 SOURCE_LABEL = "微博自动补充"
 LOGIN_MESSAGE = "微博登录失效，请在 Edge 打开 weibo.com 重新登录"
 KEYWORDS = ("member", "成员", "阵容", "见习", "毕业", "运行信息")
@@ -70,7 +80,65 @@ def same_group(left, right):
     return bool(left and right and (left in right or right in left))
 
 
-def select_groups(events, seed_groups, state, now, limit, rng=None):
+def parse_uncreated_entries(wikitext):
+    """Groups on the Wiki's 未建立页面的条目 list, with their Weibo UIDs.
+
+    The category crawl only sees groups with their own page.  A group such as
+    DustStar appears on this list only, as a line like
+        #[[DustStar]]{{Sns|weibo=9157473736}}
+    so this list is the only way the updater can find it.
+    """
+    text = re.sub(r"<!--.*?-->", "", wikitext, flags=re.S)
+    groups = []
+    seen_names, seen_uids = set(), set()
+    for line in text.splitlines():
+        link = WIKI_LINK_RE.search(line)
+        if not link:
+            continue
+        target = link.group(1).strip()
+        label = (link.group(2) or "").strip()
+        if not target or target.casefold().startswith(WIKI_IGNORED_TARGETS):
+            continue
+        uid_match = WIKI_WEIBO_UID_RE.search(line)
+        if not uid_match:
+            continue
+        uid = uid_match.group(1)
+        name = clean_group_name(label or target)
+        if not name or len(name) > 80:
+            continue
+        normalized = normalize_group_name(name)
+        if not normalized or normalized in seen_names or uid in seen_uids:
+            continue
+        seen_names.add(normalized)
+        seen_uids.add(uid)
+        groups.append({"name": name, "uid": uid})
+    return groups
+
+
+def fetch_uncreated_entries(session=None):
+    """Read the Wiki list of groups that do not have their own page yet."""
+    requester = session or requests.Session()
+    response = requester.get(
+        WIKI_API,
+        params={
+            "action": "parse",
+            "page": UNCREATED_ENTRIES_TITLE,
+            "prop": "wikitext",
+            "format": "json",
+            "formatversion": "2",
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    wikitext = (payload.get("parse") or {}).get("wikitext")
+    if not isinstance(wikitext, str):
+        raise ValueError("Wiki 未建立页面的条目格式无效")
+    return parse_uncreated_entries(wikitext)
+
+
+def select_groups(events, seed_groups, state, now, limit, rng=None,
+                  extra_groups=None):
     """Return recent missing groups in never-checked, then oldest-checked order."""
     today = now.astimezone(timezone(timedelta(hours=8))).date()
     cutoff = today - timedelta(days=90)
@@ -100,6 +168,22 @@ def select_groups(events, seed_groups, state, now, limit, rng=None):
             if uid not in candidates and normalized not in candidate_names:
                 candidates[uid] = {"name": name, "uid": uid}
                 candidate_names.add(normalized)
+
+    # Wiki groups with their own page are handled by the category crawl.
+    # Page-less groups only appear on the 未建立页面的条目 list, and that
+    # list carries the Weibo UID needed to inspect them; without it a group
+    # such as DustStar is never seen at all.
+    for group in extra_groups or []:
+        uid = str(group.get("uid") or "").strip()
+        name = clean_group_name(str(group.get("name") or ""))
+        if not uid.isdigit() or not normalize_group_name(name):
+            continue
+        if any(same_group(name, seed_name) for seed_name in seed_names):
+            continue
+        normalized = normalize_group_name(name)
+        if uid not in candidates and normalized not in candidate_names:
+            candidates[uid] = {"name": name, "uid": uid}
+            candidate_names.add(normalized)
 
     def last_checked(uid):
         try:
@@ -386,11 +470,19 @@ def extract_members(group_name, posts):
         '"status":"正式成员"}]}，status 只能是“正式成员”或“见习成员”。\n'
         "以下为帖子正文：\n" + "\n\n---\n\n".join(selected)
     )
+    command = ["dsh", "--profile", "headless"]
+    if EXTRACT_MODEL_PATCH.is_file():
+        command += ["--patch", str(EXTRACT_MODEL_PATCH)]
+    command.append("-")
     try:
         result = subprocess.run(
-            ["dsh", "--profile", "headless", "-"], input=prompt, text=True,
+            command, input=prompt, text=True,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120, check=True,
         )
+    except subprocess.CalledProcessError as error:
+        detail = (error.stderr or "").strip().splitlines()
+        reason = detail[-1][:160] if detail else "无错误输出"
+        raise ValueError(f"dsh 调用失败（{reason}）") from None
     except (subprocess.SubprocessError, OSError) as error:
         raise ValueError(f"dsh 调用失败（{type(error).__name__}）") from None
     output = result.stdout.strip()
@@ -457,14 +549,14 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="用微博帖子自动补充偶像成员")
     parser.add_argument("--limit", type=int, default=25, help="每次最多检查的团数")
     parser.add_argument("--max-new", type=int, default=None,
-                        help="单次新增成员上限，缺省为每团 5 人（--limit × 5）")
+                        help="单次新增成员上限，缺省为每团 12 人（--limit × 12）")
     parser.add_argument("--dry-run", action="store_true", help="只显示新增内容，不更新输出或轮换状态")
     parser.add_argument("--jitter-minutes", type=int, default=0,
                         help="开始前随机等待 0 到这么多分钟（定时任务用）")
     parser.add_argument("--publish", action="store_true", help="更新后通过 scp 发布累计文件")
     args = parser.parse_args(argv)
     if args.max_new is None:
-        args.max_new = args.limit * 5
+        args.max_new = args.limit * 12
     if args.limit < 1 or args.max_new < 0:
         parser.error("--limit 必须大于 0，--max-new 必须不小于 0")
     if args.dry_run and args.publish:
@@ -492,8 +584,16 @@ def main(argv=None):
         if not isinstance(seed.get("groups"), list) or not isinstance(events.get("events"), list):
             raise ValueError("种子或演出名单格式无效")
         now = datetime.now(timezone.utc)
-        selected = select_groups(events["events"], seed["groups"], state, now, args.limit,
-                                 rng=random.Random())
+        try:
+            wiki_groups = fetch_uncreated_entries()
+            log.info("Wiki 未建立页面的条目：%d 团", len(wiki_groups))
+        except (requests.RequestException, ValueError, TypeError) as error:
+            wiki_groups = []
+            log.info("Wiki 未建立页面的条目读取失败（%s），本轮只用演出名单",
+                     type(error).__name__)
+        selected = select_groups(events["events"], seed["groups"], state, now,
+                                 args.limit, rng=random.Random(),
+                                 extra_groups=wiki_groups)
         log.info("待检查：%d 团", len(selected))
         # Optional budget is useful for a bounded live test; normal scheduled runs are unlimited.
         budget_text = os.environ.get("OTA_WEIBO_MAX_REQUESTS", "")

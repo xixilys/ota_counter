@@ -101,6 +101,38 @@ class SelectionTest(unittest.TestCase):
         self.assertEqual(updater.select_groups(events, [], state, NOW, 3), [group("近期团", "1")])
 
 
+class UncreatedEntriesTest(unittest.TestCase):
+    def test_parser_reads_page_less_groups_with_weibo_uids(self):
+        wikitext = """
+==团体偶像（按地区分类）==
+#[[DustStar]]{{Sns|weibo=9157473736}}
+#[[糖果屋]] {{Sns|bilibili=1|weibo=1234567}}
+<!-- #[[注释团]]{{Sns|weibo=9999999}} -->
+#[[没有微博]]
+#[[File:Logo.png]]{{Sns|weibo=7777777}}
+#[[DustStar]]{{Sns|weibo=9157473736}}
+"""
+        parsed = updater.parse_uncreated_entries(wikitext)
+        self.assertEqual(parsed, [
+            {"name": "DustStar", "uid": "9157473736"},
+            {"name": "糖果屋", "uid": "1234567"},
+        ])
+
+    def test_page_less_groups_join_selection_and_respect_seed_and_dedup(self):
+        events = [event(1, group("演出团", "1"))]
+        extra = [
+            group("页面外团", "2"),
+            group("演出团", "1"),
+            group("演出团official", "1"),
+            group("已有维基团", "3"),
+            {"name": "无UID", "uid": ""},
+        ]
+        seed = [{"name": "已有维基团", "sourceLabel": "中国偶像 Wiki（社区）"}]
+        selected = updater.select_groups(
+            events, seed, {}, NOW, 25, extra_groups=extra)
+        self.assertEqual({item["uid"] for item in selected}, {"1", "2"})
+
+
 class MergeTest(unittest.TestCase):
     def test_repeated_runs_accumulate_without_duplicate_groups_or_members(self):
         original = {"sourceLabel": "微博", "groups": [
@@ -275,6 +307,7 @@ class MainTest(OfflineTest):
         recent = datetime.now(timezone(timedelta(hours=8))).date().isoformat()
         self.events = [{"date": recent, "groups": [group("新团", "123")]}]
         self.download = self.stack.enter_context(patch.object(updater, "download_json", side_effect=self.download_json))
+        self.wiki = self.stack.enter_context(patch.object(updater, "fetch_uncreated_entries", return_value=[]))
         self.client_type = self.stack.enter_context(patch.object(updater, "WeiboClient"))
         self.client = self.client_type.return_value
         self.client.posts.return_value = (["正式成员：小春、小夏"], 0)
@@ -301,6 +334,11 @@ class MainTest(OfflineTest):
         self.assertEqual(updater.main([]), 0)
         self.assertEqual(self.client.posts.call_count, 2, "dry-run must not cool down this group")
         self.assertIn("123", json.loads(self.state.read_text(encoding="utf-8")))
+
+    def test_wiki_page_less_groups_are_checked(self):
+        self.wiki.return_value = [group("页面外团", "456")]
+        self.assertEqual(updater.main(["--dry-run"]), 0)
+        self.assertEqual(self.client.posts.call_count, 2)
 
     def test_success_accumulates_and_next_run_obeys_cooldown(self):
         self.assertEqual(updater.main([]), 0)

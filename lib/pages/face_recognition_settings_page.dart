@@ -2,9 +2,12 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../services/database_service.dart';
 import '../services/face/face_engine.dart';
+import '../services/face/face_mcp_sync_service.dart';
+import '../services/face/face_sample_export_service.dart';
 import '../services/face/face_sample_service.dart';
 import '../services/face/face_recognition_rules.dart';
 import '../services/settings_service.dart';
@@ -58,6 +61,8 @@ class _FaceRecognitionSettingsPageState
   String _busyLabel = '';
   ({int self, int members, int people})? _stats;
   List<({FaceMember member, int count})> _members = [];
+  String _syncStatus = '还没有同步到本机人脸库';
+  String _photoStatus = '还没有同步照片';
 
   @override
   void initState() {
@@ -115,6 +120,122 @@ class _FaceRecognitionSettingsPageState
       if (mounted) setState(() => _busy = false);
       await _load();
     }
+  }
+
+  Future<void> _syncSamples({bool quiet = false}) async {
+    if (_busy) return;
+    if (!quiet) setState(() => _syncStatus = '正在同步人脸样本…');
+    final result = await FaceMcpSyncService.syncSamples();
+    if (!mounted) return;
+    setState(() => _syncStatus = result.summary);
+    if (!quiet && !result.ok) _toast(result.summary);
+  }
+
+  Future<void> _syncPhotos() async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _busyLabel = '正在同步拍立得照片…';
+    });
+    try {
+      final result = await FaceMcpSyncService.syncPhotos(
+        onProgress: (done, total) {
+          if (!mounted) return;
+          setState(() => _busyLabel = '正在同步照片 $done/$total');
+        },
+      );
+      if (!mounted) return;
+      setState(() {
+        _photoStatus = result.ok
+            ? '已同步 ${result.sent} 张照片'
+                '${result.failed > 0 ? '，${result.failed} 张失败' : ''}'
+            : result.summary;
+      });
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _configureMcp() async {
+    final urlController =
+        TextEditingController(text: await SettingsService.getFaceMcpUrl());
+    final tokenController =
+        TextEditingController(text: await SettingsService.getFaceMcpToken());
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('本机人脸库'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: urlController,
+              decoration: const InputDecoration(
+                labelText: '地址',
+                hintText: 'http://192.168.0.117:8789',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: tokenController,
+              decoration: const InputDecoration(
+                labelText: 'token',
+                hintText: 'Mac 上 ~/.ota-counter/data/token 的内容',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              await SettingsService.saveFaceMcpUrl(urlController.text);
+              await SettingsService.saveFaceMcpToken(tokenController.text);
+              if (context.mounted) Navigator.pop(context);
+            },
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _export() async {
+    await _run('导出', () async {
+      final result = await FaceSampleExportService.exportToJson();
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('已导出人脸样本'),
+          content: Text(
+            '${result.count} 条样本'
+            '${result.skipped > 0 ? '，${result.skipped} 条因模型不符跳过' : ''}\n\n'
+            '${result.path}\n\n'
+            '只在本机生成，不含人脸照片；也可以直接同步给本机人脸库。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Share.shareXFiles(
+                  [XFile(result.path)],
+                  text: '人脸样本（仅向量，不含照片）',
+                );
+              },
+              child: const Text('分享出去'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('好'),
+            ),
+          ],
+        ),
+      );
+    });
   }
 
   Future<void> _setEnabled(bool value) async {
@@ -270,6 +391,34 @@ class _FaceRecognitionSettingsPageState
                 trailing: Text('${item.count} 个样本'),
               ),
           ],
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 24, 16, 8),
+            child: Text('本机人脸库（MCP）'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.sync_outlined),
+            title: const Text('同步人脸样本'),
+            subtitle: Text(_syncStatus),
+            onTap: _busy ? null : _syncSamples,
+          ),
+          ListTile(
+            leading: const Icon(Icons.photo_library_outlined),
+            title: const Text('同步拍立得照片'),
+            subtitle: Text(_photoStatus),
+            onTap: _busy ? null : _syncPhotos,
+          ),
+          ListTile(
+            leading: const Icon(Icons.settings_ethernet_outlined),
+            title: const Text('本机人脸库地址与 token'),
+            subtitle: const Text('默认连同一 Wi-Fi 下的 Mac；token 在 Mac 上生成'),
+            onTap: _busy ? null : _configureMcp,
+          ),
+          ListTile(
+            leading: const Icon(Icons.file_upload_outlined),
+            title: const Text('导出人脸样本'),
+            subtitle: const Text('生成一个只含 128 维向量的文件，不含照片；可分享到 Mac'),
+            onTap: _busy ? null : _export,
+          ),
           ListTile(
             leading: const Icon(Icons.delete_forever_outlined),
             title: const Text('清除全部人脸数据'),

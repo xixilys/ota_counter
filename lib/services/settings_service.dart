@@ -107,6 +107,41 @@ class SettingsService {
     return prefs.getString(_otaAdminKey) ?? '';
   }
 
+  static const String _faceMcpUrlKey = 'face_mcp_url';
+  static const String _faceMcpTokenKey = 'face_mcp_token';
+
+  /// Local face MCP (Mac).  Override with
+  /// --dart-define=OTA_FACE_MCP_URL=... at build time; the token can be
+  /// injected with OTA_FACE_MCP_TOKEN so no secret is committed.
+  static const String faceMcpDefaultUrl = String.fromEnvironment(
+    'OTA_FACE_MCP_URL',
+    defaultValue: 'http://192.168.0.117:8789',
+  );
+  static const String faceMcpDefaultToken =
+      String.fromEnvironment('OTA_FACE_MCP_TOKEN', defaultValue: '');
+
+  static Future<String> getFaceMcpUrl() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = (prefs.getString(_faceMcpUrlKey) ?? '').trim();
+    return saved.isEmpty ? faceMcpDefaultUrl : saved;
+  }
+
+  static Future<void> saveFaceMcpUrl(String url) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_faceMcpUrlKey, url.trim());
+  }
+
+  static Future<String> getFaceMcpToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = (prefs.getString(_faceMcpTokenKey) ?? '').trim();
+    return saved.isEmpty ? faceMcpDefaultToken : saved;
+  }
+
+  static Future<void> saveFaceMcpToken(String token) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_faceMcpTokenKey, token.trim());
+  }
+
   static Future<void> saveOverviewMetricIds(List<String> ids) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(

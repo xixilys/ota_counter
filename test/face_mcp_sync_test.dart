@@ -131,7 +131,7 @@ void main() {
     expect(result.sent, 1);
     expect(progress, 1);
 
-    final request = received.single;
+    final request = received.last;
     final params = request['params'] as Map<String, dynamic>;
     expect(params['name'], 'add_photos');
     final photo = ((params['arguments'] as Map)['photos'] as List).single as Map;

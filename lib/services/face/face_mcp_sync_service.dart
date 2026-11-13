@@ -143,6 +143,12 @@ class FaceMcpSyncService {
     if (total == 0) {
       return const FaceMcpSyncResult(ok: true, sent: 0);
     }
+    try {
+      // Fail fast on a wrong URL/token instead of retrying every photo.
+      await _call('face_sample_stats', const {}, timeout: _sampleTimeout);
+    } catch (error) {
+      return FaceMcpSyncResult(ok: false, error: '$error');
+    }
     var sent = 0;
     var failed = 0;
     for (var i = 0; i < photos.length; i++) {

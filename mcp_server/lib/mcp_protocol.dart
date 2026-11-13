@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'face_images.dart';
+import 'member_catalog.dart';
 import 'snapshot.dart';
 import 'store.dart';
 
@@ -23,11 +24,17 @@ class McpMethodException extends ToolException {
 /// [handle] accepts a decoded request object (or a JSON-RPC batch) and returns
 /// the decoded response object. Notifications return `null`.
 class McpProtocol {
-  McpProtocol(this.store, {this.requestBaseUrl});
+  McpProtocol(
+    this.store, {
+    this.requestBaseUrl,
+    this.catalog = MemberCatalog.empty,
+  });
 
   final String? requestBaseUrl;
 
   final SyncStore store;
+
+  final MemberCatalog catalog;
 
   Future<Object?> handle(Object? payload) async {
     if (payload is List) {
@@ -106,7 +113,8 @@ class McpProtocol {
                   'list_face_enrollments 查询 App 回执，诚实报告 faces_found、used_face 和 '
                   'samples_kept（每人最多保留 30 个样本，samples_kept 可能为 0）。失败时按中文原因'
                   '和 faces 里的 index_from_left 让用户用 face: left_N 重试。没有图片字节时用 '
-                  'create_face_upload_link 给用户手机上传链接。不要索取或显示同步 token。',
+                  'create_face_upload_link 给用户手机上传链接。没有卡片的新人先用 search_member 查名册/别名，'
+                  '再 create_member 或 record_cheki(allow_create=true)。不要索取或显示同步 token。',
         };
       case 'ping':
         return <String, dynamic>{};
@@ -167,6 +175,10 @@ class McpProtocol {
         return _listGroups();
       case 'record_cheki':
         return _recordCheki(arguments);
+      case 'create_member':
+        return _createMember(arguments);
+      case 'search_member':
+        return _searchMember(arguments);
       case 'add_ticket':
         return _addTicket(arguments);
       case 'list_pending_actions':
@@ -479,7 +491,13 @@ class McpProtocol {
     Map<String, dynamic> arguments,
   ) async {
     final view = await _requireSnapshot();
-    final member = _findMember(view, arguments);
+    final allowCreate = arguments['allow_create'] == true;
+    MemberAggregate? member;
+    try {
+      member = _findMember(view, arguments);
+    } on ToolException {
+      if (!allowCreate) rethrow;
+    }
     final counts = <String, int>{};
     for (final entry in countKeyAliases.entries) {
       final value = arguments[entry.key] ??
@@ -499,23 +517,52 @@ class McpProtocol {
     final occurredAt = _parseOccurredAt(
       readString(arguments, ['occurred_at', 'occurredAt']),
     );
-    final requestedGroup = readString(arguments, ['group']).trim();
-    if (requestedGroup.isNotEmpty &&
-        !member.groups.any(
-          (value) => normalizePart(value) == normalizePart(requestedGroup),
-        )) {
-      throw ToolException(
-        'Group "$requestedGroup" is not one of this member\'s groups: '
-        '${member.groups.join(', ')}',
-      );
+
+    int? personId;
+    String personName;
+    String primaryGroup;
+    int? counterId;
+    String memberName;
+    final found = member;
+    if (found == null) {
+      // allow_create with a name that is not on any card yet.
+      final name = readString(arguments, ['name', 'member']).trim();
+      if (name.isEmpty) {
+        throw ToolException(
+          'allow_create=true 时需要 name：请提供要新建卡片的成员名',
+        );
+      }
+      personId = _optionalPersonId(arguments['person_id']);
+      personName = readString(arguments, ['person_name', 'personName']).trim();
+      primaryGroup = readString(arguments, ['group_name', 'group']).trim();
+      counterId = null;
+      memberName = name;
+      if (personName.isEmpty) personName = name;
+    } else {
+      final requestedGroup =
+          readString(arguments, ['group', 'group_name']).trim();
+      if (requestedGroup.isNotEmpty &&
+          !found.groups.any(
+            (value) => normalizePart(value) == normalizePart(requestedGroup),
+          )) {
+        throw ToolException(
+          'Group "$requestedGroup" is not one of this member\'s groups: '
+          '${found.groups.join(', ')}',
+        );
+      }
+      primaryGroup =
+          requestedGroup.isNotEmpty ? requestedGroup : found.primaryGroup;
+      counterId = found.primaryCounterId;
+      personId = found.personId;
+      personName = found.name;
+      memberName = found.name;
     }
-    final primaryGroup =
-        requestedGroup.isNotEmpty ? requestedGroup : member.primaryGroup;
+
     final payload = {
-      'counter_id': member.primaryCounterId,
-      'person_id': member.personId,
-      'person_name': member.name,
-      'member_name': member.name,
+      'counter_id': counterId,
+      'person_id': personId,
+      'person_name': personName,
+      'member_name': memberName,
       'group_name': primaryGroup,
       'occurred_at': occurredAt.toIso8601String(),
       'counts': counts,
@@ -523,7 +570,7 @@ class McpProtocol {
       'activity_name': readString(arguments, ['activity_name', 'activityName']),
       'venue_name': readString(arguments, ['venue_name', 'venueName']),
       'session_label': readString(arguments, ['session_label', 'sessionLabel']),
-      'allow_create': arguments['allow_create'] == true,
+      'allow_create': allowCreate,
     };
     final queued = await store.queueAction({
       'kind': 'counter_delta',
@@ -536,8 +583,8 @@ class McpProtocol {
       'status': action['status'],
       'kind': 'counter_delta',
       'member': {
-        'member_id': member.primaryCounterId,
-        'name': member.name,
+        'member_id': counterId,
+        'name': memberName,
         'group': primaryGroup,
       },
       'counts': counts,
@@ -545,6 +592,206 @@ class McpProtocol {
       'pending_actions': _pendingCount(await store.status()),
       'message':
           'Queued. Open OTA Counter → MCP 同步 → 一键同步 to apply it locally.',
+    };
+  }
+
+  int? _optionalPersonId(Object? value) {
+    if (value == null) return null;
+    if (value is num) {
+      final id = value.toInt();
+      return id > 0 ? id : null;
+    }
+    if (value is String) {
+      final trimmed = value.trim();
+      if (trimmed.isEmpty) return null;
+      final id = int.tryParse(trimmed);
+      if (id == null || id <= 0) {
+        throw ToolException('person_id 必须是正整数');
+      }
+      return id;
+    }
+    throw ToolException('person_id 必须是正整数');
+  }
+
+  Future<Map<String, dynamic>> _createMember(
+    Map<String, dynamic> arguments,
+  ) async {
+    final name = readString(arguments, ['name']).trim();
+    if (name.isEmpty) {
+      throw ToolException('name 不能为空：请提供要建卡的成员名');
+    }
+    if (name.length > 40) {
+      throw ToolException('name 太长（最多 40 字）');
+    }
+    final group = readString(arguments, ['group', 'group_name']).trim();
+    final personName =
+        readString(arguments, ['person_name', 'personName']).trim();
+    final personId = _optionalPersonId(arguments['person_id']);
+    final color = readString(arguments, ['color']).trim();
+    if (color.isNotEmpty && !RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(color)) {
+      throw ToolException('color 需要 #RRGGBB 格式，例如 #FF5C8A');
+    }
+
+    final view = await _requireSnapshot();
+    final normalized = MemberCatalog.normalizeName(name);
+    for (final member in view.members(includeHidden: true)) {
+      final names = <String>[
+        member.name,
+        for (final counter in member.counters) counterName(counter),
+        for (final counter in member.counters) counterPersonName(counter),
+      ].where((value) => value.trim().isNotEmpty);
+      final sameName = names.any(
+        (value) => MemberCatalog.normalizeName(value) == normalized,
+      );
+      final samePerson = personId != null && member.personId == personId;
+      if (!sameName && !samePerson) continue;
+      throw ToolException(
+        '重名：已有成员卡「${member.name}」'
+        '（${member.groupLabel.isEmpty ? '无团名' : member.groupLabel}，'
+        'member_id ${member.primaryCounterId ?? '?'}），不需要 create_member；'
+        '要计数请直接用 record_cheki。',
+      );
+    }
+
+    final payload = <String, dynamic>{
+      'name': name,
+      'group_name': group,
+      'person_id': personId,
+      'person_name': personName.isEmpty ? name : personName,
+      'color': color,
+    };
+    final queued = await store.queueAction({
+      'kind': 'member_create',
+      'payload': payload,
+      'created_by': 'mcp',
+    });
+    final action = queued['action'] as Map;
+    return {
+      'ok': true,
+      'action_id': action['id'],
+      'status': action['status'],
+      'kind': 'member_create',
+      'member': {
+        'name': name,
+        'group': group,
+        'person_id': personId,
+        'person_name': payload['person_name'],
+        'color': color,
+      },
+      'pending_actions': _pendingCount(await store.status()),
+      'message': '已排队建卡，手机打开 OTA Counter 同步后才会出现这张卡。',
+    };
+  }
+
+  Future<Map<String, dynamic>> _searchMember(
+    Map<String, dynamic> arguments,
+  ) async {
+    final query = readString(arguments, ['query', 'q', 'name']).trim();
+    if (query.isEmpty) {
+      throw ToolException('query 不能为空：请给一个名字或别名');
+    }
+    final limit = readInt(arguments, ['limit'], 10).clamp(1, 50);
+    final snapshot = await store.snapshot();
+    final view = snapshot == null ? null : SnapshotView(snapshot);
+    final appMembers =
+        view?.members(includeHidden: true) ?? const <MemberAggregate>[];
+
+    final candidates = <String, Map<String, dynamic>>{};
+    void addCandidate(String key, Map<String, dynamic> value) {
+      final existing = candidates[key];
+      if (existing == null) {
+        candidates[key] = value;
+        return;
+      }
+      if ((value['score'] as int) > (existing['score'] as int)) {
+        // Keep the card-backed row when one exists.
+        candidates[key] = {
+          ...value,
+          if ((existing['has_card'] as bool) && !(value['has_card'] as bool))
+            'has_card': true,
+          if (existing['member_id'] != null && value['member_id'] == null)
+            'member_id': existing['member_id'],
+        };
+      }
+    }
+
+    for (final member in appMembers) {
+      final names = <String>[
+        member.name,
+        for (final counter in member.counters) counterName(counter),
+        for (final counter in member.counters) counterPersonName(counter),
+      ].where((value) => value.trim().isNotEmpty).toList();
+      var bestScore = 0;
+      var bestName = member.name;
+      for (final value in names) {
+        final match = MemberCatalog.bestMatch(query, value);
+        if (match.score > bestScore) {
+          bestScore = match.score;
+          bestName = value;
+        }
+      }
+      if (bestScore <= 0) continue;
+      addCandidate(
+        MemberCatalog.normalizeName(member.name),
+        {
+          'member_id': member.primaryCounterId,
+          'person_id': member.personId,
+          'name': member.name,
+          'group': member.primaryGroup.isEmpty
+              ? member.groupLabel
+              : member.primaryGroup,
+          'groups': member.groups,
+          'has_card': true,
+          'source': 'app',
+          'status': '',
+          'match': bestName,
+          'score': bestScore,
+        },
+      );
+    }
+
+    for (final result in catalog.search(query, limit: limit)) {
+      final member = result.member;
+      final key = MemberCatalog.normalizeName(member.name);
+      final existing = candidates[key];
+      if (existing != null) {
+        existing['has_card'] = true;
+        if (existing['score'] < result.score) {
+          existing['score'] = result.score;
+        }
+        continue;
+      }
+      addCandidate(key, {
+        'member_id': null,
+        'person_id': null,
+        'name': member.name,
+        'group': member.group,
+        'groups': [member.group],
+        'has_card': false,
+        'source': 'roster',
+        'status': member.status,
+        'match': member.name,
+        'score': result.score,
+      });
+    }
+
+    final sorted = candidates.values.toList()
+      ..sort((a, b) {
+        final score = (b['score'] as int).compareTo(a['score'] as int);
+        if (score != 0) return score;
+        final card = (b['has_card'] as bool ? 1 : 0)
+            .compareTo(a['has_card'] as bool ? 1 : 0);
+        if (card != 0) return card;
+        return (a['name'] as String).compareTo(b['name'] as String);
+      });
+    final page = sorted.take(limit).toList(growable: false);
+    return {
+      'query': query,
+      'count': page.length,
+      'total_matches': sorted.length,
+      'roster_size': catalog.roster.length,
+      'candidates': page,
+      if (page.isEmpty) 'message': '没有找到匹配的成员或别名',
     };
   }
 
@@ -1084,6 +1331,11 @@ class McpProtocol {
           },
           'name': {'type': 'string'},
           'group': {'type': 'string'},
+          'group_name': {'type': 'string'},
+          'person_name': {'type': 'string'},
+          'person_id': {
+            'type': ['integer', 'string']
+          },
           'three_inch': {'type': 'integer', 'minimum': 0, 'maximum': 999},
           'five_inch': {'type': 'integer', 'minimum': 0, 'maximum': 999},
           'unsigned_three_inch': {
@@ -1114,6 +1366,40 @@ class McpProtocol {
           'session_label': {'type': 'string'},
           'allow_create': {'type': 'boolean'},
         },
+        'additionalProperties': false,
+      },
+    },
+    {
+      'name': 'create_member',
+      'description': '给还没有卡片的成员建卡。服务端只排队 member_create，App 下一次同步时插入卡片；'
+          '重名、缺 name 或 color 格式不对会直接返回中文失败原因。',
+      'inputSchema': {
+        'type': 'object',
+        'properties': {
+          'name': {'type': 'string', 'description': '成员名，必填'},
+          'group': {'type': 'string', 'description': '团名，可空'},
+          'person_id': {
+            'type': ['integer', 'string'],
+            'description': '同一真人的 person id，可空'
+          },
+          'person_name': {'type': 'string', 'description': '主档名，可空；默认用 name'},
+          'color': {'type': 'string', 'description': '#RRGGBB，可空'},
+        },
+        'required': ['name'],
+        'additionalProperties': false,
+      },
+    },
+    {
+      'name': 'search_member',
+      'description': '在 App 成员卡和仓库偶像名册（china_idols_seed.json）里模糊查名字/别名，'
+          '返回 member_id、name、group、是否已有卡片。适合「Yuina→優晴Yu1na」「猪猪包→皮皮猪」这类查询。',
+      'inputSchema': {
+        'type': 'object',
+        'properties': {
+          'query': {'type': 'string', 'description': '名字、别名或片段'},
+          'limit': {'type': 'integer', 'minimum': 1, 'maximum': 50},
+        },
+        'required': ['query'],
         'additionalProperties': false,
       },
     },

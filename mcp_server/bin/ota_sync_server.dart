@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../lib/http_transport.dart';
+import '../lib/member_catalog.dart';
 import '../lib/stdio_transport.dart';
 import '../lib/store.dart';
 
@@ -28,6 +29,10 @@ Future<void> main(List<String> args) async {
 
   final store =
       SyncStore(options.dataDir, publicBaseUrl: options.publicBaseUrl);
+  final catalog = await MemberCatalog.load(
+    seedPath: options.seedPath,
+    aliasPath: options.aliasPath,
+  );
   final token = await SyncConfig.loadOrCreateToken(options.dataDir);
   final explicitToken = options.token?.trim() ?? '';
   final effectiveToken = explicitToken.isEmpty ? token : explicitToken;
@@ -81,10 +86,10 @@ Future<void> main(List<String> args) async {
       );
       return;
     case 'mcp':
-      exitCode = await runStdioMcp(store);
+      exitCode = await runStdioMcp(store, catalog: catalog);
       return;
     case 'serve':
-      await _serve(store, effectiveToken, options);
+      await _serve(store, effectiveToken, options, catalog);
       return;
     default:
       stderr.writeln('Unknown command: ${options.command}');
@@ -97,12 +102,14 @@ Future<void> _serve(
   SyncStore store,
   String token,
   _Options options,
+  MemberCatalog catalog,
 ) async {
   final server = SyncHttpServer(
     store: store,
     token: token,
     host: options.host,
     port: options.port,
+    catalog: catalog,
   );
   try {
     await server.start();
@@ -207,6 +214,8 @@ class _Options {
     this.token,
     this.publicBaseUrl,
     this.importPath,
+    this.seedPath,
+    this.aliasPath,
     this.showHelp = false,
     this.showVersion = false,
   });
@@ -218,6 +227,8 @@ class _Options {
   final String? token;
   final String? publicBaseUrl;
   final String? importPath;
+  final String? seedPath;
+  final String? aliasPath;
   final bool showHelp;
   final bool showVersion;
 
@@ -237,6 +248,8 @@ class _Options {
     var help = false;
     var version = false;
     var importPath = _nonEmpty(Platform.environment['OTA_SYNC_IMPORT']);
+    var seedPath = _nonEmpty(Platform.environment['OTA_SYNC_SEED_PATH']);
+    var aliasPath = _nonEmpty(Platform.environment['OTA_SYNC_ALIAS_PATH']);
     var sawCommand = false;
 
     for (var i = 0; i < args.length; i++) {
@@ -269,6 +282,14 @@ class _Options {
         publicBaseUrl = nextValue(arg);
       } else if (arg.startsWith('--public-base-url=')) {
         publicBaseUrl = arg.substring('--public-base-url='.length);
+      } else if (arg == '--seed') {
+        seedPath = nextValue(arg);
+      } else if (arg.startsWith('--seed=')) {
+        seedPath = arg.substring('--seed='.length);
+      } else if (arg == '--alias') {
+        aliasPath = nextValue(arg);
+      } else if (arg.startsWith('--alias=')) {
+        aliasPath = arg.substring('--alias='.length);
       } else if (arg == '--token') {
         token = nextValue(arg);
       } else if (arg.startsWith('--token=')) {
@@ -293,6 +314,8 @@ class _Options {
       token: token,
       publicBaseUrl: publicBaseUrl,
       importPath: importPath,
+      seedPath: seedPath,
+      aliasPath: aliasPath,
       showHelp: help,
       showVersion: version,
     );
@@ -317,6 +340,9 @@ Options:
   --data-dir <path>     Default: ~/.ota_counter_sync
   --host <host>         Default: 127.0.0.1 (use 0.0.0.0 for LAN)
   --port <port>         Default: 8787
+  --seed <path>         Idol roster JSON for search_member (default:
+                        /opt/ota-counter-sync/china_idols_seed.json)
+  --alias <path>        Optional alias JSON (alias -> canonical)
   --token <token>       Override and persist the bearer token
   --public-base-url <url>  Public origin + proxy prefix (or OTA_SYNC_PUBLIC_BASE_URL); no auto-detection
   --help, --version

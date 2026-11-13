@@ -7,7 +7,7 @@ import 'face_images.dart';
 import 'snapshot.dart' show normalizePart;
 
 const String kSyncServerName = 'ota-counter-sync';
-const String kSyncServerVersion = '1.0.0';
+const String kSyncServerVersion = '1.1.0';
 const String kStateSchema = 'ota_counter_sync_state';
 
 /// App → server capability header for chat face enrollment. Clients that do

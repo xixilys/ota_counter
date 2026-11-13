@@ -175,8 +175,10 @@ Grok Bot / Hermes 若只支持其中一种，按客户端的 MCP 配置 schema �
 | `get_member` | 单成员详情 + 最近记录 + 各团籍卡片 |
 | `list_records` | 按日期、成员、类型查流水 |
 | `list_groups` | 团体/价格配置列表 |
-| `record_cheki` | **排队**增加切奇（3寸/5寸/宿题/团切/无签） |
+| `record_cheki` | **排队**增加切奇（3寸/5寸/宿题/团切/无签）；`allow_create` + `group_name`/`person_name`/`person_id` 可同时建卡 |
 | `add_ticket` | **排队**添加门票记录（支持 `ticket_type` / `is_free`） |
+| `create_member` | **排队**给还没有卡片的成员建卡（name 必填；group / person_id / person_name / color 可选） |
+| `search_member` | 在 App 卡片 + 仓库偶像名册里模糊查名字/别名，返回是否已有卡片 |
 | `list_pending_actions` | 查看还没被 App 执行的队列 |
 | `get_sync_status` | 快照时间、版本号、待执行数、是否过期 |
 | `create_face_upload_link` | 按 `member_id`（优先）或 `member` + 可选 `group` 生成限量上传链接 |

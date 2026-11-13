@@ -230,7 +230,7 @@ class SyncService {
     };
     final appliedIds = <String>[];
     final failures = <SyncActionFailure>[];
-    final enrollmentFailures = <String, String>{};
+    final actionFailures = <String, String>{};
     final enrollmentResults = <String, Map<String, dynamic>>{};
     var skipped = 0;
 
@@ -260,7 +260,7 @@ class SyncService {
           );
           if (result.failure != null) {
             if (!result.retryable) {
-              enrollmentFailures[actionId] = result.failure!;
+              actionFailures[actionId] = result.failure!;
               if (result.summary != null) {
                 enrollmentResults[actionId] = result.summary!;
               }
@@ -272,6 +272,40 @@ class SyncService {
             appliedIds.add(actionId);
             if (result.replayed) skipped++;
           }
+        } else if (kind == 'member_create') {
+          final name = (payload['name'] ?? payload['member_name'] ?? '')
+              .toString()
+              .trim();
+          if (name.isEmpty) {
+            throw SyncException('建卡失败：缺少成员名');
+          }
+          final group = (payload['group_name'] ?? payload['group'] ?? '')
+              .toString()
+              .trim();
+          final personId = _readNullableInt(payload['person_id']);
+          final personName = (payload['person_name'] ?? '').toString().trim();
+          // A retried action must not create a second card.
+          final exists = counters.any((counter) {
+            if (personId != null && counter.personId == personId) return true;
+            return _normalizeMemberName(counter.name) ==
+                    _normalizeMemberName(name) &&
+                (group.isEmpty ||
+                    _normalizeMemberName(counter.groupName) ==
+                        _normalizeMemberName(group));
+          });
+          if (!exists) {
+            final color = _validColor(payload['color']) ?? '#FFE135';
+            final created = CounterModel(
+              name: name,
+              groupName: group,
+              personId: personId,
+              personName: personName.isEmpty ? name : personName,
+              color: color,
+            );
+            final id = await DatabaseService.insertCounter(created);
+            counters.add(created.copyWith(id: id));
+          }
+          appliedIds.add(actionId);
         } else if (kind == 'counter_delta') {
           var counter = _resolveCounter(counters, payload);
           if (counter == null && payload['allow_create'] == true) {
@@ -371,28 +405,29 @@ class SyncService {
           throw SyncException('未知操作类型: $kind');
         }
       } catch (error) {
+        final message = kind == 'enroll_face'
+            ? '人脸登记未保存，请稍后重试'
+            : error is SyncException
+                ? error.message
+                : '$error';
+        if (kind == 'member_create' && error is SyncException) {
+          actionFailures[actionId] = message;
+        }
         failures.add(
-          SyncActionFailure(
-            actionId: actionId,
-            message: kind == 'enroll_face'
-                ? '人脸登记未保存，请稍后重试'
-                : error is SyncException
-                    ? error.message
-                    : '$error',
-          ),
+          SyncActionFailure(actionId: actionId, message: message),
         );
       }
     }
 
-    if (appliedIds.isNotEmpty || enrollmentFailures.isNotEmpty) {
+    if (appliedIds.isNotEmpty || actionFailures.isNotEmpty) {
       try {
         await _request(
           settings,
           'POST',
           '/api/v1/actions/ack',
           body: {
-            'ids': [...appliedIds, ...enrollmentFailures.keys],
-            if (enrollmentFailures.isNotEmpty) 'failures': enrollmentFailures,
+            'ids': [...appliedIds, ...actionFailures.keys],
+            if (actionFailures.isNotEmpty) 'failures': actionFailures,
             if (enrollmentResults.isNotEmpty) 'results': enrollmentResults,
           },
         );
@@ -640,6 +675,17 @@ class SyncService {
       return 'person-name:$personName';
     }
     return 'counter:${_normalize(counter.groupName)}|${_normalize(counter.name)}';
+  }
+
+  static String _normalizeMemberName(String value) => value
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'[\s·•・_\-~/\\()\[\]{}（）【】「」『』]+'), '');
+
+  static String? _validColor(Object? value) {
+    final text = (value ?? '').toString().trim();
+    if (RegExp(r'^#[0-9A-Fa-f]{6}$').hasMatch(text)) return text.toUpperCase();
+    return null;
   }
 
   static CounterModel? _resolveCounter(

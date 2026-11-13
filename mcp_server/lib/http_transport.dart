@@ -5,6 +5,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'mcp_protocol.dart';
+import 'member_catalog.dart';
 import 'face_images.dart';
 import 'face_upload_page.dart';
 import 'store.dart';
@@ -17,12 +18,14 @@ class SyncHttpServer {
     required this.token,
     this.host = '127.0.0.1',
     this.port = 8787,
-  }) : protocol = McpProtocol(store);
+    this.catalog = MemberCatalog.empty,
+  }) : protocol = McpProtocol(store, catalog: catalog);
 
   final SyncStore store;
   final String token;
   final String host;
   final int port;
+  final MemberCatalog catalog;
   final McpProtocol protocol;
 
   HttpServer? _server;
@@ -252,7 +255,7 @@ class SyncHttpServer {
           return;
         }
         final response =
-            await McpProtocol(store, requestBaseUrl: _requestBaseUrl(request))
+            await McpProtocol(store, requestBaseUrl: _requestBaseUrl(request), catalog: catalog)
                 .handle(decoded);
         final sessionId =
             request.headers.value('mcp-session-id') ?? _newSessionId('mcp');
@@ -425,7 +428,7 @@ class SyncHttpServer {
       return;
     }
     final response =
-        await McpProtocol(store, requestBaseUrl: _requestBaseUrl(request))
+        await McpProtocol(store, requestBaseUrl: _requestBaseUrl(request), catalog: catalog)
             .handle(decoded);
     if (response != null) {
       session.controller.add(

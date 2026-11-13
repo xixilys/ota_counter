@@ -16,6 +16,7 @@ import 'package:ota_counter/services/face/face_sample_service.dart';
 import 'package:ota_counter/services/sync_service.dart';
 
 import '../mcp_server/lib/http_transport.dart';
+import '../mcp_server/lib/member_catalog.dart';
 import '../mcp_server/lib/mcp_protocol.dart';
 import '../mcp_server/lib/store.dart';
 
@@ -406,5 +407,99 @@ void main() {
     expect(summary['total_count'], 1);
     expect(summary['by_type']['threeInchCount'], 1);
     expect(summary['by_type']['unsignedThreeInchCount'], 1);
+  });
+
+  Future<Map<String, dynamic>> callTool(
+    McpProtocol protocol,
+    String name,
+    Map<String, dynamic> arguments,
+  ) async {
+    final response = await protocol.handle({
+      'jsonrpc': '2.0',
+      'id': 1,
+      'method': 'tools/call',
+      'params': {'name': name, 'arguments': arguments},
+    }) as Map;
+    return response['result']['structuredContent'] as Map<String, dynamic>;
+  }
+
+  test('create_member queues once and the app inserts one card', () async {
+    await SyncService.pushSnapshot(settings);
+    final protocol = McpProtocol(store);
+    final queued = await callTool(protocol, 'create_member', {
+      'name': '萌花Moka',
+      'group': 'StarX',
+      'color': '#33CCFF',
+    });
+    expect(queued['kind'], 'member_create');
+    expect(queued['status'], 'pending');
+
+    final pulled = await SyncService.pullActions(settings);
+    final applied = await SyncService.applyActions(settings, pulled);
+    expect(applied.failures, isEmpty);
+    final counters = await DatabaseService.getCounters();
+    final added = counters.singleWhere((counter) => counter.name == '萌花Moka');
+    expect(added.groupName, 'StarX');
+    expect(added.color, '#33CCFF');
+
+    // A retried action must not create a second card.
+    await SyncService.applyActions(settings, pulled);
+    expect((await DatabaseService.getCounters()).length, 1);
+  });
+
+  test('create_member rejects a duplicate name with a Chinese reason', () async {
+    await DatabaseService.insertCounter(
+      CounterModel(name: '萌花Moka', groupName: 'StarX', color: '#FF7A9E'),
+    );
+    await SyncService.pushSnapshot(settings);
+    final protocol = McpProtocol(store);
+    final response = await protocol.handle({
+      'jsonrpc': '2.0',
+      'id': 1,
+      'method': 'tools/call',
+      'params': {
+        'name': 'create_member',
+        'arguments': {'name': '萌花Moka', 'group': 'StarX'},
+      },
+    }) as Map;
+    final content = (response['result']['content'] as List).first as Map;
+    expect(content['text'].toString(), contains('重名'));
+  });
+
+  test('record_cheki allow_create creates the card and counts', () async {
+    await SyncService.pushSnapshot(settings);
+    final protocol = McpProtocol(store);
+    final queued = await callTool(protocol, 'record_cheki', {
+      'name': '萌花Moka',
+      'group_name': 'StarX',
+      'allow_create': true,
+      'three_inch': 2,
+    });
+    expect(queued['kind'], 'counter_delta');
+    final pulled = await SyncService.pullActions(settings);
+    final applied = await SyncService.applyActions(settings, pulled);
+    expect(applied.failures, isEmpty);
+    final counter = (await DatabaseService.getCounters())
+        .singleWhere((counter) => counter.name == '萌花Moka');
+    expect(counter.threeInchCount, 2);
+    expect(counter.groupName, 'StarX');
+  });
+
+  test('search_member finds aliases across the roster', () async {
+    final catalog = await MemberCatalog.load(
+      seedPath: 'assets/data/china_idols_seed.json',
+    );
+    final protocol = McpProtocol(store, catalog: catalog);
+    final yuina = await callTool(protocol, 'search_member', {'query': 'Yuina'});
+    final names = [
+      for (final item in yuina['candidates'] as List) (item as Map)['name']
+    ];
+    expect(names, contains('優晴Yu1na'));
+
+    final pig = await callTool(protocol, 'search_member', {'query': '猪猪包'});
+    final pigNames = [
+      for (final item in pig['candidates'] as List) (item as Map)['name']
+    ];
+    expect(pigNames, contains('皮皮猪'));
   });
 }

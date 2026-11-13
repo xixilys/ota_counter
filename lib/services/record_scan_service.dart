@@ -906,11 +906,28 @@ class RecordScanService {
         portrait ? _targetLongSide : (_targetLongSide * aspectRatio).round();
     final targetWidth =
         portrait ? (_targetLongSide * aspectRatio).round() : _targetLongSide;
+    final upscaling = targetWidth > image.width || targetHeight > image.height;
     return img.copyResize(
       image,
       width: targetWidth,
       height: targetHeight,
-      interpolation: img.Interpolation.linear,
+      // A crop taken from a desk photo is often only a few hundred pixels
+      // wide; cubic keeps it from looking like a stretched thumbnail.
+      interpolation:
+          upscaling ? img.Interpolation.cubic : img.Interpolation.linear,
+    );
+  }
+
+  /// Mild unsharp mask for small crops that had to be enlarged.
+  static img.Image _sharpenFrame(img.Image source) {
+    if (source.width < 2 || source.height < 2) {
+      return source;
+    }
+    return img.convolution(
+      source,
+      filter: const [0, -0.5, 0, -0.5, 3, -0.5, 0, -0.5, 0],
+      div: 1,
+      amount: 0.35,
     );
   }
 
@@ -1377,11 +1394,21 @@ class RecordScanService {
         stage.reset();
 
         crop.applyQuickAntiGlare();
+        final rawCrop = crop.toImage();
+        final framed = _resizeToTargetFrame(
+          rawCrop,
+          aspectRatio: aspectRatio,
+        );
+        // Only sharpen crops that really were enlarged; a full-resolution
+        // close-up is already sharp and the 3×3 pass would cost time.
+        final polished = math.max(rawCrop.width, rawCrop.height) * 10 <
+                _targetLongSide * 7
+            ? _sharpenFrame(framed)
+            : framed;
         polishMs += stage.elapsedMilliseconds;
         stage.reset();
 
-        final bytes =
-            Uint8List.fromList(img.encodeJpg(crop.toImage(), quality: 94));
+        final bytes = Uint8List.fromList(img.encodeJpg(polished, quality: 94));
         encodeMs += stage.elapsedMilliseconds;
         cards.add(_multiCard(
           bytes: bytes,
@@ -4052,14 +4079,19 @@ class _WindowCardDetector {
     // visible pair. A 2×2 block hides two *adjacent* sides per card, which
     // stays ambiguous and is still rejected (see "2×2 block of touching cards
     // warns and does not guess a cut").
-    final unseen = [for (var s = 0; s < 4; s++) if (!seen[s]) s];
+    final unseen = [
+      for (var s = 0; s < 4; s++)
+        if (!seen[s]) s
+    ];
     final flanked = seenCount == 2 &&
         unseen.length == 2 &&
         (unseen[0] + 2) % 4 == unseen[1] &&
         blockedByOther[unseen[0]] &&
         blockedByOther[unseen[1]] &&
-        [for (var s = 0; s < 4; s++) if (seen[s]) chosen[s].$1]
-            .every((evidence) => evidence >= strongEvidence);
+        [
+          for (var s = 0; s < 4; s++)
+            if (seen[s]) chosen[s].$1
+        ].every((evidence) => evidence >= strongEvidence);
     if ((flanked ? false : seenCount < 3) ||
         !chosen.any((c) => c.$1 >= strongEvidence)) {
       return null;

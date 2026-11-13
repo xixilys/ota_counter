@@ -46,6 +46,25 @@ void main() {
       }
     });
 
+    test('desk-photo crops are enlarged to the standard 1360 frame', () async {
+      final cards = _grid(
+        columns: 3,
+        rows: 3,
+        canvasWidth: 2400,
+        canvasHeight: 1800,
+        cardWidth: 400,
+        cardHeight: 500,
+      );
+      final file = await writeJpg(_render(2400, 1800, cards), 'desk2400');
+      final result = await RecordScanService.createMultiScan(sourceFile: file);
+      expect(result.cards.length, 9);
+      for (final card in result.cards) {
+        final decoded = img.decodeJpg(card.bytes)!;
+        expect(math.max(decoded.width, decoded.height), 1360,
+            reason: 'multi-crop should match a close-up scan frame');
+      }
+    });
+
     test('3×2 grid with 五寸 and 三寸 rows, timing printed', () async {
       const wideWidth = 360.0;
       const wideHeight = 450.0;

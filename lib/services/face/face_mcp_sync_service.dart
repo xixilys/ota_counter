@@ -13,6 +13,7 @@ class FaceMcpSyncResult {
     required this.ok,
     this.sent = 0,
     this.failed = 0,
+    this.skipped = 0,
     this.members,
     this.error,
   });
@@ -20,6 +21,7 @@ class FaceMcpSyncResult {
   final bool ok;
   final int sent;
   final int failed;
+  final int skipped;
   final int? members;
   final String? error;
 
@@ -136,12 +138,31 @@ class FaceMcpSyncService {
   /// in its own request; [onProgress] reports completed/total photos.
   static Future<FaceMcpSyncResult> syncPhotos({
     void Function(int done, int total)? onProgress,
+    bool onlyNew = false,
   }) async {
     final media = await DatabaseService.getActivityRecordMedia();
-    final photos = media.where((item) => item.isScan).toList(growable: false);
+    var photos = media.where((item) => item.isScan).toList(growable: false);
+    var skipped = 0;
+    if (onlyNew) {
+      final listed = await _call(
+        'list_photos',
+        const {'limit': 5000},
+        timeout: _sampleTimeout,
+      );
+      final existing = {
+        for (final name in (listed['photos'] as List? ?? const []))
+          if (name is String) name,
+      };
+      final fresh = [
+        for (final item in photos)
+          if (!existing.contains(_photoName(item))) item,
+      ];
+      skipped = photos.length - fresh.length;
+      photos = fresh;
+    }
     final total = photos.length;
     if (total == 0) {
-      return const FaceMcpSyncResult(ok: true, sent: 0);
+      return FaceMcpSyncResult(ok: true, sent: 0, skipped: skipped);
     }
     try {
       // Fail fast on a wrong URL/token instead of retrying every photo.
@@ -191,7 +212,8 @@ class FaceMcpSyncService {
       ok: failed == 0 || sent > 0,
       sent: sent,
       failed: failed,
-      error: sent == 0 ? '一张照片都没有同步成功' : null,
+      skipped: skipped,
+      error: sent == 0 && failed > 0 ? '一张照片都没有同步成功' : null,
     );
   }
 

@@ -29,9 +29,15 @@ void main() {
       final decoded = jsonDecode(body) as Map<String, dynamic>;
       received.add(decoded);
       final tool = ((decoded['params'] as Map?)?['name'] ?? '') as String;
-      final payload = tool == 'import_face_samples'
-          ? {'ok': true, 'samples': 2, 'members': 2}
-          : {'ok': true, 'added': ['photo.jpg'], 'count': 1};
+      final payload = switch (tool) {
+        'import_face_samples' => {'ok': true, 'samples': 2, 'members': 2},
+        'list_photos' => {
+          'ok': true,
+          'count': 1,
+          'photos': ['cheki_1_cheki.jpg'],
+        },
+        _ => {'ok': true, 'added': ['photo.jpg'], 'count': 1},
+      };
       request.response
         ..headers.contentType = ContentType.json
         ..write(jsonEncode({
@@ -137,5 +143,29 @@ void main() {
     final photo = ((params['arguments'] as Map)['photos'] as List).single as Map;
     expect(photo['name'], startsWith('cheki_'));
     expect(base64Decode(photo['image_base64'] as String), isNotEmpty);
+  });
+
+  test('syncPhotos onlyNew skips photos already in the album', () async {
+    final file = File('${tempDir.path}/cheki.jpg');
+    await file.writeAsBytes(img.encodeJpg(img.Image(width: 8, height: 8)));
+    final db = await DatabaseService.database;
+    await db.insert(DatabaseService.activityRecordMediaTableName, {
+      'id': 1,
+      'record_id': 1,
+      'path': file.path,
+      'created_at': DateTime.utc(2026, 11, 8).toIso8601String(),
+      'media_type': 'scan',
+      'processing_mode': 'none',
+      'is_reversed': 0,
+      'owner_person_name': '',
+      'owner_group_name': '',
+      'source_hash': '',
+      'crop_quad_json': '',
+    });
+    final result = await FaceMcpSyncService.syncPhotos(onlyNew: true);
+    expect(result.ok, isTrue);
+    expect(result.sent, 0);
+    expect(result.skipped, 1);
+    expect(received.single['params']['name'], 'list_photos');
   });
 }

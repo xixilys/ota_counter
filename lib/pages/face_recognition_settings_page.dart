@@ -63,6 +63,7 @@ class _FaceRecognitionSettingsPageState
   List<({FaceMember member, int count})> _members = [];
   String _syncStatus = '还没有同步到本机人脸库';
   String _photoStatus = '还没有同步照片';
+  bool _autoSyncStarted = false;
 
   @override
   void initState() {
@@ -98,6 +99,41 @@ class _FaceRecognitionSettingsPageState
       _enabled = enabled;
       _stats = stats;
       _members = members;
+    });
+    if (!_autoSyncStarted) {
+      _autoSyncStarted = true;
+      _autoSync();
+    }
+  }
+
+  /// Opening this page is the user's sync gesture: push samples and any new
+  /// polaroids without making them tap another button.
+  Future<void> _autoSync() async {
+    if (await SettingsService.getFaceMcpToken() == '') {
+      if (mounted) setState(() => _syncStatus = '还没有配置本机人脸库 token');
+      return;
+    }
+    await _syncSamples(quiet: true);
+    if (!mounted) return;
+    final photos = await FaceMcpSyncService.syncPhotos(
+      onlyNew: true,
+      onProgress: (done, total) {
+        if (!mounted) return;
+        setState(() => _photoStatus = '正在同步照片 $done/$total');
+      },
+    );
+    if (!mounted) return;
+    setState(() {
+      if (!photos.ok) {
+        _photoStatus = photos.summary;
+      } else if (photos.sent > 0) {
+        _photoStatus = '已同步 ${photos.sent} 张新照片'
+            '${photos.failed > 0 ? '，${photos.failed} 张失败' : ''}';
+      } else if (photos.skipped > 0) {
+        _photoStatus = '照片已是最新（${photos.skipped} 张已在人脸库）';
+      } else {
+        _photoStatus = '还没有可同步的照片';
+      }
     });
   }
 

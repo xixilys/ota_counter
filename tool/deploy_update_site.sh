@@ -12,6 +12,9 @@ PUBLIC_BASE_URL="${OTA_UPDATE_PUBLIC_BASE_URL:-https://ota-counter.huangxuanqi.t
 
 DRY_RUN=0
 SKIP_APK=0
+EXPLICIT_APK=
+PREVIOUS_MANIFEST=
+SITE_DIR="$REPO_ROOT/release/update_site"
 
 for arg in "$@"; do
   case "$arg" in
@@ -21,9 +24,18 @@ for arg in "$@"; do
     --skip-apk)
       SKIP_APK=1
       ;;
+    --apk=/*)
+      EXPLICIT_APK="${arg#--apk=}"
+      ;;
+    --site-dir=/*)
+      SITE_DIR="${arg#--site-dir=}"
+      ;;
+    --previous-manifest=/*)
+      PREVIOUS_MANIFEST="${arg#--previous-manifest=}"
+      ;;
     *)
       echo "Unsupported argument: $arg" >&2
-      echo "Usage: tool/deploy_update_site.sh [--dry-run] [--skip-apk]" >&2
+      echo "Usage: tool/deploy_update_site.sh [--dry-run] [--skip-apk | --apk=/path/to/APK] [--site-dir=/path/to/site] [--previous-manifest=/path/to/previous.json]" >&2
       exit 1
       ;;
   esac
@@ -41,10 +53,20 @@ version_name="${version_line%%+*}"
 apk_file_name="OTA-Counter-v$version_name.apk"
 ipa_file_name="OTA-Counter-v$version_name.ipa"
 
-index_path="$REPO_ROOT/release/update_site/index.html"
-manifest_path="$REPO_ROOT/release/update_site/latest.json"
+index_path="$SITE_DIR/index.html"
+manifest_path="$SITE_DIR/latest.json"
 apk_path="$REPO_ROOT/build/app/outputs/flutter-apk/$apk_file_name"
 ipa_path="$REPO_ROOT/build/ios/ipa/$ipa_file_name"
+
+if [[ -n "$EXPLICIT_APK" ]]; then
+  if [[ "$SKIP_APK" -eq 1 || "${EXPLICIT_APK##*/}" != "$apk_file_name" ]]; then
+    echo "Expected --apk=.../$apk_file_name without --skip-apk" >&2
+    exit 1
+  fi
+  apk_path="$EXPLICIT_APK"
+  # An explicit APK release must not pick up an unrelated local IPA.
+  ipa_path=""
+fi
 
 for required_file in "$index_path" "$manifest_path"; do
   if [[ ! -f "$required_file" ]]; then
@@ -53,8 +75,22 @@ for required_file in "$index_path" "$manifest_path"; do
   fi
 done
 
+if grep -Eq '"publishedAt"[[:space:]]*:[[:space:]]*null' "$manifest_path"; then
+  echo "Release manifest has no publication timestamp; use tool/publish_android_release.sh" >&2
+  exit 1
+fi
+
 if [[ "$SKIP_APK" -eq 0 && ! -f "$apk_path" ]]; then
   echo "Missing APK: $apk_path" >&2
+  exit 1
+fi
+
+if [[ -n "$PREVIOUS_MANIFEST" && "${PREVIOUS_MANIFEST##*/}" != previous.json ]]; then
+  echo 'Expected --previous-manifest=.../previous.json' >&2
+  exit 1
+fi
+if [[ -n "$PREVIOUS_MANIFEST" && ! -f "$PREVIOUS_MANIFEST" ]]; then
+  echo "Missing previous manifest: $PREVIOUS_MANIFEST" >&2
   exit 1
 fi
 
@@ -78,6 +114,9 @@ fi
 ssh "$ssh_target" "mkdir -p '$REMOTE_DIR' '$remote_stage_dir'"
 
 upload_files=("$index_path" "$manifest_path")
+if [[ -n "$PREVIOUS_MANIFEST" ]]; then
+  upload_files+=("$PREVIOUS_MANIFEST")
+fi
 if [[ "$SKIP_APK" -eq 0 ]]; then
   upload_files+=("$apk_path")
 fi
@@ -90,6 +129,13 @@ scp "${upload_files[@]}" "$ssh_target:$remote_stage_dir/"
 remote_commands=(
   "set -e"
 )
+
+if [[ -n "$PREVIOUS_MANIFEST" ]]; then
+  remote_commands+=(
+    "cmp -s '$remote_stage_dir/previous.json' '$REMOTE_DIR/latest.json' || { echo 'Live OTA manifest changed after preflight; stopped before activation' >&2; exit 1; }"
+    "unlink '$remote_stage_dir/previous.json'"
+  )
+fi
 
 if [[ "$SKIP_APK" -eq 0 ]]; then
   remote_commands+=("mv '$remote_stage_dir/$apk_file_name' '$REMOTE_DIR/$apk_file_name'")

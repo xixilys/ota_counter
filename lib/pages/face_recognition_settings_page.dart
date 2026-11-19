@@ -215,6 +215,9 @@ class _FaceRecognitionSettingsPageState
             const SizedBox(height: 12),
             TextField(
               controller: tokenController,
+              obscureText: true,
+              enableSuggestions: false,
+              autocorrect: false,
               decoration: const InputDecoration(
                 labelText: 'token',
                 hintText: 'Mac 上 ~/.ota-counter/data/token 的内容',

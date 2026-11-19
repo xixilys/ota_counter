@@ -312,4 +312,47 @@ void main() {
     expect(host.result!.single.personId, 7);
     expect(host.result!.single.personName, '早川');
   });
+  testWidgets('verified same person in a second group links by default', (
+    tester,
+  ) async {
+    late IdolMember member;
+    await tester.runAsync(() async {
+      final secondGroup = await IdolDatabaseService.upsertGroup(
+        const IdolGroup(name: '兼任团', isBuiltIn: true),
+      );
+      await IdolDatabaseService.upsertMember(
+        IdolMember(
+          groupId: secondGroup,
+          groupName: '兼任团',
+          name: '早川',
+          personName: '早川',
+        ),
+      );
+      member = (await IdolDatabaseService.getMembers(groupId: secondGroup))
+          .singleWhere((item) => item.name == '早川');
+      // The home card and the library member now share a verified person id.
+      _existingCounters[0] = _existingCounters[0].copyWith(
+        personId: member.personId,
+        personName: '早川',
+      );
+    });
+
+    final host = await _openAddPage(tester);
+    await _search(tester, '早川');
+    await tester.tap(find.text('早川 · 兼任团'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('算同一个人'), findsOneWidget);
+    final checkbox = tester.widget<CheckboxListTile>(find.byType(CheckboxListTile));
+    expect(checkbox.value, isTrue,
+        reason: '偶像库已有同一 person id 时，兼任应默认关联');
+
+    await tester.tap(find.textContaining('添加 1 位'));
+    await tester.pumpAndSettle();
+    expect(host.result, hasLength(1));
+    expect(host.result!.single.personId, member.personId);
+    expect(host.result!.single.personName, '早川');
+    expect(host.result!.single.groupName, '兼任团');
+  });
+
 }

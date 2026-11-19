@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/album_preferences.dart';
+
 class SettingsService {
   static const String _gridSizeKey = 'grid_size';
   static const String _sortDirectionKey = 'sort_direction';
@@ -208,5 +210,31 @@ class SettingsService {
   static Future<void> saveFaceRecognitionEnabled(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_faceRecognitionEnabledKey, enabled);
+  }
+
+  static Future<AlbumPreferences> getAlbumPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    final columns = prefs.getInt('cheki_album_columns') ?? 0;
+    return AlbumPreferences(
+      columns: const [0, 2, 3, 4].contains(columns) ? columns : 0,
+      collage: prefs.getBool('cheki_album_collage') ?? true,
+      fillPhotos: prefs.getBool('cheki_album_fill') ?? true,
+      showShelves: prefs.getBool('cheki_album_shelves') ?? true,
+      printStyle: prefs.getString('cheki_album_print_style') == 'supporter'
+          ? AlbumPrintStyle.supporter
+          : AlbumPrintStyle.classic,
+    );
+  }
+
+  static Future<void> saveAlbumPreferences(AlbumPreferences value) async {
+    if (!const [0, 2, 3, 4].contains(value.columns)) {
+      throw ArgumentError.value(value.columns, 'columns');
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('cheki_album_columns', value.columns);
+    await prefs.setBool('cheki_album_collage', value.collage);
+    await prefs.setBool('cheki_album_fill', value.fillPhotos);
+    await prefs.setBool('cheki_album_shelves', value.showShelves);
+    await prefs.setString('cheki_album_print_style', value.printStyle.name);
   }
 }

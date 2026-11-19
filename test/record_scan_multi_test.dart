@@ -26,7 +26,342 @@ void main() {
     return file;
   }
 
+  group('automatic quad geometry (manual path stays available)', () {
+    test('keeps rotation and moderate perspective', () {
+      final rotated =
+          _Card.mini(cx: 500, cy: 500, height: 500, angle: 38).corners;
+      final quads = [
+        // Complete card against the image edge uses pixel-edge coordinates.
+        const RecordScanQuad(
+          topLeftX: 600,
+          topLeftY: 400,
+          topRightX: 1000,
+          topRightY: 400,
+          bottomRightX: 1000,
+          bottomRightY: 1000,
+          bottomLeftX: 600,
+          bottomLeftY: 1000,
+        ),
+        _fromPoints(rotated),
+        const RecordScanQuad(
+          topLeftX: 220,
+          topLeftY: 170,
+          topRightX: 490,
+          topRightY: 220,
+          bottomRightX: 550,
+          bottomRightY: 680,
+          bottomLeftX: 150,
+          bottomLeftY: 700,
+        ),
+      ];
+      for (final quad in quads) {
+        expect(quad.isSafeForAutomaticCrop(imageWidth: 1000, imageHeight: 1000),
+            isTrue);
+      }
+    });
+
+    test('rejects severe shear, taper, crossed corners and out-of-bounds', () {
+      const rect = RecordScanQuad(
+        topLeftX: 100,
+        topLeftY: 100,
+        topRightX: 400,
+        topRightY: 100,
+        bottomRightX: 400,
+        bottomRightY: 600,
+        bottomLeftX: 100,
+        bottomLeftY: 600,
+      );
+      for (final quad in [
+        rect.copyWith(
+            bottomLeftX: 700,
+            bottomLeftY: 300,
+            bottomRightX: 1000,
+            bottomRightY: 300),
+        rect.copyWith(topLeftX: 240, topRightX: 260),
+        rect.copyWith(bottomLeftX: 400, bottomRightX: 100),
+        rect.copyWith(topLeftX: -10),
+        rect.copyWith(topLeftX: double.nan),
+      ]) {
+        expect(quad.isSafeForAutomaticCrop(imageWidth: 1200, imageHeight: 900),
+            isFalse);
+      }
+      // A strong but deliberate perspective remains a valid manual selection.
+      expect(rect.copyWith(topLeftX: 240, topRightX: 260).isUsable(), isTrue);
+    });
+  });
+
   group('RecordScanService.createMultiScan', () {
+    test('a cool card attached to a light hand is cut before review', () async {
+      final source = img.Image(width: 680, height: 850);
+      img.fill(source, color: img.ColorRgb8(32, 29, 30));
+      // Warm hand touches the upper and left edges and joins the bright
+      // component to the image edge. The paper itself has a cool cast.
+      img.fillRect(source,
+          x1: 0,
+          y1: 122,
+          x2: 360,
+          y2: 430,
+          color: img.ColorRgb8(211, 178, 159));
+      const paper = (x: 90, y: 165, right: 590, bottom: 711);
+      img.fillRect(source,
+          x1: paper.x,
+          y1: paper.y,
+          x2: paper.right,
+          y2: paper.bottom,
+          color: img.ColorRgb8(180, 218, 222));
+      img.fillRect(source,
+          x1: 127, y1: 218, x2: 553, y2: 618, color: img.ColorRgb8(24, 30, 33));
+      // Ink crosses from the border into the photo, interrupting the mask.
+      img.drawLine(source,
+          x1: 170,
+          y1: 177,
+          x2: 204,
+          y2: 253,
+          thickness: 9,
+          color: img.ColorRgb8(225, 121, 161));
+      final file = await writeJpg(source, 'cool-paper');
+      final legacy = RecordScanService.rectifyDominantCardPreview(source,
+          alreadyProcessed: true);
+      expect(legacy, isNotNull);
+      final batch = await RecordScanService.createMultiScan(sourceFile: file);
+      expect(batch.cards, hasLength(1));
+      final image = img.decodeJpg(batch.cards.single.bytes)!;
+      expect(math.max(image.width, image.height), 1360);
+      expect(batch.cards.single.quad.topLeftX, closeTo(paper.x, 20));
+      expect(batch.cards.single.quad.topLeftY, closeTo(paper.y, 20));
+      expect(batch.cards.single.quad.bottomRightX, closeTo(paper.right, 20));
+      expect(batch.cards.single.quad.bottomRightY, closeTo(paper.bottom, 20));
+      final basic = await RecordScanService.createBasicScan(sourceFile: file);
+      expect(batch.cards.single.bytes, basic.bytes);
+    });
+
+    test('a cool sheet without a photo window is not a card', () {
+      final source = img.Image(width: 400, height: 500);
+      img.fillRect(source,
+          x1: 30,
+          y1: 45,
+          x2: 365,
+          y2: 445,
+          color: img.ColorRgb8(181, 223, 230));
+      expect(
+          RecordScanService.rectifyDominantCardPreview(source,
+              alreadyProcessed: true),
+          isNull);
+    });
+
+    test('perspective landscape mini keeps signed paper edges on desk and crop',
+        () async {
+      // Relocate the same projected film; the detector receives pixels only.
+      for (final shift in [
+        const math.Point(0.0, 0.0),
+        const math.Point(230.0, 90.0)
+      ]) {
+        const neighbour = _Card.mini(cx: 1390, cy: 650, height: 400);
+        final image =
+            _render(1800, 1150, [neighbour], background: _Background.saturated);
+        final quad = _paintPerspectiveLandscape(image, shift);
+        final file = await writeJpg(image, 'perspective_${shift.x}');
+        final result =
+            await RecordScanService.createMultiScan(sourceFile: file);
+        expect(result.cards, hasLength(2));
+        final card = result.cards.reduce((a, b) =>
+            _iou(_quadPoints(a.quad), quad) > _iou(_quadPoints(b.quad), quad)
+                ? a
+                : b);
+        expect(_iou(_quadPoints(card.quad), quad), greaterThan(0.94));
+        _expectLandscapeSignature(img.decodeJpg(card.bytes)!);
+
+        final left = quad.map((p) => p.x).reduce(math.min).floor() - 22;
+        final top = quad.map((p) => p.y).reduce(math.min).floor() - 22;
+        final right = quad.map((p) => p.x).reduce(math.max).ceil() + 22;
+        final bottom = quad.map((p) => p.y).reduce(math.max).ceil() + 22;
+        final crop = img.copyCrop(image,
+            x: left, y: top, width: right - left, height: bottom - top);
+        final cropped = await RecordScanService.createMultiScan(
+            sourceFile: await writeJpg(crop, 'crop_${shift.x}'));
+        expect(cropped.cards, hasLength(1));
+        _expectLandscapeSignature(img.decodeJpg(cropped.cards.single.bytes)!);
+      }
+    });
+
+    test(
+        'unresolved low-contrast edge keeps signatures in whole-image fallback',
+        () async {
+      final image = _render(1200, 900, const []);
+      img.fillRect(image,
+          x1: 100,
+          y1: 630,
+          x2: 870,
+          y2: 770,
+          color: img.ColorRgb8(221, 219, 217));
+      _paintPerspectiveLandscape(image, const math.Point(0.0, 0.0));
+      final file = await writeJpg(image, 'pale_edge');
+      final result = await RecordScanService.createMultiScan(sourceFile: file);
+      // This is a retained counterexample, not a promised weak-edge recall:
+      // no reliable outer quad. Exercise the same full-image manual fallback
+      // used by BatchImportService, retaining the desk and all signed edges.
+      expect(result.cards, isEmpty);
+      expect(result.warnings, contains(RecordScanMultiWarning.unsafeGeometry));
+      final output = await RecordScanService.createManualScan(
+        sourceBytes: await file.readAsBytes(),
+        quad: RecordScanQuad(
+          topLeftX: 0,
+          topLeftY: 0,
+          topRightX: image.width - 1.0,
+          topRightY: 0,
+          bottomRightX: image.width - 1.0,
+          bottomRightY: image.height - 1.0,
+          bottomLeftX: 0,
+          bottomLeftY: image.height - 1.0,
+        ),
+      );
+      final safe = img.decodeJpg(Uint8List.fromList(output.bytes))!;
+      expect(safe.width, 1360);
+      expect(safe.height, 1020); // Original 4:3 canvas, no card-ratio stretch.
+      for (final (u, v, red) in [
+        (820 / 860, 100 / 540, true),
+        (820 / 860, 440 / 540, false),
+        (330 / 860, 16 / 540, true),
+        (400 / 860, 524 / 540, false),
+      ]) {
+        final z = 1 + .08 * u + .03 * v;
+        final cx = ((650 * u - 60 * v + 220) / z * 1360 / 1200).round();
+        final cy = ((40 * u + 400 * v + 280) / z * 1020 / 900).round();
+        var strongest = 0.0;
+        for (var y = cy - 14; y <= cy + 14; y++) {
+          for (var x = cx - 14; x <= cx + 14; x++) {
+            final p = safe.getPixel(x, y);
+            strongest = math.max(strongest,
+                red ? (p.r - p.g).toDouble() : (p.g - p.r).toDouble());
+          }
+        }
+        expect(strongest, greaterThan(70), reason: 'fallback ink at $u,$v');
+      }
+    });
+
+    test('whole-image manual fallback does not stretch a finished mini crop',
+        () async {
+      final image = _landscapeMini();
+      final output = await RecordScanService.createManualScan(
+        sourceBytes: Uint8List.fromList(img.encodeJpg(image, quality: 96)),
+        quad: RecordScanQuad(
+          topLeftX: 0,
+          topLeftY: 0,
+          topRightX: image.width - 1.0,
+          topRightY: 0,
+          bottomRightX: image.width - 1.0,
+          bottomRightY: image.height - 1.0,
+          bottomLeftX: 0,
+          bottomLeftY: image.height - 1.0,
+        ),
+      );
+      _expectLandscapeSignature(
+          img.decodeJpg(Uint8List.fromList(output.bytes))!);
+    });
+
+    test('whole-image fallback keeps the last source row and column', () async {
+      final image = img.Image(width: 1360, height: 854);
+      img.fill(image, color: img.ColorRgb8(90, 90, 90));
+      for (var x = 100; x < 500; x++) {
+        image.setPixelRgb(x, 853, 230, 10, 10);
+      }
+      for (var y = 100; y < 500; y++) {
+        image.setPixelRgb(1359, y, 10, 220, 10);
+      }
+      final output = await RecordScanService.createManualScan(
+        sourceBytes: Uint8List.fromList(img.encodePng(image)),
+        quad: const RecordScanQuad(
+          topLeftX: 0,
+          topLeftY: 0,
+          topRightX: 1360,
+          topRightY: 0,
+          bottomRightX: 1360,
+          bottomRightY: 854,
+          bottomLeftX: 0,
+          bottomLeftY: 854,
+        ),
+      );
+      final safe = img.decodeJpg(Uint8List.fromList(output.bytes))!;
+      expect(safe.width, 1360);
+      expect(safe.height, 854);
+      final bottom = safe.getPixel(300, 853);
+      final right = safe.getPixel(1359, 300);
+      expect(bottom.r - bottom.g, greaterThan(100));
+      expect(right.g - right.r, greaterThan(100));
+    });
+
+    test('texture, dark rectangles and white flecks are not extra cards',
+        () async {
+      final image =
+          _render(1200, 900, const [], background: _Background.saturated);
+      for (var i = 0; i < 5; i++) {
+        img.fillRect(image,
+            x1: 30 + i * 230,
+            y1: 250,
+            x2: 210 + i * 230,
+            y2: 530,
+            color: img.ColorRgb8(22, 20, 28));
+      }
+      final random = math.Random(41);
+      for (var i = 0; i < 800; i++) {
+        final x = random.nextInt(1196), y = random.nextInt(896);
+        img.fillRect(image,
+            x1: x,
+            y1: y,
+            x2: x + 3,
+            y2: y + 3,
+            color: img.ColorRgb8(238, 238, 238));
+      }
+      final result = await RecordScanService.createMultiScan(
+          sourceFile: await writeJpg(image, 'rectangle_noise'));
+      expect(result.cards, isEmpty);
+      expect(result.warnings, contains(RecordScanMultiWarning.noneDetected));
+    });
+
+    test('partial edge card does not discard a clear neighbouring card',
+        () async {
+      const clear = _Card.mini(cx: 850, cy: 450, height: 500, angle: -8);
+      final file = await writeJpg(
+          _render(1200, 900, [
+            const _Card.mini(cx: 210, cy: 450, height: 500, angle: 20),
+            clear,
+          ]),
+          'partial_edge');
+      final result = await RecordScanService.createMultiScan(sourceFile: file);
+      expect(result.cards, hasLength(1));
+      expect(_iou(_quadPoints(result.cards.single.quad), clear.corners),
+          greaterThanOrEqualTo(0.85));
+      expect(result.warnings, contains(RecordScanMultiWarning.unsafeGeometry));
+    });
+
+    test('one mini has the same proportions in single and batch scan',
+        () async {
+      const card = _Card.mini(cx: 600, cy: 450, height: 500, angle: 12);
+      final file = await writeJpg(_render(1200, 900, [card]), 'single_mini');
+      final result = await RecordScanService.createMultiScan(sourceFile: file);
+      _expectMatches(result, [card]);
+      final crop = img.decodeJpg(result.cards.single.bytes)!;
+      expect(crop.width / crop.height, closeTo(54 / 86, 0.01));
+      expect(math.max(crop.width, crop.height), 1360,
+          reason: 'one-card archive quality stays unchanged');
+      final single = await RecordScanService.createBasicScan(sourceFile: file);
+      expect(single.bytes, orderedEquals(result.cards.single.bytes));
+    });
+
+    test('single scan with no trustworthy paper does not crop or stretch',
+        () async {
+      final source = img.Image(width: 302, height: 197)
+        ..clear(img.ColorRgb8(21, 30, 29));
+      img.fillRect(source,
+          x1: 0, y1: 0, x2: 24, y2: 24, color: img.ColorRgb8(144, 55, 35));
+      final file = await writeJpg(source, 'unknown-proportions');
+      final output = await RecordScanService.createBasicScan(sourceFile: file);
+      final archived = img.decodeImage(Uint8List.fromList(output.bytes))!;
+      expect((archived.width, archived.height), (source.width, source.height));
+      expect(archived.getPixel(12, 12).r,
+          greaterThan(archived.getPixel(30, 30).r + 40));
+    });
+
     test('2×2 grid: four cards, each box matches ground truth', () async {
       final cards = _grid(
         columns: 2,
@@ -62,7 +397,29 @@ void main() {
         final decoded = img.decodeJpg(card.bytes)!;
         expect(math.max(decoded.width, decoded.height), 1360,
             reason: 'multi-crop should match a close-up scan frame');
+        expect(decoded.width / decoded.height, closeTo(0.8, 0.01));
       }
+    });
+
+    test('multi-card archive frame preserves landscape and portrait geometry',
+        () async {
+      const cards = [
+        _Card(cx: 450, cy: 500, width: 500, height: 400),
+        _Card(cx: 1350, cy: 500, width: 400, height: 500),
+      ];
+      final file = await writeJpg(_render(1800, 1000, cards), 'orientations');
+      final result = await RecordScanService.createMultiScan(sourceFile: file);
+      _expectMatches(result, cards);
+      _expectDecodableCrop(result.cards.first,
+          portrait: false, whiteCorners: true);
+      _expectDecodableCrop(result.cards.last,
+          portrait: true, whiteCorners: true);
+      final landscape = img.decodeJpg(result.cards.first.bytes)!;
+      final portrait = img.decodeJpg(result.cards.last.bytes)!;
+      expect(landscape.width, 1360);
+      expect(landscape.height, (1360 * 86 / 108).round());
+      expect(portrait.width, (1360 * 86 / 108).round());
+      expect(portrait.height, 1360);
     });
 
     test('3×2 grid with 五寸 and 三寸 rows, timing printed', () async {
@@ -389,6 +746,83 @@ void main() {
       expect(result.warnings, contains(RecordScanMultiWarning.noneDetected));
     });
   });
+}
+
+img.Image _landscapeMini() {
+  final card = img.Image(width: 860, height: 540);
+  img.fill(card, color: img.ColorRgb8(240, 238, 236));
+  img.fillRect(card,
+      x1: 70, y1: 40, x2: 689, y2: 499, color: img.ColorRgb8(50, 70, 110));
+  // The right-side thick border carries asymmetric signatures; edge markers
+  // catch both an inner-window crop and a cyclic/180-degree corner shift.
+  img.fillCircle(card,
+      x: 820, y: 100, radius: 15, color: img.ColorRgb8(190, 30, 40));
+  img.fillCircle(card,
+      x: 820, y: 440, radius: 15, color: img.ColorRgb8(30, 160, 45));
+  img.fillCircle(card,
+      x: 330, y: 16, radius: 8, color: img.ColorRgb8(190, 30, 40));
+  img.fillCircle(card,
+      x: 400, y: 524, radius: 8, color: img.ColorRgb8(30, 160, 45));
+  return card;
+}
+
+void _expectLandscapeSignature(img.Image image) {
+  expect(image.width, 1360);
+  expect(image.height, 854);
+  for (final (x, y, red) in [
+    (820 / 860, 100 / 540, true),
+    (820 / 860, 440 / 540, false),
+    (330 / 860, 16 / 540, true),
+    (400 / 860, 524 / 540, false),
+  ]) {
+    var strongest = 0.0;
+    final cx = (x * image.width).round(), cy = (y * image.height).round();
+    for (var yy = math.max(0, cy - 18);
+        yy < math.min(image.height, cy + 19);
+        yy++) {
+      for (var xx = math.max(0, cx - 18);
+          xx < math.min(image.width, cx + 19);
+          xx++) {
+        final pixel = image.getPixel(xx, yy);
+        strongest = math.max(
+            strongest,
+            red
+                ? (pixel.r - pixel.g).toDouble()
+                : (pixel.g - pixel.r).toDouble());
+      }
+    }
+    expect(strongest, greaterThan(70), reason: 'signature at $x,$y');
+  }
+}
+
+List<math.Point<double>> _paintPerspectiveLandscape(
+    img.Image image, math.Point<double> shift) {
+  final card = _landscapeMini();
+  // One genuine projective transform, not a bilinear quadrilateral mapping.
+  math.Point<double> project(double u, double v) {
+    final z = 1 + .08 * u + .03 * v;
+    return math.Point((650 * u - 60 * v + 220) / z + shift.x,
+        (40 * u + 400 * v + 280) / z + shift.y);
+  }
+
+  final q = [project(0, 0), project(1, 0), project(1, 1), project(0, 1)];
+  final x0 = q.map((p) => p.x).reduce(math.min).floor();
+  final x1 = q.map((p) => p.x).reduce(math.max).ceil();
+  final y0 = q.map((p) => p.y).reduce(math.min).floor();
+  final y1 = q.map((p) => p.y).reduce(math.max).ceil();
+  for (var y = y0; y <= y1; y++) {
+    for (var x = x0; x <= x1; x++) {
+      final px = x + .5 - shift.x, py = y + .5 - shift.y;
+      final a = 650 - .08 * px, b = -60 - .03 * px, c = px - 220;
+      final d = 40 - .08 * py, e = 400 - .03 * py, f = py - 280;
+      final det = a * e - b * d;
+      final u = (c * e - b * f) / det, v = (a * f - c * d) / det;
+      if (u < 0 || u >= 1 || v < 0 || v >= 1) continue;
+      image.setPixel(x, y,
+          card.getPixel((u * card.width).floor(), (v * card.height).floor()));
+    }
+  }
+  return q;
 }
 
 class _Card {
@@ -740,6 +1174,8 @@ void _expectDecodableCrop(
   final decoded = img.decodeJpg(Uint8List.fromList(card.bytes));
   expect(decoded, isNotNull);
   final image = decoded!;
+  expect(math.max(image.width, image.height), 1360,
+      reason: 'every multi-crop retains the archive frame');
   expect(image.height >= image.width, portrait);
   final center = image.getPixel(image.width ~/ 2, image.height ~/ 2);
   // Photo area, not frame or background.
@@ -801,3 +1237,14 @@ double _iou(List<math.Point<double>> a, List<math.Point<double>> b) {
   final inter = output.length < 3 ? 0.0 : _area(output).abs();
   return inter / (_area(a).abs() + _area(b).abs() - inter);
 }
+
+RecordScanQuad _fromPoints(List<math.Point<double>> p) => RecordScanQuad(
+      topLeftX: p[0].x,
+      topLeftY: p[0].y,
+      topRightX: p[1].x,
+      topRightY: p[1].y,
+      bottomRightX: p[2].x,
+      bottomRightY: p[2].y,
+      bottomLeftX: p[3].x,
+      bottomLeftY: p[3].y,
+    );

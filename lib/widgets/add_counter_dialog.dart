@@ -1,12 +1,27 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../models/counter_model.dart';
 import '../models/group_pricing_model.dart';
 import '../models/idol_database_models.dart';
+import '../models/member_short_name.dart';
 import '../services/database_service.dart';
 import '../services/idol_database_service.dart';
 import 'color_picker_dialog.dart';
 import 'no_autofill_text_field.dart';
+
+/// Helper text under the 卡面简称 field: shows what the card will print.
+String counterShortNameHint({required String name, required String shortName}) {
+  final resolved = resolveMemberShortName(name: name, configured: shortName);
+  final trimmedName = name.trim();
+  if (trimmedName.isEmpty) {
+    return '卡面上会显示 $resolved';
+  }
+  if (normalizeMemberShortName(shortName).isEmpty) {
+    return '留空则按名字自动：$resolved';
+  }
+  return '卡面上会显示 $resolved';
+}
 
 class CounterDialogResult {
   final CounterModel counter;
@@ -52,6 +67,7 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
   final _nameController = TextEditingController();
   final _groupController = TextEditingController();
   final _personController = TextEditingController();
+  final _shortNameController = TextEditingController();
   late final Map<String, TextEditingController> _countControllers;
   Color _selectedColor = const Color(0xFFFFE135);
   String? _nameError;
@@ -90,6 +106,7 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
       _selectedPersonId = widget.initialData!.personId;
       _selectedPersonName = widget.initialData!.personName;
       _personController.text = widget.initialData!.personName;
+      _shortNameController.text = widget.initialData!.shortName;
       for (final field in CounterCountField.values) {
         _countControllers[field.key]!.text =
             widget.initialData!.countForField(field).toString();
@@ -108,6 +125,7 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
     _nameController.dispose();
     _groupController.dispose();
     _personController.dispose();
+    _shortNameController.dispose();
     for (final controller in _countControllers.values) {
       controller.dispose();
     }
@@ -852,7 +870,29 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
                 hintText: '可选，便于区分同名成员',
               ),
               textInputAction: TextInputAction.next,
-              onChanged: _loadUnsignedOptionsForGroup,
+              onChanged: (value) {
+                _loadUnsignedOptionsForGroup(value);
+                setState(() {});
+              },
+            ),
+            const SizedBox(height: 16),
+            ValueListenableBuilder<TextEditingValue>(
+              valueListenable: _shortNameController,
+              builder: (context, shortNameValue, _) => NoAutofillTextField(
+                controller: _shortNameController,
+                decoration: InputDecoration(
+                  labelText: '卡面简称（可选）',
+                  hintText: '卡面上的大字，如 雪 / 浙璃 / Remi',
+                  helperText: counterShortNameHint(
+                    name: _nameController.text,
+                    shortName: shortNameValue.text,
+                  ),
+                ),
+                textInputAction: TextInputAction.next,
+                inputFormatters: [
+                  LengthLimitingTextInputFormatter(kMemberShortNameMaxLength),
+                ],
+              ),
             ),
             const SizedBox(height: 16),
             if (_idolLoading)
@@ -1108,6 +1148,9 @@ class _AddCounterDialogState extends State<AddCounterDialog> {
                         counter: CounterModel(
                           id: widget.initialData?.id,
                           name: name,
+                          shortName: normalizeMemberShortName(
+                            _shortNameController.text,
+                          ),
                           groupName: _groupController.text.trim(),
                           personId: resolvedPersonId,
                           personName: personName,

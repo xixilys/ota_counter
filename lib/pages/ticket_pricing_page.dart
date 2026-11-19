@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../models/ticket_type_model.dart';
 import '../services/ticket_pricing_service.dart';
+import '../theme/app_theme.dart';
 import '../widgets/app_page_background.dart';
+import '../widgets/dream/dream_kit.dart';
 import '../widgets/no_autofill_text_field.dart';
+import 'ticket_organize_page.dart';
 
 class TicketPricingPage extends StatefulWidget {
   const TicketPricingPage({super.key});
@@ -15,6 +18,8 @@ class TicketPricingPage extends StatefulWidget {
 class _TicketPricingPageState extends State<TicketPricingPage> {
   List<TicketTypeModel> _types = [];
   List<TicketPricePreset> _presets = [];
+  Map<String, TicketTypeUsage> _usage = const {};
+  TicketStats _stats = TicketStats.empty;
   bool _loading = true;
 
   @override
@@ -26,10 +31,14 @@ class _TicketPricingPageState extends State<TicketPricingPage> {
   Future<void> _load() async {
     final types = await TicketPricingService.getTicketTypes();
     final presets = await TicketPricingService.getPresets();
+    final usage = await TicketPricingService.getTypeUsage();
+    final stats = await TicketPricingService.getStats();
     if (!mounted) return;
     setState(() {
       _types = types;
       _presets = presets;
+      _usage = usage;
+      _stats = stats;
       _loading = false;
     });
   }
@@ -140,19 +149,34 @@ class _TicketPricingPageState extends State<TicketPricingPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          imported == 0 ? '没有找到带票种的历史门票' : '已从 $imported 条历史门票更新场次价格',
+          imported == 0 ? '还没有带票种的历史门票可学习' : '已从 $imported 条历史门票更新场次价格',
         ),
       ),
     );
   }
 
+  Future<void> _openOrganizer() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const TicketOrganizePage(),
+      ),
+    );
+    await _load();
+  }
+
   Future<void> _deleteType(TicketTypeModel type) async {
     if (type.id == null) return;
+    final used = _usage[type.name]?.ticketCount ?? 0;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('删除票种'),
-        content: Text('删除“${type.name}”？已有门票记录不会被删除。'),
+        content: Text(
+          used > 0
+              ? '「${type.name}」已经用在 $used 张门票上。删除只会移除这个票种入口，'
+                  '已有门票记录会保留原票种名称。确定删除？'
+              : '删除「${type.name}」？',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -170,18 +194,61 @@ class _TicketPricingPageState extends State<TicketPricingPage> {
     await _load();
   }
 
+  void _showExplainer() {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('票种与自动价格'),
+        content: const Text(
+          '录门票时优先带入演出名单里的票价，其次记住同一场次上次的价格，'
+          '最后才用票种的默认价。默认价会在第一次记录该票种后自动学习。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              _importFromHistory();
+            },
+            child: const Text('重建场次价格'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('知道了'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final usedTypes = _types
+        .where((type) => type.name.trim().isNotEmpty)
+        .toList(growable: false)
+      ..sort((a, b) {
+        final countA = _usage[a.name]?.ticketCount ?? 0;
+        final countB = _usage[b.name]?.ticketCount ?? 0;
+        final countCompare = countB.compareTo(countA);
+        if (countCompare != 0) return countCompare;
+        return a.sortOrder.compareTo(b.sortOrder);
+      });
+    final activeTypes = usedTypes
+        .where((type) => (_usage[type.name]?.ticketCount ?? 0) > 0)
+        .toList(growable: false);
+    final idleTypes = usedTypes
+        .where((type) => (_usage[type.name]?.ticketCount ?? 0) <= 0)
+        .toList(growable: false);
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('门票价格'),
+        title: const Text('门票整理'),
         actions: [
           IconButton(
-            tooltip: '从历史门票导入价格',
-            onPressed: _importFromHistory,
-            icon: const Icon(Icons.history_rounded),
+            tooltip: '票种怎么用',
+            onPressed: _showExplainer,
+            icon: const Icon(Icons.info_outline_rounded),
           ),
           IconButton(
             tooltip: '刷新',
@@ -192,6 +259,8 @@ class _TicketPricingPageState extends State<TicketPricingPage> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showTypeDialog(),
+        backgroundColor: AppTheme.oshi(theme.brightness),
+        foregroundColor: AppTheme.onOshi(theme.brightness),
         icon: const Icon(Icons.add_rounded),
         label: const Text('添加票种'),
       ),
@@ -199,181 +268,70 @@ class _TicketPricingPageState extends State<TicketPricingPage> {
         child: _loading
             ? const Center(child: CircularProgressIndicator())
             : ListView(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(26),
-                      gradient: LinearGradient(
-                        colors: [
-                          scheme.tertiaryContainer,
-                          scheme.primaryContainer,
-                        ],
-                      ),
-                      border: Border.all(
-                        color: scheme.tertiary.withValues(alpha: 0.16),
-                      ),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          width: 44,
-                          height: 44,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(15),
-                            color: scheme.surface.withValues(alpha: 0.72),
-                          ),
-                          child: Icon(
-                            Icons.local_activity_rounded,
-                            color: scheme.tertiary,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '票种与自动价格',
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '录入门票时优先带入演出名单文案里的票价，其次才是'
-                                '同场次上次价格；都没有时使用这里的默认价。免费场次'
-                                '可以直接打开开关。',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: scheme.onSurfaceVariant,
-                                  height: 1.45,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              TextButton.icon(
-                                onPressed: _importFromHistory,
-                                icon:
-                                    const Icon(Icons.history_rounded, size: 16),
-                                label: const Text('从历史门票导入'),
-                                style: TextButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 0,
-                                    vertical: 2,
-                                  ),
-                                  visualDensity: VisualDensity.compact,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    '票种',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
+                  _TicketLedgerHeader(
+                    stats: _stats,
+                    onOrganize: _openOrganizer,
                   ),
                   const SizedBox(height: 8),
-                  if (_types.isEmpty)
-                    const Text('还没有票种，点右下角添加。')
-                  else
-                    for (final type in _types) ...[
-                      Card(
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: type.isFree
-                                ? scheme.tertiaryContainer
-                                : scheme.primaryContainer,
-                            child: Icon(
-                              type.isFree
-                                  ? Icons.card_giftcard_rounded
-                                  : Icons.confirmation_num_outlined,
-                              color: type.isFree
-                                  ? scheme.onTertiaryContainer
-                                  : scheme.onPrimaryContainer,
-                            ),
-                          ),
-                          title: Text(type.name),
-                          subtitle: Text(
-                            type.isFree
-                                ? '免费票种'
-                                : type.defaultPrice > 0
-                                    ? '默认 ¥${_formatPrice(type.defaultPrice)}'
-                                    : '默认价待第一次记录后学习',
-                          ),
-                          trailing: Wrap(
-                            spacing: 2,
-                            children: [
-                              IconButton(
-                                tooltip: '编辑',
-                                onPressed: () => _showTypeDialog(initial: type),
-                                icon: const Icon(Icons.edit_outlined),
-                              ),
-                              IconButton(
-                                tooltip: '删除',
-                                onPressed: () => _deleteType(type),
-                                icon: const Icon(Icons.delete_outline),
-                              ),
-                            ],
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.auto_awesome_outlined,
+                        size: 15,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          '默认价会随第一次记录的票种自动学习',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
                           ),
                         ),
+                      ),
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        tooltip: '查看规则',
+                        onPressed: _showExplainer,
+                        icon: const Icon(
+                          Icons.info_outline_rounded,
+                          size: 18,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  _SectionLabel(
+                    title: '票种账本',
+                    trailing: '${activeTypes.length} 种在用',
+                  ),
+                  const SizedBox(height: 8),
+                  if (activeTypes.isEmpty)
+                    _EmptyTypeHint(onAdd: () => _showTypeDialog())
+                  else
+                    for (final type in activeTypes) ...[
+                      _TypeLedgerRow(
+                        type: type,
+                        usage: _usage[type.name],
+                        onTap: () => _showTypeDialog(initial: type),
+                        onDelete: () => _deleteType(type),
                       ),
                       const SizedBox(height: 8),
                     ],
-                  if (_presets.isNotEmpty) ...[
-                    const SizedBox(height: 18),
-                    Text(
-                      '场次价格记忆',
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
+                  if (idleTypes.isNotEmpty) ...[
                     const SizedBox(height: 4),
-                    Text(
-                      '每次保存门票记录都会自动更新；这里只展示最近 200 条。',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
+                    _IdleTypesSection(
+                      types: idleTypes,
+                      onEdit: (type) => _showTypeDialog(initial: type),
+                      onDelete: _deleteType,
                     ),
-                    const SizedBox(height: 8),
-                    for (final preset in _presets.take(20)) ...[
-                      Card(
-                        child: ListTile(
-                          dense: true,
-                          leading: Icon(
-                            preset.isFree
-                                ? Icons.card_giftcard_outlined
-                                : Icons.receipt_long_outlined,
-                            color: scheme.primary,
-                          ),
-                          title: Text(
-                            preset.eventName.isEmpty
-                                ? preset.groupName
-                                : preset.eventName,
-                          ),
-                          subtitle: Text(
-                            [
-                              preset.ticketType,
-                              if (preset.venueName.isNotEmpty) preset.venueName,
-                            ].join(' · '),
-                          ),
-                          trailing: Text(
-                            preset.isFree
-                                ? '免费'
-                                : '¥${_formatPrice(preset.unitPrice)}',
-                            style: theme.textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                    ],
+                  ],
+                  if (_presets.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    _PresetSection(presets: _presets),
                   ],
                 ],
               ),
@@ -384,5 +342,623 @@ class _TicketPricingPageState extends State<TicketPricingPage> {
   static String _formatPrice(double value) {
     if (value == value.roundToDouble()) return value.toStringAsFixed(0);
     return value.toStringAsFixed(2);
+  }
+}
+
+class _TicketLedgerHeader extends StatelessWidget {
+  final TicketStats stats;
+  final VoidCallback onOrganize;
+
+  const _TicketLedgerHeader({
+    required this.stats,
+    required this.onOrganize,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final brightness = theme.brightness;
+    final uncategorized = stats.uncategorizedCount;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+          decoration: BoxDecoration(
+            color: AppTheme.polaroid(brightness),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(
+              color: scheme.outlineVariant.withValues(alpha: 0.7),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '门票手帐',
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    '${stats.ticketCount}',
+                    style: theme.textTheme.headlineLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: scheme.onSurface,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 5, bottom: 6),
+                    child: Text(
+                      '张门票',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    '¥${_formatAmount(stats.amount)}',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      color: scheme.onSurface,
+                      fontWeight: FontWeight.w700,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '免费 ${stats.freeTicketCount} · 付费 ${stats.paidTicketCount}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 12),
+              if (uncategorized > 0)
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: onOrganize,
+                    child: Container(
+                      padding: const EdgeInsets.fromLTRB(12, 9, 8, 9),
+                      decoration: BoxDecoration(
+                        color: AppTheme.wash(
+                            AppTheme.amber, scheme.surface, brightness),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: AppTheme.amber.withValues(alpha: 0.35),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.confirmation_num_outlined,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              '未分类 $uncategorized 张 · ¥${_formatAmount(stats.uncategorizedAmount)}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            '去归类',
+                            style: theme.textTheme.labelLarge?.copyWith(
+                              color: scheme.primary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Icon(
+                            Icons.chevron_right_rounded,
+                            size: 18,
+                            color: scheme.primary,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                )
+              else
+                Row(
+                  children: [
+                    Icon(
+                      Icons.check_circle_outline_rounded,
+                      size: 17,
+                      color: scheme.tertiary,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '所有门票都有票种了',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+        Positioned(
+          top: -7,
+          left: 26,
+          child: WashiTape(
+            color: DreamPalette.tape(AppTheme.amber, brightness),
+            width: 58,
+            height: 16,
+            angle: -0.08,
+          ),
+        ),
+      ],
+    );
+  }
+
+  static String _formatAmount(double value) {
+    if (value == value.roundToDouble()) return value.toStringAsFixed(0);
+    return value.toStringAsFixed(2);
+  }
+}
+
+class _TypeLedgerRow extends StatelessWidget {
+  final TicketTypeModel type;
+  final TicketTypeUsage? usage;
+  final VoidCallback onTap;
+  final VoidCallback onDelete;
+
+  const _TypeLedgerRow({
+    required this.type,
+    required this.usage,
+    required this.onTap,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final brightness = theme.brightness;
+    final resolved = usage ?? TicketTypeUsage(typeName: type.name);
+    final accent = _accentFor(type, brightness);
+    final lastPrice = resolved.lastUsedAt == null
+        ? (type.isFree
+            ? '免费票种'
+            : type.defaultPrice > 0
+                ? '默认 ¥${_formatPrice(type.defaultPrice)}'
+                : '默认价待第一次记录后学习')
+        : resolved.lastIsFree
+            ? '上次免费'
+            : '上次 ¥${_formatPrice(resolved.lastUnitPrice)}';
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 11, 4, 11),
+          decoration: BoxDecoration(
+            color: AppTheme.wash(accent, scheme.surface, brightness),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: accent.withValues(alpha: 0.28)),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                width: 5,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: accent,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            type.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        if (type.isFree) ...[
+                          const SizedBox(width: 6),
+                          _TinyTag(
+                            label: '免费',
+                            color: accent,
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 5),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        _Metric(
+                          label: '${resolved.ticketCount} 张',
+                        ),
+                        _Metric(
+                          label: '¥${_formatAmount(resolved.amount)}',
+                        ),
+                        _Metric(
+                          label: '均价 ¥${_formatPrice(resolved.averagePrice)}',
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      lastPrice,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              PopupMenuButton<String>(
+                tooltip: '票种操作',
+                onSelected: (value) {
+                  if (value == 'edit') onTap();
+                  if (value == 'delete') onDelete();
+                },
+                itemBuilder: (context) => const [
+                  PopupMenuItem(
+                    value: 'edit',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.edit_outlined),
+                      title: Text('编辑票种'),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'delete',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.delete_outline),
+                      title: Text('删除票种'),
+                    ),
+                  ),
+                ],
+                icon: const Icon(Icons.more_horiz_rounded),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  static Color _accentFor(TicketTypeModel type, Brightness brightness) {
+    if (type.isFree) return AppTheme.mint;
+    final hues = [AppTheme.sakura, AppTheme.sky, AppTheme.amber, AppTheme.mint];
+    final seed = type.name.codeUnits.fold<int>(0, (sum, unit) => sum + unit);
+    return hues[seed % hues.length];
+  }
+
+  static String _formatPrice(double value) {
+    if (value == value.roundToDouble()) return value.toStringAsFixed(0);
+    return value.toStringAsFixed(2);
+  }
+
+  static String _formatAmount(double value) {
+    if (value == value.roundToDouble()) return value.toStringAsFixed(0);
+    return value.toStringAsFixed(2);
+  }
+}
+
+class _IdleTypesSection extends StatelessWidget {
+  final List<TicketTypeModel> types;
+  final ValueChanged<TicketTypeModel> onEdit;
+  final ValueChanged<TicketTypeModel> onDelete;
+
+  const _IdleTypesSection({
+    required this.types,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        color:
+            theme.cardTheme.color ?? theme.colorScheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: scheme.outlineVariant.withValues(alpha: 0.6),
+        ),
+      ),
+      child: Theme(
+        data: theme.copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(horizontal: 14),
+          childrenPadding: const EdgeInsets.fromLTRB(10, 0, 10, 6),
+          leading: Icon(
+            Icons.inventory_2_outlined,
+            color: scheme.onSurfaceVariant,
+          ),
+          title: Text(
+            '未使用票种 ${types.length}',
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          subtitle: Text(
+            '还没记录过，点开可以改默认价',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+              fontSize: 11,
+            ),
+          ),
+          children: [
+            for (final type in types)
+              ListTile(
+                dense: true,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                title: Text(type.name),
+                subtitle: Text(
+                  type.isFree
+                      ? '免费票种'
+                      : type.defaultPrice > 0
+                          ? '默认 ¥${_formatPrice(type.defaultPrice)}'
+                          : '默认价待第一次记录后学习',
+                  style: theme.textTheme.bodySmall,
+                ),
+                trailing: PopupMenuButton<String>(
+                  onSelected: (value) {
+                    if (value == 'edit') onEdit(type);
+                    if (value == 'delete') onDelete(type);
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      value: 'edit',
+                      child: Text('编辑'),
+                    ),
+                    PopupMenuItem(
+                      value: 'delete',
+                      child: Text('删除'),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _formatPrice(double value) {
+    if (value == value.roundToDouble()) return value.toStringAsFixed(0);
+    return value.toStringAsFixed(2);
+  }
+}
+
+class _PresetSection extends StatelessWidget {
+  final List<TicketPricePreset> presets;
+
+  const _PresetSection({required this.presets});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final visible = presets.take(12).toList(growable: false);
+    return Container(
+      decoration: BoxDecoration(
+        color:
+            theme.cardTheme.color ?? theme.colorScheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: scheme.outlineVariant.withValues(alpha: 0.6),
+        ),
+      ),
+      child: Theme(
+        data: theme.copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(horizontal: 14),
+          childrenPadding: const EdgeInsets.fromLTRB(10, 0, 10, 6),
+          leading:
+              Icon(Icons.receipt_long_outlined, color: scheme.onSurfaceVariant),
+          title: Text(
+            '场次价格记忆 ${presets.length}',
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          subtitle: Text(
+            '最近 ${visible.length} 条 · 保存门票时自动更新',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+              fontSize: 11,
+            ),
+          ),
+          children: [
+            for (final preset in visible)
+              ListTile(
+                dense: true,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                leading: Icon(
+                  preset.isFree
+                      ? Icons.card_giftcard_outlined
+                      : Icons.local_activity_outlined,
+                  size: 18,
+                  color: scheme.primary,
+                ),
+                title: Text(
+                  preset.eventName.isEmpty
+                      ? preset.groupName
+                      : preset.eventName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium,
+                ),
+                subtitle: Text(
+                  [
+                    preset.ticketType,
+                    if (preset.venueName.isNotEmpty) preset.venueName,
+                  ].join(' · '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall,
+                ),
+                trailing: Text(
+                  preset.isFree ? '免费' : '¥${_formatPrice(preset.unitPrice)}',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _formatPrice(double value) {
+    if (value == value.roundToDouble()) return value.toStringAsFixed(0);
+    return value.toStringAsFixed(2);
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  final String title;
+  final String trailing;
+
+  const _SectionLabel({required this.title, required this.trailing});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Row(
+      children: [
+        Text(
+          title,
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const Spacer(),
+        Text(
+          trailing,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _Metric extends StatelessWidget {
+  final String label;
+
+  const _Metric({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(7),
+      ),
+      child: Text(
+        label,
+        style: theme.textTheme.bodySmall?.copyWith(
+          fontSize: 11,
+          fontFeatures: const [FontFeature.tabularFigures()],
+        ),
+      ),
+    );
+  }
+}
+
+class _TinyTag extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _TinyTag({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: AppTheme.readableAccent(color, theme.brightness),
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyTypeHint extends StatelessWidget {
+  final VoidCallback onAdd;
+
+  const _EmptyTypeHint({required this.onAdd});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: scheme.outlineVariant.withValues(alpha: 0.6),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.confirmation_num_outlined, color: scheme.onSurfaceVariant),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '还没有在用票种。先记一张门票，或添加一个票种。',
+              style: theme.textTheme.bodyMedium,
+            ),
+          ),
+          TextButton(onPressed: onAdd, child: const Text('添加')),
+        ],
+      ),
+    );
   }
 }

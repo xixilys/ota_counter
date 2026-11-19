@@ -13,6 +13,7 @@ import '../models/counter_model.dart';
 import '../models/group_pricing_model.dart';
 import '../models/ticket_type_model.dart';
 import 'database_service.dart';
+import 'merch_service.dart';
 import 'ticket_pricing_service.dart';
 import 'face/face_enrollment_sync_service.dart';
 
@@ -230,7 +231,7 @@ class SyncService {
     };
     final appliedIds = <String>[];
     final failures = <SyncActionFailure>[];
-    final enrollmentFailures = <String, String>{};
+    final actionFailures = <String, String>{};
     final enrollmentResults = <String, Map<String, dynamic>>{};
     var skipped = 0;
 
@@ -260,7 +261,7 @@ class SyncService {
           );
           if (result.failure != null) {
             if (!result.retryable) {
-              enrollmentFailures[actionId] = result.failure!;
+              actionFailures[actionId] = result.failure!;
               if (result.summary != null) {
                 enrollmentResults[actionId] = result.summary!;
               }
@@ -272,6 +273,43 @@ class SyncService {
             appliedIds.add(actionId);
             if (result.replayed) skipped++;
           }
+        } else if (kind == 'member_create') {
+          final name = (payload['name'] ?? payload['member_name'] ?? '')
+              .toString()
+              .trim();
+          if (name.isEmpty) {
+            throw SyncException('建卡失败：缺少成员名');
+          }
+          final group = (payload['group_name'] ?? payload['group'] ?? '')
+              .toString()
+              .trim();
+          final personId = _readNullableInt(payload['person_id']);
+          final personName = (payload['person_name'] ?? '').toString().trim();
+          // A retried action must not create a second card. 兼任 / 转团 are
+          // different groups of the same person, so a matching person id alone
+          // is not a duplicate when a new group was requested.
+          final exists = counters.any((counter) {
+            final groupMatches = group.isEmpty ||
+                _normalizeMemberName(counter.groupName) ==
+                    _normalizeMemberName(group);
+            if (!groupMatches) return false;
+            if (personId != null && counter.personId == personId) return true;
+            return _normalizeMemberName(counter.name) ==
+                _normalizeMemberName(name);
+          });
+          if (!exists) {
+            final color = _validColor(payload['color']) ?? '#FFE135';
+            final created = CounterModel(
+              name: name,
+              groupName: group,
+              personId: personId,
+              personName: personName.isEmpty ? name : personName,
+              color: color,
+            );
+            final id = await DatabaseService.insertCounter(created);
+            counters.add(created.copyWith(id: id));
+          }
+          appliedIds.add(actionId);
         } else if (kind == 'counter_delta') {
           var counter = _resolveCounter(counters, payload);
           if (counter == null && payload['allow_create'] == true) {
@@ -371,28 +409,29 @@ class SyncService {
           throw SyncException('未知操作类型: $kind');
         }
       } catch (error) {
+        final message = kind == 'enroll_face'
+            ? '人脸登记未保存，请稍后重试'
+            : error is SyncException
+                ? error.message
+                : '$error';
+        if (kind == 'member_create' && error is SyncException) {
+          actionFailures[actionId] = message;
+        }
         failures.add(
-          SyncActionFailure(
-            actionId: actionId,
-            message: kind == 'enroll_face'
-                ? '人脸登记未保存，请稍后重试'
-                : error is SyncException
-                    ? error.message
-                    : '$error',
-          ),
+          SyncActionFailure(actionId: actionId, message: message),
         );
       }
     }
 
-    if (appliedIds.isNotEmpty || enrollmentFailures.isNotEmpty) {
+    if (appliedIds.isNotEmpty || actionFailures.isNotEmpty) {
       try {
         await _request(
           settings,
           'POST',
           '/api/v1/actions/ack',
           body: {
-            'ids': [...appliedIds, ...enrollmentFailures.keys],
-            if (enrollmentFailures.isNotEmpty) 'failures': enrollmentFailures,
+            'ids': [...appliedIds, ...actionFailures.keys],
+            if (actionFailures.isNotEmpty) 'failures': actionFailures,
             if (enrollmentResults.isNotEmpty) 'results': enrollmentResults,
           },
         );
@@ -415,6 +454,7 @@ class SyncService {
     final counters = await DatabaseService.getCounters();
     final records = await DatabaseService.getActivityRecords();
     final pricings = await DatabaseService.getGroupPricings();
+    final merchStats = await MerchService.getStats();
     var appVersion = '';
     try {
       final info = await PackageInfo.fromPlatform();
@@ -603,6 +643,17 @@ class SyncService {
       'counters': counterMaps,
       'records': records.map((record) => record.toMap()).toList(),
       'pricings': pricings.map((pricing) => pricing.toMap()).toList(),
+      // 周边 has its own ledger and is not part of the activity-record stream,
+      // so the MCP snapshot gets a small summary object instead of fake
+      // counter/ticket records. Extra JSON keys are ignored by older readers.
+      'merch': {
+        'purchase_count': merchStats.purchaseCount,
+        'item_count': merchStats.itemCount,
+        'amount': merchStats.amount,
+        'by_kind': merchStats.amountByKind,
+        'by_member': merchStats.amountByMember,
+        'by_month': merchStats.amountByMonth,
+      },
       'summary': {
         'total_count': max(0, memberTotal - duplicateTotal),
         'by_type': adjustedByType,
@@ -642,31 +693,64 @@ class SyncService {
     return 'counter:${_normalize(counter.groupName)}|${_normalize(counter.name)}';
   }
 
+  static String _normalizeMemberName(String value) => value
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'[\s·•・_\-~/\\()\[\]{}（）【】「」『』]+'), '');
+
+  static String? _validColor(Object? value) {
+    final text = (value ?? '').toString().trim();
+    if (RegExp(r'^#[0-9A-Fa-f]{6}$').hasMatch(text)) return text.toUpperCase();
+    return null;
+  }
+
   static CounterModel? _resolveCounter(
     List<CounterModel> counters,
     Map<String, dynamic> payload,
   ) {
     final id = _readNullableInt(payload['counter_id']);
-    if (id != null) {
-      for (final counter in counters) {
-        if (counter.id == id) return counter;
-      }
-    }
     final personId = _readNullableInt(payload['person_id']);
     final name = _normalize(
       (payload['member_name'] ?? payload['name'] ?? '').toString(),
     );
     final personName = _normalize((payload['person_name'] ?? '').toString());
     final group = _normalize((payload['group_name'] ?? '').toString());
-    if (personId != null) {
+
+    CounterModel? byId;
+    if (id != null) {
       for (final counter in counters) {
-        if (counter.personId == personId) {
-          if (group.isEmpty || _normalize(counter.groupName) == group) {
-            return counter;
-          }
+        if (counter.id == id) {
+          byId = counter;
+          break;
         }
       }
     }
+    // 兼任: a server action may carry the person's *primary* card id while
+    // naming the other group. Group is the stronger routing signal, otherwise
+    // Li-U-Li counts would land on the Meguri-Kaado card.
+    if (byId != null &&
+        (group.isEmpty || _normalize(byId.groupName) == group)) {
+      return byId;
+    }
+
+    List<CounterModel> personCards = const [];
+    if (personId != null) {
+      personCards = counters
+          .where((counter) => counter.personId == personId)
+          .toList(growable: false);
+    }
+    if (personCards.isNotEmpty) {
+      if (group.isNotEmpty) {
+        for (final counter in personCards) {
+          if (_normalize(counter.groupName) == group) return counter;
+        }
+        // The card may have moved groups; a single card is still unambiguous.
+        if (personCards.length == 1) return personCards.single;
+      } else {
+        return personCards.first;
+      }
+    }
+
     if (name.isNotEmpty) {
       for (final counter in counters) {
         final counterName = _normalize(counter.name);
@@ -679,7 +763,10 @@ class SyncService {
         }
       }
     }
-    return null;
+
+    // Only a group-less action may fall back to the carried id: it describes
+    // the intended card directly.
+    return group.isEmpty ? byId : null;
   }
 
   static Future<Uint8List> _fetchFaceImage(

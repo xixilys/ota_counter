@@ -106,6 +106,11 @@ class FullBackupBundle {
       table: ImageService.tableName,
       pathColumn: 'path',
     );
+    _validateDocumentPathRows(
+      _readTableDump(manifest['main_database']),
+      table: DatabaseService.merchPurchaseTableName,
+      pathColumn: 'photo_path',
+    );
 
     return FullBackupBundle(
       formatVersion: formatVersion,
@@ -435,6 +440,15 @@ class ExportImportService {
       pathColumn: 'path',
       pathMapper: pathMapper,
     );
+    final rawMerchPurchases = await _readTableRows(
+      mainDb,
+      DatabaseService.merchPurchaseTableName,
+    );
+    final merchPurchases = await _normalizeRowsWithDocumentPaths(
+      rows: rawMerchPurchases,
+      pathColumn: 'photo_path',
+      pathMapper: pathMapper,
+    );
 
     final imageDb = await ImageService.database;
     final rawImages = await _readTableRows(
@@ -451,6 +465,7 @@ class ExportImportService {
 
     final documentPaths = <String, String>{
       ...activityRecordMedia.documentPaths,
+      ...merchPurchases.documentPaths,
       ...images.documentPaths,
     };
 
@@ -480,6 +495,11 @@ class ExportImportService {
           mainDb,
           'ticket_price_presets',
         ),
+        DatabaseService.merchKindTableName: await _readTableRows(
+          mainDb,
+          DatabaseService.merchKindTableName,
+        ),
+        DatabaseService.merchPurchaseTableName: merchPurchases.rows,
         // DatabaseService.faceSamplesTableName is left out on purpose:
         // face embeddings are biometric data that stays on this phone (the
         // 人脸识别 settings promise "只在手机本地、不上传"). After a restore,
@@ -587,6 +607,20 @@ class ExportImportService {
         txn,
         table: 'ticket_price_presets',
         rows: tables['ticket_price_presets'] ?? const [],
+      );
+      await _insertRows(
+        txn,
+        table: DatabaseService.merchKindTableName,
+        rows: tables[DatabaseService.merchKindTableName] ?? const [],
+      );
+      await _insertRows(
+        txn,
+        table: DatabaseService.merchPurchaseTableName,
+        rows: _rowsWithAbsoluteDocumentPaths(
+          tables[DatabaseService.merchPurchaseTableName] ?? const [],
+          documentsPath: documentsPath,
+          pathColumn: 'photo_path',
+        ),
       );
     });
   }
@@ -762,6 +796,7 @@ class ExportImportService {
     final directories = [
       Directory(p.join(documentsPath, 'activity_record_media')),
       Directory(p.join(documentsPath, 'imported_files')),
+      Directory(p.join(documentsPath, 'merch_photos')),
     ];
 
     for (final directory in directories) {

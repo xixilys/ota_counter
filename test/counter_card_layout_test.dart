@@ -5,6 +5,7 @@ import 'package:ota_counter/models/counter_model.dart';
 import 'package:ota_counter/services/settings_service.dart';
 import 'package:ota_counter/theme/app_theme.dart';
 import 'package:ota_counter/widgets/counter_card.dart';
+import 'package:ota_counter/widgets/dream/dream_kit.dart';
 
 const _physicalSize = Size(1440, 3168);
 const _devicePixelRatio = 3.5;
@@ -269,7 +270,9 @@ void main() {
           expect(groupFinder, findsNWidgets(_fixtures.length));
           for (var i = 0; i < groupFinder.evaluate().length; i++) {
             final text = tester.widget<Text>(groupFinder.at(i));
-            expect(text.maxLines, 1);
+            // Group names may wrap to two lines so a long group is readable
+            // instead of truncated to "PokaPok…"; they must never need more.
+            expect(text.maxLines, lessThanOrEqualTo(2));
           }
 
           if (columns <= 2) {
@@ -304,6 +307,30 @@ void main() {
             // 3-5 columns stay on the compact layout: no chip row at all.
             for (final label in _allSpecLabels) {
               expect(find.text(label), findsNothing);
+            }
+
+            // The compact print fills its grid cell: no big empty white area
+            // between the caption and the count sticker (the old 136/160px
+            // extents left ~40px of blank paper).
+            for (final fixture in _fixtures) {
+              final cardRect = tester.getRect(_cardFinder(fixture.name));
+              final stickerRect = tester.getRect(
+                find.descendant(
+                  of: _cardFinder(fixture.name),
+                  matching: find.byType(StickerBadge),
+                ),
+              );
+              expect(
+                cardRect.bottom - stickerRect.bottom,
+                lessThanOrEqualTo(6.0),
+                reason: '$columns columns should not leave empty paper below '
+                    'the count sticker',
+              );
+              expect(
+                cardRect.height,
+                lessThan(cardHeight + 0.1),
+                reason: 'the grid extent must match the card content',
+              );
             }
           }
 

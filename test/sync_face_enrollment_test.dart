@@ -487,6 +487,34 @@ void main() {
       ]);
       expect(good.failures, isEmpty);
     });
+    test('one person with two group cards needs an explicit group', () async {
+      final secondCounterId = await DatabaseService.insertCounter(CounterModel(
+          name: '成员',
+          groupName: 'Q',
+          personId: 101,
+          personName: '真人名',
+          color: '#ffffff'));
+      final ambiguous = await SyncService.applyActions(settings, [
+        action('multi-group-person',
+            payload: {'person_id': 101, 'imageId': 'synthetic-image'})
+      ]);
+      expect(ambiguous.failures, hasLength(1));
+      expect(ambiguous.failures.single.message, contains('跨团卡片'));
+      expect(fetches, 0);
+
+      final chosen = await SyncService.applyActions(settings, [
+        action('multi-group-person-group', payload: {
+          'person_id': 101,
+          'group_name': 'Q',
+          'imageId': 'synthetic-image'
+        })
+      ]);
+      expect(chosen.failures, isEmpty);
+      final stored = await FaceSampleService.getSamples(isSelf: false);
+      expect(stored.single.counterId, secondCounterId);
+      expect(stored.single.personId, 101);
+    });
+
     test('person id aliases share samples and preserve 30-sample cap',
         () async {
       for (var i = 0; i < 35; i++) {

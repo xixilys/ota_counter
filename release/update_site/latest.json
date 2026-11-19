@@ -1,25 +1,26 @@
 {
   "appName": "OTA Counter",
-  "versionName": "1.6.2",
-  "versionCode": 23,
-  "versionLabel": "v1.6.2",
-  "title": "OTA Counter v1.6.2",
+  "versionName": "1.7.10",
+  "versionCode": 39,
+  "versionLabel": "v1.7.10",
+  "title": "OTA Counter v1.7.10",
   "notes": [
-    "更新前建议先在菜单里做一次完整备份",
-    "批量拍切：没指定完也能保存，没指定成员的卡会跳过、不入账；每张卡右上角可以直接删除，误删能撤销",
-    "批量拍切认人：所有登记过脸的成员都参与比对，其他成员也会当对手比较；当天记过账或场次里的人可直接认出，名单外的人只标「待确认」",
-    "偶像资料库补充 DustStar（刘沫Momo、明里Akari、恋鲨Yumeko）"
+    "更新前建议先在菜单里做一次完整备份。",
+    "切册会在手机上从同一活动日可读取的相机原拍中自动匹配已有切图。匹配可靠时重扫、矫正，缩略图和大图自动换用校正成品；新切图入册也会自动处理。拒绝会新增严重反光的候选，原拍、附件数量和记账流水保持不变。",
+    "新增「切册」：按日期、成员或场次翻看切图和纪念照，可自定义时间线的列数、印边和照片显示方式。",
+    "全屏看切图可在「清晰」和「原色」之间切换；清晰处理只改变显示，不改写入册照片。",
+    "「导入已核对切图」可给手机里已有的切数流水补照片，不新增流水，也不变更切数或金额。"
   ],
-  "publishedAt": "2026-11-12T20:39:44+08:00",
+  "publishedAt": null,
   "force": false,
-  "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.6.2.apk",
+  "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.7.10.apk",
   "downloadPageUrl": "https://ota-counter.huangxuanqi.top/ota-counter/",
-  "backupUrl": "https://github.com/xixilys/ota_counter/releases/download/v1.6.2/OTA-Counter-v1.6.2.apk",
+  "backupUrl": "https://github.com/xixilys/ota_counter/releases/download/v1.7.10/OTA-Counter-v1.7.10.apk",
   "platforms": {
     "android": {
-      "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.6.2.apk",
+      "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.7.10.apk",
       "downloadPageUrl": "https://ota-counter.huangxuanqi.top/ota-counter/",
-      "backupUrl": "https://github.com/xixilys/ota_counter/releases/download/v1.6.2/OTA-Counter-v1.6.2.apk"
+      "backupUrl": "https://github.com/xixilys/ota_counter/releases/download/v1.7.10/OTA-Counter-v1.7.10.apk"
     },
     "ios": {
       "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/#ios",

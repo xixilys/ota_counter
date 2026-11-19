@@ -11,6 +11,7 @@ import '../services/face/face_recognition_rules.dart';
 import '../services/face/face_sample_service.dart';
 import '../services/idol_database_service.dart';
 import '../services/record_scan_service.dart';
+import '../widgets/dream/dream_section_header.dart';
 import 'add_idol_page.dart';
 import 'manual_scan_crop_page.dart';
 
@@ -18,6 +19,9 @@ import 'manual_scan_crop_page.dart';
 /// exactly what the ledger will get, then save everything at once.
 class BatchReviewPage extends StatefulWidget {
   final List<BatchReviewCard> cards;
+
+  /// Keep originals even when a photo produced no valid automatic crops.
+  final List<BatchSourceResult> sources;
   final BatchDayContext day;
   final BatchSession? session;
   final List<FaceMember> candidates;
@@ -29,6 +33,7 @@ class BatchReviewPage extends StatefulWidget {
   const BatchReviewPage({
     super.key,
     required this.cards,
+    this.sources = const [],
     required this.day,
     required this.session,
     required this.candidates,
@@ -44,12 +49,20 @@ class BatchReviewPage extends StatefulWidget {
 
 class _BatchReviewPageState extends State<BatchReviewPage> {
   late final List<BatchReviewCard> _cards = [...widget.cards];
+  late final List<BatchSourceResult> _sources = {
+    for (final source in widget.sources) source.photo.path: source,
+    for (final card in widget.cards) card.source.photo.path: card.source,
+  }.values.where((source) => source.error == null).toList();
 
   /// Members added from the picker during this review (new counters).
   final List<FaceMember> _addedMembers = [];
   final List<CounterModel> _addedCounters = [];
   final Set<String> _disabledLines = {};
   bool _saving = false;
+  bool _addingCrop = false;
+  bool _pendingOnly = false;
+  final Set<BatchReviewCard> _confirmedInPicker = {};
+  bool _showLedger = false;
   Map<String, String> _avatars = {};
 
   @override
@@ -89,14 +102,13 @@ class _BatchReviewPageState extends State<BatchReviewPage> {
     if (mounted) setState(() => _avatars = avatars);
   }
 
-  List<BatchLedgerEntry> get _entries =>
-      BatchImportService.planEntries(_cards, widget.day);
+  // A suggested name can be shown on a card before its owner is confirmed.
+  bool _canSave(BatchReviewCard card) =>
+      card.hasRequiredDetails &&
+      card.unresolvedAffiliationMembers.isEmpty &&
+      card.status == FaceMatchStatus.auto;
 
-  int get _unassigned => _cards.where((c) => !c.hasRequiredDetails).length;
-
-  /// Cards that will be saved; unassigned ones are skipped.
-  List<BatchReviewCard> get _ready =>
-      _cards.where((c) => c.hasRequiredDetails).toList();
+  List<BatchReviewCard> get _ready => _cards.where(_canSave).toList();
 
   void _deleteCard(BatchReviewCard card) {
     final index = _cards.indexOf(card);
@@ -160,6 +172,9 @@ class _BatchReviewPageState extends State<BatchReviewPage> {
       final previousType = card.cutType;
       if (changed) card.rememberRemovedRecognitions(card.members, result);
       card.members = result;
+      // The member picker merges affiliations. Only the group chooser can
+      // resolve an ambiguous card, even after the right person was selected.
+      _confirmedInPicker.add(card);
       if (previousType == BatchCutType.single && result.length > 1) {
         card.cutType = BatchCutType.multi;
       } else if (previousType == BatchCutType.multi) {
@@ -246,6 +261,10 @@ class _BatchReviewPageState extends State<BatchReviewPage> {
           }
         }
         card.members = selected;
+        // Choosing a group confirms its ledger line, not a tentative face.
+        if (selected.isEmpty) card.status = FaceMatchStatus.auto;
+        card.confirmedAffiliationKeys
+            .addAll(selected.map((member) => member.key));
       } else if (type == BatchCutType.single && card.members.length > 1) {
         card.rememberRemovedRecognitions(card.members, [card.members.first]);
         card.members = [card.members.first];
@@ -278,17 +297,141 @@ class _BatchReviewPageState extends State<BatchReviewPage> {
       );
       if (!mounted) return;
       setState(() {
+        // A new frame can contain a different card. Discard all matches from
+        // the old pixels, including the embeddings used for sample learning.
         final bytes = output.bytes;
-        card.bytes = bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
-        card.fileExtension = output.fileExtension;
-        card.processingMode = output.processingMode;
-        card.quad = quad;
+        _cards[_cards.indexOf(card)] = BatchReviewCard(
+          source: card.source,
+          card: card.card,
+          members: [],
+          status: FaceMatchStatus.unknown,
+          suggestions: const [],
+          size: card.size,
+          sizeUncertain: true,
+          faceMatches: const [],
+        )
+          ..bytes = bytes is Uint8List ? bytes : Uint8List.fromList(bytes)
+          ..fileExtension = output.fileExtension
+          ..processingMode = output.processingMode
+          ..quad = quad;
       });
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('修框失败: $error')));
       }
+    }
+  }
+
+  Future<void> _addCrop() async {
+    if (_addingCrop || _saving || _sources.isEmpty) return;
+    setState(() => _addingCrop = true);
+    try {
+      final source = _sources.length == 1
+          ? _sources.single
+          : await showModalBottomSheet<BatchSourceResult>(
+              context: context,
+              showDragHandle: true,
+              builder: (context) => SafeArea(
+                child: SizedBox(
+                  height: MediaQuery.sizeOf(context).height * 0.65,
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Text('选择要补框的原图',
+                            style: Theme.of(context).textTheme.titleMedium),
+                      ),
+                      Expanded(
+                        child: ListView.builder(
+                          itemCount: _sources.length,
+                          itemBuilder: (context, i) {
+                            final source = _sources[i];
+                            return ListTile(
+                              key: ValueKey('batch_crop_source_$i'),
+                              leading: Image.file(
+                                File(source.photo.path),
+                                width: 64,
+                                height: 64,
+                                fit: BoxFit.cover,
+                                cacheWidth: 160,
+                                errorBuilder: (_, __, ___) =>
+                                    const Icon(Icons.broken_image_outlined),
+                              ),
+                              title: Text('原图 ${i + 1}'),
+                              subtitle: Text('自动检出 ${source.cards.length} 张'),
+                              onTap: () => Navigator.pop(context, source),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+      if (source == null || !mounted) return;
+      final sourceBytes = await File(source.photo.path).readAsBytes();
+      if (!mounted) return;
+      final w = source.sourceWidth.toDouble();
+      final h = source.sourceHeight.toDouble();
+      final quad = await Navigator.of(context).push<RecordScanQuad>(
+        MaterialPageRoute(
+          builder: (context) => ManualScanCropPage(
+            draft: RecordScanManualDraft(
+              sourceBytes: sourceBytes,
+              imageWidth: source.sourceWidth,
+              imageHeight: source.sourceHeight,
+              suggestedQuad: RecordScanQuad(
+                topLeftX: w * 0.1,
+                topLeftY: h * 0.1,
+                topRightX: w * 0.9,
+                topRightY: h * 0.1,
+                bottomLeftX: w * 0.1,
+                bottomLeftY: h * 0.9,
+                bottomRightX: w * 0.9,
+                bottomRightY: h * 0.9,
+              ),
+              usedFallback: true,
+            ),
+          ),
+        ),
+      );
+      if (quad == null || !mounted) return;
+      final output = await RecordScanService.createManualScan(
+        sourceBytes: sourceBytes,
+        quad: quad,
+      );
+      if (!mounted) return;
+      final card = BatchCard(
+        bytes: Uint8List.fromList(output.bytes),
+        fileExtension: output.fileExtension,
+        processingMode: output.processingMode,
+        quad: quad,
+        sizeClass: RecordScanCardSize.uncertain,
+        confidence: 0,
+        splitFromMerged: false,
+      );
+      setState(() {
+        // This is a new, unconfirmed card, never a copy of an old recognition.
+        _cards.add(BatchReviewCard(
+          source: source,
+          card: card,
+          members: [],
+          status: FaceMatchStatus.unknown,
+          suggestions: const [],
+          size: ChekiSize.threeInch,
+          sizeUncertain: true,
+          faceMatches: const [],
+        ));
+      });
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('补框失败，无法读取或裁切原图：$error')));
+      }
+    } finally {
+      if (mounted) setState(() => _addingCrop = false);
     }
   }
 
@@ -347,6 +490,54 @@ class _BatchReviewPageState extends State<BatchReviewPage> {
     }
   }
 
+  Future<void> _chooseAffiliation(
+    BatchReviewCard card,
+    FaceMember member,
+  ) async {
+    final options = card.affiliationsFor(member);
+    if (options.length <= 1) return;
+    final selected = await showModalBottomSheet<FaceMember>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: Text('${member.name} 这张算到哪个团？'),
+              subtitle: const Text('同一位真人在不同团有各自的卡片和计数。'),
+            ),
+            const Divider(height: 1),
+            for (final option in options)
+              ListTile(
+                leading: CircleAvatar(
+                  radius: 18,
+                  child: Text(option.groupName.trim().isEmpty
+                      ? '?'
+                      : option.groupName.trim().substring(0, 1)),
+                ),
+                title: Text(option.groupName.trim().isEmpty
+                    ? '未分组'
+                    : option.groupName.trim()),
+                subtitle: Text(
+                  option.name == member.name ? '当前卡片' : '卡名：${option.name}',
+                ),
+                trailing: option.groupName == member.groupName
+                    ? const Icon(Icons.check)
+                    : null,
+                onTap: () => Navigator.of(context).pop(option),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (selected == null || !mounted) return;
+    setState(() {
+      card.confirmAffiliation(selected);
+      card.edited = true;
+    });
+  }
+
   Future<void> _save() async {
     if (_saving) return;
     setState(() => _saving = true);
@@ -374,9 +565,13 @@ class _BatchReviewPageState extends State<BatchReviewPage> {
     }
   }
 
-  Widget _summary(BuildContext context) {
+  Widget _summary(BuildContext context, List<BatchReviewCard> ready) {
     final theme = Theme.of(context);
-    final entries = _entries;
+    final pending = _cards.length - ready.length;
+    final entries = _showLedger
+        ? BatchImportService.planEntries(ready, widget.day,
+            session: widget.session)
+        : const <BatchLedgerEntry>[];
     final duplicates = {
       for (final c in _cards)
         if (c.source.alreadyImported > 0) c.source.sourceHash,
@@ -388,18 +583,36 @@ class _BatchReviewPageState extends State<BatchReviewPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('将要保存', style: theme.textTheme.titleMedium),
-            Text(
-              '$_dayLabel${widget.session == null ? '' : ' · ${widget.session!.title}'}'
-              ' · ${_cards.length} 张',
-              style: theme.textTheme.bodySmall,
+            DreamSectionHeader(
+              title: '拍切复核',
+              countLabel: '${ready.length}/${_cards.length}',
+              eyebrow:
+                  '$_dayLabel${widget.session == null ? '' : ' · ${widget.session!.title}'}',
             ),
             if (duplicates > 0)
               Text('$duplicates 张原图之前导入过',
                   style: TextStyle(color: theme.colorScheme.error)),
-            if (_unassigned > 0)
-              Text('还有 $_unassigned 张没有指定成员或团体，保存时会跳过',
-                  style: TextStyle(color: theme.colorScheme.error)),
+            Wrap(
+              spacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                FilterChip(
+                  label: Text('待核对 $pending'),
+                  selected: _pendingOnly,
+                  onSelected: pending == 0 && !_pendingOnly
+                      ? null
+                      : (on) => setState(() => _pendingOnly = on),
+                ),
+                TextButton.icon(
+                  onPressed: ready.isEmpty
+                      ? null
+                      : () => setState(() => _showLedger = !_showLedger),
+                  icon:
+                      Icon(_showLedger ? Icons.expand_less : Icons.expand_more),
+                  label: const Text('将要保存'),
+                ),
+              ],
+            ),
             for (final entry in entries)
               Row(
                 children: [
@@ -475,13 +688,42 @@ class _BatchReviewPageState extends State<BatchReviewPage> {
 
   @override
   Widget build(BuildContext context) {
+    final ready = _ready;
+    final pending = _cards.length - ready.length;
+    final visible = [
+      for (final entry in _cards.indexed)
+        if (!_pendingOnly || !_canSave(entry.$2)) entry,
+    ];
     return Scaffold(
       appBar: AppBar(
         title: Text('复核 ${_cards.length} 张'),
+        actions: [
+          TextButton.icon(
+            key: const ValueKey('batch_add_crop'),
+            onPressed:
+                _saving || _addingCrop || _sources.isEmpty ? null : _addCrop,
+            icon: const Icon(Icons.add_photo_alternate_outlined),
+            label: Text(_addingCrop ? '处理中…' : '补框'),
+          ),
+        ],
       ),
       body: CustomScrollView(
         slivers: [
-          SliverToBoxAdapter(child: _summary(context)),
+          SliverToBoxAdapter(child: _summary(context, ready)),
+          if (_cards.isEmpty)
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: Text('没有自动找到拍立得，点右上角“补框”手动添加。')),
+              ),
+            )
+          else if (visible.isEmpty && _pendingOnly)
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: Text('这批都核对好了')),
+              ),
+            ),
           SliverPadding(
             padding: const EdgeInsets.all(12),
             sliver: SliverGrid(
@@ -492,16 +734,21 @@ class _BatchReviewPageState extends State<BatchReviewPage> {
                 childAspectRatio: 0.62,
               ),
               delegate: SliverChildBuilderDelegate(
-                (context, i) => _CardTile(
-                  key: ValueKey('batch_card_$i'),
-                  card: _cards[i],
-                  onTap: () => _editMembers(_cards[i]),
-                  onMore: () => _showCardActions(_cards[i]),
-                  onDelete: () => _deleteCard(_cards[i]),
-                  onSize: () => _toggleSize(_cards[i]),
-                  onType: (type) => _chooseType(_cards[i], type),
-                ),
-                childCount: _cards.length,
+                (context, i) {
+                  final (index, card) = visible[i];
+                  return _CardTile(
+                    key: ValueKey('batch_card_$index'),
+                    card: card,
+                    confirmed: _confirmedInPicker.contains(card),
+                    onTap: () => _editMembers(card),
+                    onMore: () => _showCardActions(card),
+                    onDelete: () => _deleteCard(card),
+                    onSize: () => _toggleSize(card),
+                    onType: (type) => _chooseType(card, type),
+                    onAffiliation: (member) => _chooseAffiliation(card, member),
+                  );
+                },
+                childCount: visible.length,
               ),
             ),
           ),
@@ -512,13 +759,13 @@ class _BatchReviewPageState extends State<BatchReviewPage> {
           padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
           child: FilledButton(
             key: const ValueKey('batch_save'),
-            onPressed: _saving || _ready.isEmpty ? null : _save,
+            onPressed: _saving || _addingCrop || ready.isEmpty ? null : _save,
             child: Text(_saving
                 ? '保存中…'
-                : _ready.isEmpty
-                    ? '先给至少一张指定成员或团体'
-                    : _unassigned > 0
-                        ? '保存 ${_ready.length} 张，跳过 $_unassigned 张未指定'
+                : ready.isEmpty
+                    ? '先确认至少一张拍立得'
+                    : pending > 0
+                        ? '保存 ${ready.length} 张，跳过 $pending 张待核对'
                         : '确认保存 ${_cards.length} 张'),
           ),
         ),
@@ -529,20 +776,24 @@ class _BatchReviewPageState extends State<BatchReviewPage> {
 
 class _CardTile extends StatelessWidget {
   final BatchReviewCard card;
+  final bool confirmed;
   final VoidCallback onTap;
   final VoidCallback onMore;
   final VoidCallback onDelete;
   final VoidCallback onSize;
   final ValueChanged<BatchCutType> onType;
+  final ValueChanged<FaceMember> onAffiliation;
 
   const _CardTile({
     super.key,
     required this.card,
     required this.onTap,
+    required this.confirmed,
     required this.onMore,
     required this.onDelete,
     required this.onSize,
     required this.onType,
+    required this.onAffiliation,
   });
 
   @override
@@ -567,12 +818,16 @@ class _CardTile extends StatelessWidget {
           scheme.onErrorContainer
         ),
     };
-    final statusLabel = card.edited ||
-            card.status == FaceMatchStatus.auto &&
-                card.members.isNotEmpty &&
-                card.faceMatches.isEmpty
-        ? '已指定'
-        : card.status.label;
+    final awaitingGroup = card.unresolvedAffiliationMembers.isNotEmpty;
+    final statusLabel = awaitingGroup
+        ? '选团'
+        : confirmed ||
+                card.edited ||
+                card.status == FaceMatchStatus.auto &&
+                    card.members.isNotEmpty &&
+                    card.faceMatches.isEmpty
+            ? '已指定'
+            : card.status.label;
     return Card(
       clipBehavior: Clip.antiAlias,
       margin: EdgeInsets.zero,
@@ -586,7 +841,8 @@ class _CardTile extends StatelessWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  Image.memory(card.bytes, fit: BoxFit.cover, cacheWidth: 360),
+                  Image.memory(card.bytes,
+                      fit: BoxFit.contain, cacheWidth: 360),
                   Positioned(
                     left: 6,
                     top: 6,
@@ -633,10 +889,16 @@ class _CardTile extends StatelessWidget {
                   Expanded(
                     child: Text(
                       card.cutType == BatchCutType.group
-                          ? '${card.groupName} · ${card.members.isEmpty ? '可补成员' : card.members.map((m) => m.name).join(' + ')}'
+                          ? '${card.groupName} · ${card.members.isEmpty ? '可补成员' : card.members.map((m) => card.affiliationsFor(m).length > 1 && m.groupName.trim().isNotEmpty ? '${m.name}·${m.groupName}' : m.name).join(' + ')}'
                           : card.members.isEmpty
                               ? '点这里指定成员'
-                              : card.members.map((m) => m.name).join(' + '),
+                              : card.members
+                                  .map((m) =>
+                                      card.affiliationsFor(m).length > 1 &&
+                                              m.groupName.trim().isNotEmpty
+                                          ? '${m.name}·${m.groupName}'
+                                          : m.name)
+                                  .join(' + '),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyMedium?.copyWith(
@@ -654,6 +916,31 @@ class _CardTile extends StatelessWidget {
                 ],
               ),
             ),
+            if (awaitingGroup) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 0, 4, 2),
+                child: Wrap(
+                  spacing: 4,
+                  runSpacing: -6,
+                  children: [
+                    for (final member in card.unresolvedAffiliationMembers)
+                      ActionChip(
+                        visualDensity: VisualDensity.compact,
+                        label: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 118),
+                          child: Text(
+                            '${member.name} → ${member.groupName.isEmpty ? '选团' : member.groupName} ▾',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                        ),
+                        onPressed: () => onAffiliation(member),
+                      ),
+                  ],
+                ),
+              ),
+            ],
             Padding(
               padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
               child: Row(
@@ -873,11 +1160,20 @@ class _MemberPickerSheetState extends State<_MemberPickerSheet> {
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: Row(
                 children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: Image.memory(card.bytes,
+                        width: 66,
+                        height: 82,
+                        fit: BoxFit.contain,
+                        cacheWidth: 200),
+                  ),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Text(
                       card.cutType == BatchCutType.group
-                          ? '${card.groupName}的成员（可不选全）'
-                          : '这张是谁？（多人切可多选）',
+                          ? '${card.groupName}的成员'
+                          : '这张是谁？',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                   ),

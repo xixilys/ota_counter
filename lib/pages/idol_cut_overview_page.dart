@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 
 import '../models/activity_record_media_model.dart';
@@ -7,6 +5,9 @@ import '../models/activity_record_media_scope.dart';
 import '../models/activity_record_model.dart';
 import '../models/counter_model.dart';
 import '../services/database_service.dart';
+import 'album/album_models.dart';
+import 'album/album_viewer_page.dart';
+import 'album/album_widgets.dart';
 
 class IdolCutOverviewPage extends StatefulWidget {
   final String idolName;
@@ -132,42 +133,13 @@ class _IdolCutOverviewPageState extends State<IdolCutOverviewPage> {
     }
   }
 
-  Future<void> _previewMedia(ActivityRecordMediaModel media) async {
-    await showDialog<void>(
-      context: context,
-      builder: (context) => Dialog.fullscreen(
-        child: Stack(
-          children: [
-            Container(
-              color: Colors.black,
-              alignment: Alignment.center,
-              child: InteractiveViewer(
-                child: Image.file(File(media.path)),
-              ),
-            ),
-            Positioned(
-              top: 16,
-              left: 16,
-              child: FilledButton.tonalIcon(
-                onPressed: null,
-                icon: Icon(
-                  media.isReversed
-                      ? Icons.check_circle_outline
-                      : Icons.radio_button_unchecked,
-                ),
-                label: Text(media.isReversed ? '已反' : '未反'),
-              ),
-            ),
-            Positioned(
-              top: 16,
-              right: 16,
-              child: IconButton.filledTonal(
-                onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.close),
-              ),
-            ),
-          ],
-        ),
+  Future<void> _previewMedia(ActivityRecordMediaModel media) {
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (context) => AlbumViewerPage(photos: [
+          AlbumPhoto.attachment(media,
+              specLabel: media.isReversed ? '已反' : '未反'),
+        ]),
       ),
     );
   }
@@ -312,16 +284,9 @@ class _IdolCutOverviewPageState extends State<IdolCutOverviewPage> {
                               child: Stack(
                                 fit: StackFit.expand,
                                 children: [
-                                  Image.file(
-                                    File(media.path),
-                                    fit: BoxFit.cover,
+                                  AlbumPhotoThumb(
+                                    photo: AlbumPhoto.attachment(media),
                                     cacheWidth: 600,
-                                    errorBuilder: (context, error, stackTrace) {
-                                      return const Center(
-                                        child:
-                                            Icon(Icons.broken_image_outlined),
-                                      );
-                                    },
                                   ),
                                   Positioned(
                                     left: 8,

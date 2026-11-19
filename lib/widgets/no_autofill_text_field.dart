@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 
 class NoAutofillTextField extends StatelessWidget {
@@ -13,6 +14,7 @@ class NoAutofillTextField extends StatelessWidget {
   final bool autocorrect;
   final bool enableSuggestions;
   final bool enabled;
+  final List<TextInputFormatter>? inputFormatters;
 
   const NoAutofillTextField({
     super.key,
@@ -28,6 +30,7 @@ class NoAutofillTextField extends StatelessWidget {
     this.autocorrect = true,
     this.enableSuggestions = true,
     this.enabled = true,
+    this.inputFormatters,
   });
 
   @override
@@ -45,6 +48,7 @@ class NoAutofillTextField extends StatelessWidget {
       autocorrect: autocorrect,
       enableSuggestions: enableSuggestions,
       enabled: enabled,
+      inputFormatters: inputFormatters,
     );
   }
 }

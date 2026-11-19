@@ -287,23 +287,38 @@ class FaceEnrollmentSyncService {
     final name = text('member_name');
     final personName = text('person_name');
     final group = text('group_name');
-    final matches = counters.where((c) {
+    var matches = counters.where((c) {
       if (counterId != null) return c.id == counterId;
       if (personId != null) return c.personId == personId;
       return (name.isNotEmpty && c.name.trim() == name ||
-              personName.isNotEmpty && c.personName.trim() == personName) &&
-          (group.isEmpty || c.groupName.trim() == group);
+              personName.isNotEmpty && c.personName.trim() == personName);
     }).toList();
+    if (group.isNotEmpty) {
+      final groupMatches = matches
+          .where((c) => c.groupName.trim() == group)
+          .toList(growable: false);
+      if (groupMatches.isNotEmpty) {
+        matches = groupMatches;
+      } else if (counterId != null) {
+        throw const FormatException('成员编号与团体不一致，请重新选择成员');
+      }
+    }
     if (matches.isEmpty) {
       throw const FormatException('本地找不到这位成员，请先在 App 里创建卡片');
     }
     if (personId != null && matches.any((c) => c.personId != personId)) {
       throw const FormatException('成员编号与真人身份不一致，请重新选择成员');
     }
-    // Aliases of one explicit person share face samples; names alone must be unique.
-    if (matches.length > 1 && personId == null) {
-      throw const FormatException('有多位同名成员，请指定成员编号或团体');
+    // Aliases of one explicit person share face samples; names alone must be
+    // unique. 兼任 gives one person several cards, so a missing group must not
+    // silently enroll the sample on whichever card came first.
+    if (matches.length > 1) {
+      throw FormatException(
+        personId != null
+            ? '这位真人有 ${matches.length} 张跨团卡片（${matches.map((c) => c.groupName.trim().isEmpty ? '未分组' : c.groupName.trim()).join(' / ')}），请指定团体或成员编号'
+            : '有多位同名成员，请指定成员编号或团体',
+      );
     }
-    return FaceSampleService.memberFromCounter(matches.first);
+    return FaceSampleService.memberFromCounter(matches.single);
   }
 }

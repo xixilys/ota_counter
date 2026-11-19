@@ -53,6 +53,18 @@ class RecordScanQuad {
     );
   }
 
+  factory RecordScanQuad._fromPoints(List<math.Point<double>> points) =>
+      RecordScanQuad(
+        topLeftX: points[0].x,
+        topLeftY: points[0].y,
+        topRightX: points[1].x,
+        topRightY: points[1].y,
+        bottomRightX: points[2].x,
+        bottomRightY: points[2].y,
+        bottomLeftX: points[3].x,
+        bottomLeftY: points[3].y,
+      );
+
   RecordScanQuad copyWith({
     double? topLeftX,
     double? topLeftY,
@@ -94,6 +106,42 @@ class RecordScanQuad {
           (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x) <= 0) {
         return false;
       }
+    }
+    return true;
+  }
+
+  /// Conservative automatic-crop check. Manual selections intentionally only
+  /// require convexity: the user can choose a stronger perspective explicitly.
+  /// Rotation is unrestricted; these limits measure angles and foreshortening.
+  bool isSafeForAutomaticCrop({
+    required int imageWidth,
+    required int imageHeight,
+  }) {
+    if (!isUsable()) return false;
+    final points = [
+      math.Point(topLeftX, topLeftY),
+      math.Point(topRightX, topRightY),
+      math.Point(bottomRightX, bottomRightY),
+      math.Point(bottomLeftX, bottomLeftY),
+    ];
+    final edges = [
+      for (var i = 0; i < 4; i++) points[(i + 1) % 4] - points[i],
+    ];
+    final lengths = edges.map((e) => e.magnitude).toList();
+    for (var i = 0; i < 4; i++) {
+      final p = points[i];
+      // Detector corners use pixel-edge coordinates, including width/height.
+      // Do not clamp a broken outline into a different shape before warping.
+      if (p.x < 0 || p.y < 0 || p.x > imageWidth || p.y > imageHeight) {
+        return false;
+      }
+      final a = edges[i];
+      final b = edges[(i + 1) % 4];
+      final sine =
+          (a.x * b.y - a.y * b.x) / (lengths[i] * lengths[(i + 1) % 4]);
+      // 30°–150° corners; permit ordinary oblique cards, not needles or
+      // severe shear. Opposite sides may differ by up to a factor of two.
+      if (sine < 0.5 || lengths[i] > 2 * lengths[(i + 2) % 4]) return false;
     }
     return true;
   }
@@ -163,7 +211,8 @@ enum RecordScanCardSize {
 enum RecordScanMultiWarning {
   lightBackground('背景太浅，可能和拍立得连成一片；建议换深色背景重拍'),
   possiblyMerged('疑似多张拍立得贴在一起或互相压住；已尽量拆开，请逐张核对'),
-  noneDetected('没有找到拍立得；请换深色背景，并在每张之间留出空隙');
+  noneDetected('没有找到拍立得；请换深色背景，并在每张之间留出空隙'),
+  unsafeGeometry('部分轮廓形变过大或超出照片，未自动裁切；请保留原图并手动框选');
 
   const RecordScanMultiWarning(this.message);
 
@@ -171,7 +220,7 @@ enum RecordScanMultiWarning {
 }
 
 class RecordScanMultiCard {
-  /// 校正、润色后的 JPEG。
+  /// 校正、润色后的 JPEG，长边统一为 1360。
   final Uint8List bytes;
   final String fileExtension;
   final ActivityRecordMediaProcessingMode processingMode;
@@ -256,8 +305,9 @@ class RecordScanService {
       Isolate.run(() => _createFusionScan(sourceFiles: sourceFiles));
 
   /// Finds every polaroid laid out in one photo and crops each separately.
-  /// Each card goes through the single-card deskew/polish pipeline on its own
-  /// neighbourhood, so cards may have different rotations.
+  /// Cards are deskewed independently and sampled from the original photo.
+  /// Multi-card crops are polished at native resolution, then enlarged once
+  /// to the same 1360-long-side archive frame as single-card scans.
   static Future<RecordScanMultiResult> createMultiScan({
     required File sourceFile,
   }) =>
@@ -266,13 +316,20 @@ class RecordScanService {
   static Future<RecordScanOutput> _createBasicScan({
     required File sourceFile,
   }) async {
-    final prepared = await _prepareWorkingSource(sourceFile);
-    final processed = _buildQuickScanImage(
-      image: prepared.image,
-      cropRect: prepared.cropRect,
-    );
+    // Use the same physical print classification as batch capture, even
+    // when the user asks for just one card. A guessed crop is not evidence
+    // for a WIDE frame and must not stretch a Mini print.
+    final bytes = await sourceFile.readAsBytes();
+    final oriented = _decodeOriented(bytes);
+    final scan = _scanDecodedCards(oriented);
+    final jpeg = scan.cards.length == 1
+        ? scan.cards.single.bytes
+        : img.encodeJpg(
+            _applyQuickAntiGlare(_limitInputSize(oriented)),
+            quality: 94,
+          );
     return RecordScanOutput(
-      bytes: img.encodeJpg(processed, quality: 94),
+      bytes: jpeg,
       fileExtension: '.jpg',
       processingMode: ActivityRecordMediaProcessingMode.antiGlareBasic,
     );
@@ -312,39 +369,43 @@ class RecordScanService {
     if (!clampedQuad.isUsable()) {
       throw const FormatException('框选范围过小或超出图片');
     }
+    // Handles are pixel centres: include both endpoints, especially when a
+    // zero-detection fallback selects the entire image.
     var targetWidth = math.max(
       2,
       ((_distance(
-                    clampedQuad.topLeftX,
-                    clampedQuad.topLeftY,
-                    clampedQuad.topRightX,
-                    clampedQuad.topRightY,
-                  ) +
-                  _distance(
-                    clampedQuad.bottomLeftX,
-                    clampedQuad.bottomLeftY,
-                    clampedQuad.bottomRightX,
-                    clampedQuad.bottomRightY,
-                  )) /
-              2)
-          .round(),
+                        clampedQuad.topLeftX,
+                        clampedQuad.topLeftY,
+                        clampedQuad.topRightX,
+                        clampedQuad.topRightY,
+                      ) +
+                      _distance(
+                        clampedQuad.bottomLeftX,
+                        clampedQuad.bottomLeftY,
+                        clampedQuad.bottomRightX,
+                        clampedQuad.bottomRightY,
+                      )) /
+                  2)
+              .round() +
+          1,
     );
     var targetHeight = math.max(
       2,
       ((_distance(
-                    clampedQuad.topLeftX,
-                    clampedQuad.topLeftY,
-                    clampedQuad.bottomLeftX,
-                    clampedQuad.bottomLeftY,
-                  ) +
-                  _distance(
-                    clampedQuad.topRightX,
-                    clampedQuad.topRightY,
-                    clampedQuad.bottomRightX,
-                    clampedQuad.bottomRightY,
-                  )) /
-              2)
-          .round(),
+                        clampedQuad.topLeftX,
+                        clampedQuad.topLeftY,
+                        clampedQuad.bottomLeftX,
+                        clampedQuad.bottomLeftY,
+                      ) +
+                      _distance(
+                        clampedQuad.topRightX,
+                        clampedQuad.topRightY,
+                        clampedQuad.bottomRightX,
+                        clampedQuad.bottomRightY,
+                      )) /
+                  2)
+              .round() +
+          1,
     );
 
     // Bound the rectified intermediate even for callers passing original
@@ -356,29 +417,35 @@ class RecordScanService {
       targetHeight = math.max(2, (targetHeight * scale).round());
     }
 
-    final rectified = img.copyRectify(
-      working,
-      topLeft: img.Point(
-        clampedQuad.topLeftX,
-        clampedQuad.topLeftY,
-      ),
-      topRight: img.Point(
-        clampedQuad.topRightX,
-        clampedQuad.topRightY,
-      ),
-      bottomLeft: img.Point(
-        clampedQuad.bottomLeftX,
-        clampedQuad.bottomLeftY,
-      ),
-      bottomRight: img.Point(
-        clampedQuad.bottomRightX,
-        clampedQuad.bottomRightY,
-      ),
-      interpolation: img.Interpolation.linear,
-      toImage: img.Image(width: targetWidth, height: targetHeight),
-    );
+    final wholeImage = clampedQuad.topLeftX == 0 &&
+        clampedQuad.topLeftY == 0 &&
+        clampedQuad.topRightX == working.width - 1 &&
+        clampedQuad.topRightY == 0 &&
+        clampedQuad.bottomRightX == working.width - 1 &&
+        clampedQuad.bottomRightY == working.height - 1 &&
+        clampedQuad.bottomLeftX == 0 &&
+        clampedQuad.bottomLeftY == working.height - 1;
+    // No geometry to recover in a full-frame fallback. In particular, do not
+    // feed pixel-centre endpoints to a pixel-edge homography and lose the
+    // source's last row/column. Resize the complete decoded canvas once.
+    final rectified = wholeImage
+        ? working
+        : _Rgb.of(working).rectify([
+            math.Point(clampedQuad.topLeftX, clampedQuad.topLeftY),
+            math.Point(clampedQuad.topRightX, clampedQuad.topRightY),
+            math.Point(clampedQuad.bottomRightX, clampedQuad.bottomRightY),
+            math.Point(clampedQuad.bottomLeftX, clampedQuad.bottomLeftY),
+          ], targetWidth, targetHeight).toImage();
 
-    final processed = _applyQuickAntiGlare(_resizeToTargetFrame(rectified));
+    // In particular, a whole-image fallback is not evidence for WIDE film.
+    // Keep the user's selection's ratio rather than stretching it to 0.8.
+    final ratio = wholeImage
+        ? math.min(working.width, working.height) /
+            math.max(working.width, working.height)
+        : math.min(targetWidth, targetHeight) /
+            math.max(targetWidth, targetHeight);
+    final processed = _applyQuickAntiGlare(
+        _resizeToTargetFrame(rectified, aspectRatio: ratio));
     return RecordScanOutput(
       bytes: img.encodeJpg(processed, quality: 94),
       fileExtension: '.jpg',
@@ -454,21 +521,6 @@ class RecordScanService {
       detectionScore: prepared.detectionScore,
       usedFallback: prepared.usedFallback,
     );
-  }
-
-  static img.Image _buildQuickScanImage({
-    required img.Image image,
-    required _IntRect cropRect,
-  }) {
-    final cropped = img.copyCrop(
-      image,
-      x: cropRect.left,
-      y: cropRect.top,
-      width: cropRect.width,
-      height: cropRect.height,
-    );
-
-    return _applyQuickAntiGlare(_resizeToTargetFrame(cropped));
   }
 
   static img.Image _buildLegacyCandidateImage({
@@ -1276,58 +1328,516 @@ class RecordScanService {
   /// itself only deskews between 1.5° and 28°).
   static const double _steepTiltDegrees = 20;
 
+  /// Safely straighten a single, dominant card from an existing cut photo.
+  /// The gallery uses a display copy only. A cut-off edge, multiple cards,
+  /// or an image that is already fitted to a card frame keeps its full view.
+  static img.Image? rectifyDominantCardPreview(img.Image image,
+      {bool alreadyProcessed = false}) {
+    final source = _Rgb.of(image);
+    final quad = _findDominantCard(source,
+        useOrdinary: true, requireOrdinaryTilt: alreadyProcessed);
+    if (quad != null) {
+      return _cropFromSource(source, quad, _dominantAspect(quad)).toImage();
+    }
+    if (!alreadyProcessed) return null;
+    // An older cut can already be missing part of the paper. A unique,
+    // visible photo window supplies an angle without inventing missing edges.
+    final angle = _archivedWindowTilt(source.downscale(320));
+    if (angle == null) return null;
+    final transparent = image.convert(numChannels: 4);
+    transparent.backgroundColor = img.ColorRgba8(0, 0, 0, 0);
+    return img.copyRotate(transparent,
+        angle: -angle, interpolation: img.Interpolation.linear);
+  }
+
+  static double? _archivedWindowTilt(_Rgb image) {
+    final width = image.width, height = image.height;
+    final luma = Float32List(width * height);
+    for (var i = 0, j = 0; i < luma.length; i++, j += 3) {
+      luma[i] = _luminance(image.data[j], image.data[j + 1], image.data[j + 2]);
+    }
+    (int, int)? edge(int along, int depth, int Function(int, int) index) {
+      const samples = 35;
+      var best = 0.0;
+      (int, int)? line;
+      for (var angle = -18; angle <= 18; angle++) {
+        final slope = math.tan(angle * math.pi / 180);
+        for (var d = (depth * .035).round(); d < depth * .27; d++) {
+          var sum = 0.0, support = 0;
+          for (var i = 0; i < samples; i++) {
+            final x = (along * (.25 + .5 * i / (samples - 1))).round();
+            final y = (d + (x - (along - 1) / 2) * slope).round();
+            if (y < 3 || y >= depth - 3) continue;
+            final paper = luma[index(x, y - 3)];
+            final delta = paper - luma[index(x, y + 3)];
+            if (paper < 105 || delta < 25) continue;
+            sum += math.min(delta, 100.0);
+            support++;
+          }
+          final score = sum / samples - angle.abs() * .20;
+          if (support >= 21 && score > best) {
+            best = score;
+            line = (angle, d);
+          }
+        }
+      }
+      return line;
+    }
+
+    final top = edge(width, height, (x, d) => d * width + x);
+    final bottom = edge(width, height, (x, d) => (height - 1 - d) * width + x);
+    if (top == null ||
+        bottom == null ||
+        top.$1 * bottom.$1 >= 0 ||
+        (top.$1 + bottom.$1).abs() > 5) {
+      return null;
+    }
+    final angle = (top.$1 - bottom.$1) / 2;
+    if (angle.abs() < 2.5 || angle.abs() > 16) return null;
+    final right = edge(height, width, (y, d) => y * width + width - 1 - d);
+    final left = edge(height, width, (y, d) => y * width + d);
+    if (left == null ||
+        right == null ||
+        right.$1 * angle <= 0 ||
+        left.$1 * angle >= 0) {
+      return null;
+    }
+    final fraction = (width - left.$2 - right.$2) *
+        (height - top.$2 - bottom.$2) /
+        (width * height);
+    if (fraction < .40 || fraction > .85) return null;
+    // The print may have been stored sideways. Balance the inclination of
+    // both axes so the paper top edge is also level after the quarter turn.
+    final verticalAngle = (right.$1 - left.$1) / 2;
+    if ((verticalAngle - angle).abs() > 10) return null;
+    return (angle + verticalAngle) / 2;
+  }
+
+  static double _cardTilt(List<math.Point<double>> quad) {
+    double horizontal(math.Point<double> a, math.Point<double> b) =>
+        math.atan2(b.y - a.y, b.x - a.x) * 180 / math.pi;
+    return (horizontal(quad[0], quad[1]) + horizontal(quad[3], quad[2])) / 2;
+  }
+
+  /// An axis-aligned dark portrait window bordered by paper may need a
+  /// half turn. Require both paper rails so unrelated artwork does not make
+  /// the scan wait for face inference. A complete lower rim skips inference
+  /// only if its paper color continues all the way to the frame edge.
+  static bool mayBeInvertedPortrait(img.Image preview) {
+    if (preview.height <= preview.width || preview.width < 32) return false;
+    final source = _Rgb.of(preview);
+    const side = 144;
+    final window = source.rectify([
+      const math.Point(0.0, 0.0),
+      math.Point(source.width - 1.0, 0.0),
+      math.Point(source.width - 1.0, source.height - 1.0),
+      math.Point(0.0, source.height - 1.0),
+    ], side, side);
+    final edges = _screenWindowEdges(window, minSupport: 59);
+    if (edges.$3 == null || edges.$4 == null) return false;
+    final top = edges.$1, bottom = edges.$2;
+    if (top != null && bottom != null && bottom - top >= 8) {
+      // In older crops the visible strip below the window can be a table
+      // rather than the paper. A different color is not orientation evidence.
+      var continuous = 0;
+      for (var x = 36; x < 108; x++) {
+        final inner = ((side - 1 - bottom + 3) * side + x) * 3;
+        final outer = ((side - 5) * side + x) * 3;
+        var colorDifference = 0;
+        for (var c = 0; c < 3; c++) {
+          colorDifference +=
+              (window.data[inner + c] - window.data[outer + c]).abs();
+        }
+        if (colorDifference <= 42) continuous++;
+      }
+      if (continuous >= 51) return false;
+    }
+    return true;
+  }
+
+  /// Corroborate a sideways face using rigid print geometry: three narrow
+  /// rims and a substantially thicker signature margin on a short end.
+  static int? sidewaysPrintHint(img.Image preview) {
+    if (preview.width <= preview.height || preview.height < 32) return null;
+    final source = _Rgb.of(preview);
+    const side = 144;
+    final window = source.rectify([
+      const math.Point(0.0, 0.0),
+      math.Point(source.width - 1.0, 0.0),
+      math.Point(source.width - 1.0, source.height - 1.0),
+      math.Point(0.0, source.height - 1.0),
+    ], side, side);
+    final (top, bottom, left, right) = _screenWindowEdges(
+      window,
+      minSupport: 58,
+      maxDrift: 10,
+    );
+    if (top == null || bottom == null || left == null || right == null) {
+      return null;
+    }
+    final narrow = math.min(left, right);
+    final signed = math.max(left, right);
+    final fraction =
+        (side - top - bottom) * (side - left - right) / (side * side);
+    if (fraction < .47 ||
+        fraction > .79 ||
+        math.max(top, bottom) > 23 ||
+        (top - bottom).abs() > 9 ||
+        narrow > 21 ||
+        signed - narrow < 14) {
+      return null;
+    }
+    return left > right ? -90 : 90;
+  }
+
+  static List<math.Point<double>>? _findDominantCard(
+    _Rgb source, {
+    required bool useOrdinary,
+    bool requireOrdinaryTilt = false,
+  }) {
+    final preview = source.downscale(_WindowCardDetector.previewMaxSide);
+    final (ordinary, ambiguous) = useOrdinary
+        ? _dominantPaperQuad(preview, requireTilt: requireOrdinaryTilt)
+        : (null, false);
+    if (ambiguous) return null;
+    // Tinted paper can merge with a hand in a brightness mask. Only use
+    // color as a seed; all four paper edges and the window must still agree.
+    final quad = ordinary ?? _dominantPaperQuad(preview, tinted: true).$1;
+    if (quad == null) return null;
+    return [
+      for (final p in quad)
+        math.Point(p.x * source.width / preview.width,
+            p.y * source.height / preview.height),
+    ];
+  }
+
+  static double _dominantAspect(List<math.Point<double>> quad) {
+    final ratio = _quadRatio(quad);
+    return switch (_classifyCardRatio(ratio)) {
+      RecordScanCardSize.mini => _miniCardRatio,
+      RecordScanCardSize.wide => _wideCardRatio,
+      // Don't stretch an unfamiliar or strongly foreshortened print.
+      RecordScanCardSize.uncertain => ratio,
+    };
+  }
+
+  static img.Image _polishDominantCard(
+    _Rgb source,
+    List<math.Point<double>> quad,
+  ) {
+    final aspect = _dominantAspect(quad);
+    final crop = _cropFromSource(source, quad, aspect);
+    crop.applyQuickAntiGlare();
+    final image = crop.toImage();
+    final enlarged = math.max(crop.width, crop.height) < _targetLongSide;
+    return enlarged
+        ? _sharpenFrame(_resizeToTargetFrame(image, aspectRatio: aspect))
+        : image;
+  }
+
+  /// In a tight oblique photo, a minimum-area rectangle can extend past the
+  /// image even though the four real paper edges are present. Seed the line
+  /// search from the paper hull, not from that rectangle.
+  static (List<math.Point<double>>?, bool) _dominantPaperQuad(
+    _Rgb preview, {
+    bool tinted = false,
+    bool requireTilt = false,
+  }) {
+    final width = preview.width, height = preview.height;
+    final area = width * height;
+    final dominantArea = area * (tinted ? 0.42 : 0.45);
+    final detector = _WindowCardDetector(preview);
+    final luma = Uint8List(area);
+    for (var i = 0; i < area; i++) {
+      if (!tinted) {
+        luma[i] = _clampChannel(detector.luma[i]);
+        continue;
+      }
+      final j = i * 3;
+      final red = preview.data[j];
+      // Cool light on white paper and the warm hand behind it overlap in
+      // brightness. They separate by the shared green/blue cast.
+      if (detector.luma[i] >= 138 &&
+          preview.data[j + 1] - red >= 10 &&
+          preview.data[j + 2] - red >= 10) {
+        luma[i] = 1;
+      }
+    }
+    final labeled = _labelBrightComponents(
+      luma: tinted ? detector._closing(luma, 4) : luma,
+      chroma: tinted ? Uint8List(area) : detector.chroma,
+      width: width,
+      height: height,
+      threshold: tinted ? 1 : _defaultLuminanceThreshold,
+    );
+    List<math.Point<double>>? result;
+    var foundFrame = false;
+    for (final c in labeled.components) {
+      // A component cut by the image is not proof of a physical card edge.
+      // Check smaller complete frames as well: a second card vetoes cropping.
+      if (c.borderFraction > 0 ||
+          (c.maxX - c.minX) * (c.maxY - c.minY) < area * 0.035) {
+        continue;
+      }
+      final hull = _convexHull(c.hullPoints());
+      final hullArea = _polygonArea(hull).abs();
+      if (hull.length < 4 ||
+          hullArea < area * 0.035 ||
+          hullArea > area * 0.93) {
+        continue;
+      }
+      // A sheet, reflection, or attached pair does not have one enclosed
+      // photo window occupying most of a film's paper outline.
+      if (!tinted) {
+        final windows = _findHoles(labeled.labels, width, c)
+            .where((h) => h.area >= hullArea * 0.08);
+        if (windows.length != 1 || windows.single.area < hullArea * 0.4) {
+          continue;
+        }
+      } else if (hullArea < dominantArea) {
+        continue;
+      }
+      final corners = [...hull];
+      while (corners.length > 4) {
+        var least = double.infinity;
+        var index = 0;
+        for (var i = 0; i < corners.length; i++) {
+          final a = corners[(i - 1) % corners.length];
+          final b = corners[i], d = corners[(i + 1) % corners.length];
+          final loss =
+              ((b.x - a.x) * (d.y - b.y) - (b.y - a.y) * (d.x - b.x)).abs();
+          if (loss < least) {
+            least = loss;
+            index = i;
+          }
+        }
+        corners.removeAt(index);
+      }
+      if (_polygonArea(corners).abs() < hullArea * 0.94) continue;
+      // Start at the upper-left in screen order, not the thick paper side.
+      final start = List.generate(4, (i) => i).reduce((a, b) =>
+          corners[a].x + corners[a].y < corners[b].x + corners[b].y ? a : b);
+      final q = detector.refinePaperEdges(
+        [for (var i = 0; i < 4; i++) corners[(start + i) % 4]],
+        requireAllSides: true,
+      );
+      if (q == null ||
+          (!tinted &&
+              _classifyCardRatio(_quadRatio(q)) ==
+                  RecordScanCardSize.uncertain) ||
+          !RecordScanQuad._fromPoints(q)
+              .isSafeForAutomaticCrop(imageWidth: width, imageHeight: height)) {
+        continue;
+      }
+      if (tinted && _photoWindowInsets(preview, q) == null) continue;
+      if (foundFrame) return (null, true);
+      foundFrame = true;
+      if (hullArea >= dominantArea &&
+          (!requireTilt || _cardTilt(q).abs() >= 3)) {
+        result = q;
+      }
+    }
+    if (result == null) return (null, false);
+    // A signature can run right up to the paper edge. Add a narrow safety
+    // margin to the four observed lines, reducing it only where the source
+    // ends. Pad parallel to each edge so the warp stays faithful.
+    final lines = _WindowCardDetector._sides(result);
+    final w = result[0].distanceTo(result[1]);
+    final h = result[1].distanceTo(result[2]);
+    final margin = math.min(8.0, math.min(w, h) * 0.016);
+    // The short sides contain the thick signature border; reserve their
+    // margin first when two sides compete for space at a tight corner.
+    for (final i in w < h ? [0, 2, 1, 3] : [1, 3, 0, 2]) {
+      final line = lines[i];
+      for (var pad = margin; pad >= 1; pad -= 1) {
+        lines[i] = _Line(line.nx, line.ny, line.rho + pad);
+        final padded = _quadFromLines(lines);
+        if (padded != null &&
+            padded.every(
+                (p) => p.x >= 0 && p.x <= width && p.y >= 0 && p.y <= height)) {
+          result = padded;
+          break;
+        }
+        lines[i] = line;
+      }
+    }
+    return (result, false);
+  }
+
+  // A winding or disconnected band of ink can break the paper mask's
+  // hole. Measure the independently visible paper-to-image transitions
+  // after a small perspective warp, rather than thresholding that mask again.
+  static (int, int, int, int)? _photoWindowInsets(
+    _Rgb preview,
+    List<math.Point<double>> quad,
+  ) {
+    const side = 144;
+    final (top, bottom, left, right) =
+        _screenWindowEdges(preview.rectify(quad, side, side));
+    if (top == null || bottom == null || left == null || right == null) {
+      return null;
+    }
+    final fraction =
+        (side - top - bottom) * (side - left - right) / (side * side);
+    return fraction >= .48 && fraction <= .86
+        ? (top, bottom, left, right)
+        : null;
+  }
+
+  static (int?, int?, int?, int?) _screenWindowEdges(_Rgb window,
+      {int minSupport = 42, int maxDrift = 0}) {
+    final side = window.width;
+    final luma = _WindowCardDetector(window).luma;
+    int? findEdge(int Function(int, int) index) {
+      var bestScore = 0.0;
+      int? best;
+      for (var depth = 5; depth <= 40; depth++) {
+        for (var drift = -maxDrift; drift <= maxDrift; drift += 2) {
+          var support = 0;
+          var contrast = 0.0;
+          for (var along = 31; along < side - 31; along++) {
+            final d = depth + ((along - side / 2) * drift / 84).round();
+            if (d < 3) continue;
+            final paper = luma[index(along, d - 3)];
+            final picture = luma[index(along, d + 3)];
+            if (paper < 108 || paper - picture < 26) continue;
+            support++;
+            contrast += maxDrift == 0
+                ? paper - picture
+                : math.min(100.0, paper - picture);
+          }
+          if (support < minSupport) continue;
+          final score = maxDrift == 0
+              ? support * 32768 + contrast
+              : contrast - drift.abs() * 16;
+          if (score > bestScore) {
+            best = depth;
+            bestScore = score;
+          }
+        }
+      }
+      return best;
+    }
+
+    return (
+      findEdge((x, d) => d * side + x),
+      findEdge((x, d) => (side - 1 - d) * side + x),
+      findEdge((y, d) => y * side + d),
+      findEdge((y, d) => y * side + side - 1 - d),
+    );
+  }
+
   static Future<RecordScanMultiResult> _createMultiScan({
     required File sourceFile,
   }) async {
     final total = Stopwatch()..start();
+    final oriented = _decodeOriented(await sourceFile.readAsBytes());
+    return _scanDecodedCards(oriented, decodeMs: total.elapsedMilliseconds);
+  }
+
+  static RecordScanMultiResult _scanDecodedCards(img.Image oriented,
+      {int decodeMs = 0}) {
+    final total = Stopwatch()..start();
     final stage = Stopwatch()..start();
     final timings = <String, int>{};
 
-    final oriented = _decodeOriented(await sourceFile.readAsBytes());
     final source = _Rgb.of(oriented);
     // Area averaging on raw bytes; copyResize(cubic) takes seconds on a
     // 12 MP phone photo.
     var working = math.max(oriented.width, oriented.height) > _maxInputDimension
         ? source.downscale(_maxInputDimension).toImage()
         : oriented;
-    timings['decode'] = stage.elapsedMilliseconds;
+    timings['decode'] = decodeMs + stage.elapsedMilliseconds;
     stage.reset();
 
     final detection = _detectMultiplePolaroids(working);
-    final preview = source.downscale(_WindowCardDetector.previewMaxSide);
-    final windowCards = _WindowCardDetector(preview).detect();
+    final coarseWindows = _detectWindowCards(source,
+        ambiguousComponents: detection.warnings.isNotEmpty);
+    late final edgePreview = _Rgb.of(working);
+    late final edgeDetector = _WindowCardDetector(edgePreview);
+    late final edgeScaleX = edgePreview.width / source.width;
+    late final edgeScaleY = edgePreview.height / source.height;
+    final windowCards = <_WindowCard>[];
+    final boundaryRefinements = <List<math.Point<double>>>{};
+    for (final window in coarseWindows) {
+      final nearFrame = window.outer.any((p) =>
+          p.x < 0 || p.y < 0 || p.x > source.width || p.y > source.height);
+      final refined = nearFrame && window.seenSides == 4
+          ? _refineBoundaryWindow(window, edgeDetector, edgeScaleX, edgeScaleY)
+          : null;
+      if (refined != null) boundaryRefinements.add(refined.outer);
+      windowCards.add(refined ?? window);
+    }
     final plan = _mergeMultiDetections(
       detection: detection,
+      sourceWidth: oriented.width,
+      sourceHeight: oriented.height,
       windowCards: windowCards,
       workingToSource: oriented.width / working.width,
-      previewToSourceX: oriented.width / preview.width,
-      previewToSourceY: oriented.height / preview.height,
     );
     timings['detect'] = stage.elapsedMilliseconds;
     stage.reset();
 
     final scaleX = oriented.width / working.width;
     final scaleY = oriented.height / working.height;
+    final warnings = [...plan.warnings];
+    bool safeQuad(List<math.Point<double>> points) {
+      final safe = RecordScanQuad._fromPoints(points).isSafeForAutomaticCrop(
+        imageWidth: oriented.width,
+        imageHeight: oriented.height,
+      );
+      if (!safe && !warnings.contains(RecordScanMultiWarning.unsafeGeometry)) {
+        warnings.add(RecordScanMultiWarning.unsafeGeometry);
+      }
+      return safe;
+    }
+
     final cards = <RecordScanMultiCard>[];
     var refineMs = 0;
     var polishMs = 0;
     var encodeMs = 0;
 
-    // One clean card: run exactly the basic scan so the result matches
-    // createBasicScan byte for byte.
+    // One clean wide card can keep the basic scan result byte for byte.
+    // Mini cards must use their own ratio even when only one is detected.
     final single = plan.cards.length == 1 &&
             plan.cards.single.candidate != null &&
-            !plan.cards.single.splitFromMerged
+            !plan.cards.single.splitFromMerged &&
+            _classifyCardRatio(plan.cards.single.candidate!.box.ratio) ==
+                RecordScanCardSize.wide
         ? plan.cards.single.candidate!
         : null;
-    if (single != null) {
+    final castQuad = plan.cards.length <= 1
+        ? _findDominantCard(source, useOrdinary: false)
+        : null;
+    if (castQuad != null && safeQuad(castQuad)) {
+      refineMs += stage.elapsedMilliseconds;
+      stage.reset();
+      final polished = _polishDominantCard(source, castQuad);
+      polishMs += stage.elapsedMilliseconds;
+      stage.reset();
+      final bytes = Uint8List.fromList(img.encodeJpg(polished, quality: 94));
+      encodeMs += stage.elapsedMilliseconds;
+      cards.add(_multiCard(
+        bytes: bytes,
+        quad: castQuad,
+        sourceWidth: oriented.width,
+        sourceHeight: oriented.height,
+        ratio: _quadRatio(castQuad),
+        confidence: 0.85,
+        splitFromMerged: false,
+      ));
+      // The fallback verified one independently bounded photo window.
+      warnings
+        ..remove(RecordScanMultiWarning.noneDetected)
+        ..remove(RecordScanMultiWarning.possiblyMerged);
+    } else if (single != null) {
       if (!identical(working, oriented)) {
         working = _limitInputSize(oriented);
       }
       final refined = _refineWithSingleFlow(
             working,
             single.box,
-            aspectRatio: _polaroidAspectRatio,
+            aspectRatio: _wideCardRatio,
             luminanceThreshold: _defaultLuminanceThreshold,
             wholeImage: true,
           ) ??
@@ -1335,25 +1845,29 @@ class RecordScanService {
       refineMs += stage.elapsedMilliseconds;
       stage.reset();
       final processed = _applyQuickAntiGlare(
-        _resizeToTargetFrame(refined.image, aspectRatio: _polaroidAspectRatio),
+        _resizeToTargetFrame(refined.image, aspectRatio: _wideCardRatio),
       );
       polishMs += stage.elapsedMilliseconds;
       stage.reset();
       final bytes = Uint8List.fromList(img.encodeJpg(processed, quality: 94));
       encodeMs += stage.elapsedMilliseconds;
       final ratio = single.box.ratio;
-      cards.add(_multiCard(
-        bytes: bytes,
-        quad: [
-          for (final p in refined.quad) math.Point(p.x * scaleX, p.y * scaleY),
-        ],
-        sourceWidth: oriented.width,
-        sourceHeight: oriented.height,
-        ratio: ratio,
-        confidence: single.confidence,
-        splitFromMerged: false,
-      ));
+      final sourceQuad = [
+        for (final p in refined.quad) math.Point(p.x * scaleX, p.y * scaleY),
+      ];
+      if (safeQuad(sourceQuad)) {
+        cards.add(_multiCard(
+          bytes: bytes,
+          quad: sourceQuad,
+          sourceWidth: oriented.width,
+          sourceHeight: oriented.height,
+          ratio: ratio,
+          confidence: single.confidence,
+          splitFromMerged: false,
+        ));
+      }
     } else {
+      refineMs += stage.elapsedMilliseconds;
       for (final planned in plan.cards) {
         stage.reset();
         var quad = planned.sourceQuad;
@@ -1364,7 +1878,7 @@ class RecordScanService {
               _classifyCardRatio(ratio, windowAspect: planned.windowAspect);
           final aspectRatio = switch (sizeClass) {
             RecordScanCardSize.mini => _miniCardRatio,
-            RecordScanCardSize.wide => _polaroidAspectRatio,
+            RecordScanCardSize.wide => _wideCardRatio,
             RecordScanCardSize.uncertain => ratio,
           };
           final refined = (candidate.splitFromMerged
@@ -1386,25 +1900,53 @@ class RecordScanService {
             _classifyCardRatio(ratio, windowAspect: planned.windowAspect);
         final aspectRatio = switch (sizeClass) {
           RecordScanCardSize.mini => _miniCardRatio,
-          RecordScanCardSize.wide => _polaroidAspectRatio,
+          RecordScanCardSize.wide => _wideCardRatio,
           RecordScanCardSize.uncertain => ratio,
         };
-        final crop = _cropFromSource(source, quad!, aspectRatio);
+        if (!safeQuad(quad!)) {
+          refineMs += stage.elapsedMilliseconds;
+          continue;
+        }
+        if (!boundaryRefinements.contains(quad)) {
+          final refinedEdges = edgeDetector.refinePaperEdges([
+            for (final p in quad)
+              math.Point(p.x * edgeScaleX, p.y * edgeScaleY),
+          ])!;
+          quad = [
+            for (final p in refinedEdges)
+              math.Point(p.x / edgeScaleX, p.y / edgeScaleY),
+          ];
+          if (!safeQuad(quad)) {
+            refineMs += stage.elapsedMilliseconds;
+            continue;
+          }
+        }
+        final crop = _cropFromSource(source, quad, aspectRatio);
         refineMs += stage.elapsedMilliseconds;
         stage.reset();
 
         crop.applyQuickAntiGlare();
-        final rawCrop = crop.toImage();
-        final framed = _resizeToTargetFrame(
-          rawCrop,
-          aspectRatio: aspectRatio,
-        );
-        // Only sharpen crops that really were enlarged; a full-resolution
-        // close-up is already sharp and the 3×3 pass would cost time.
-        final polished = math.max(rawCrop.width, rawCrop.height) * 10 <
-                _targetLongSide * 7
-            ? _sharpenFrame(framed)
-            : framed;
+        final img.Image polished;
+        if (plan.cards.length > 1) {
+          // Keep the archive frame, but only after polishing native pixels.
+          // One packed-RGB bilinear pass replaces cubic + full-size sharpening.
+          final portrait = crop.height >= crop.width;
+          final shortSide = (_targetLongSide * aspectRatio).round();
+          polished = crop
+              .resizeBilinear(
+                portrait ? shortSide : _targetLongSide,
+                portrait ? _targetLongSide : shortSide,
+              )
+              .toImage();
+        } else {
+          final rawCrop = crop.toImage();
+          final framed =
+              _resizeToTargetFrame(rawCrop, aspectRatio: aspectRatio);
+          polished =
+              math.max(rawCrop.width, rawCrop.height) * 10 < _targetLongSide * 7
+                  ? _sharpenFrame(framed)
+                  : framed;
+        }
         polishMs += stage.elapsedMilliseconds;
         stage.reset();
 
@@ -1426,11 +1968,11 @@ class RecordScanService {
     timings['refine'] = refineMs;
     timings['polish'] = polishMs;
     timings['encode'] = encodeMs;
-    timings['total'] = total.elapsedMilliseconds;
+    timings['total'] = decodeMs + total.elapsedMilliseconds;
 
     return RecordScanMultiResult(
       cards: _sortReadingOrder(cards),
-      warnings: plan.warnings,
+      warnings: warnings,
       sourceWidth: oriented.width,
       sourceHeight: oriented.height,
       stageMilliseconds: timings,
@@ -1451,16 +1993,8 @@ class RecordScanService {
       bytes: bytes,
       fileExtension: '.jpg',
       processingMode: ActivityRecordMediaProcessingMode.antiGlareBasic,
-      quad: RecordScanQuad(
-        topLeftX: quad[0].x,
-        topLeftY: quad[0].y,
-        topRightX: quad[1].x,
-        topRightY: quad[1].y,
-        bottomRightX: quad[2].x,
-        bottomRightY: quad[2].y,
-        bottomLeftX: quad[3].x,
-        bottomLeftY: quad[3].y,
-      ).clampToBounds(imageWidth: sourceWidth, imageHeight: sourceHeight),
+      quad: RecordScanQuad._fromPoints(quad)
+          .clampToBounds(imageWidth: sourceWidth, imageHeight: sourceHeight),
       sizeClass: sizeClass ?? _classifyCardRatio(ratio),
       aspectRatio: ratio,
       confidence: confidence,
@@ -1474,6 +2008,107 @@ class RecordScanService {
     final h = (q[1].distanceTo(q[2]) + q[3].distanceTo(q[0])) / 2;
     final long = math.max(w, h);
     return long <= 0 ? 0 : math.min(w, h) / long;
+  }
+
+  /// At a frame edge, the coarse line can follow the sleeve instead of the
+  /// paper, placing a corner just outside the photo. Retry against the finer
+  /// raster before rejecting it. Never clip the quad to the image boundary:
+  /// all four paper lines must be observed, and the merge still checks bounds.
+  static _WindowCard? _refineBoundaryWindow(_WindowCard window,
+      _WindowCardDetector detector, double scaleX, double scaleY) {
+    final refined = detector.refinePaperEdges([
+      for (final p in window.outer) math.Point(p.x * scaleX, p.y * scaleY),
+    ], requireAllSides: true, preferPaper: true);
+    if (refined == null) return null;
+    return _WindowCard(
+      outer: [
+        for (final p in refined) math.Point(p.x / scaleX, p.y / scaleY),
+      ],
+      window: window.window,
+      seenSides: window.seenSides,
+      confidence: window.confidence,
+    );
+  }
+
+  /// Ink and pale clothing can split a window at one thumbnail scale but
+  /// join at another. Supplement the detailed pass with complete, strongly
+  /// observed frames only; never promote inferred sides just to get a count.
+  /// All returned coordinates refer to the original oriented source.
+  static List<_WindowCard> _detectWindowCards(_Rgb source,
+      {required bool ambiguousComponents}) {
+    final cards = <_WindowCard>[];
+    var lastSide = 0;
+    for (final side in [_WindowCardDetector.previewMaxSide, 640, 400]) {
+      // Clean separated frames do not need a detection pyramid. Retry only
+      // ambiguous components, incomplete outlines, or a missed close-up.
+      if (side != _WindowCardDetector.previewMaxSide &&
+          !ambiguousComponents &&
+          cards.isNotEmpty &&
+          cards.every((c) =>
+              c.seenSides == 4 &&
+              _classifyCardRatio(_quadRatio(c.outer),
+                      windowAspect: c.windowAspect) !=
+                  RecordScanCardSize.uncertain)) {
+        break;
+      }
+      final preview = source.downscale(side);
+      final actualSide = math.max(preview.width, preview.height);
+      if (actualSide == lastSide) continue;
+      lastSide = actualSide;
+      final detailed =
+          cards.isEmpty && side == _WindowCardDetector.previewMaxSide;
+      for (final found in _WindowCardDetector(preview).detect()) {
+        List<math.Point<double>> scaled(List<math.Point<double>> points) => [
+              for (final p in points)
+                math.Point(p.x * source.width / preview.width,
+                    p.y * source.height / preview.height),
+            ];
+        final card = _WindowCard(
+          outer: scaled(found.outer),
+          window: scaled(found.window),
+          seenSides: found.seenSides,
+          confidence: found.confidence,
+        );
+        if (detailed) {
+          cards.add(card);
+          continue;
+        }
+        final size = _classifyCardRatio(_quadRatio(card.outer),
+            windowAspect: card.windowAspect);
+        if (card.seenSides != 4 ||
+            card.confidence < 0.9 ||
+            size == RecordScanCardSize.uncertain ||
+            !RecordScanQuad._fromPoints(card.outer).isSafeForAutomaticCrop(
+                imageWidth: source.width, imageHeight: source.height)) {
+          continue;
+        }
+        final clashes = <int>[];
+        for (var i = 0; i < cards.length; i++) {
+          final intersection =
+              _polygonIntersectionArea(cards[i].outer, card.outer);
+          final small = math.min(_polygonArea(cards[i].outer).abs(),
+              _polygonArea(card.outer).abs());
+          if (small > 0 && intersection / small > 0.3) clashes.add(i);
+        }
+        if (clashes.isEmpty) {
+          cards.add(card);
+        } else if (clashes.length == 1) {
+          final i = clashes.single;
+          final old = cards[i];
+          // A partly reconstructed window must not beat four observed paper
+          // edges. Keep already complete detailed frames at the finer scale.
+          if (old.seenSides < 4 &&
+              old.confidence < card.confidence &&
+              _classifyCardRatio(_quadRatio(old.outer),
+                      windowAspect: old.windowAspect) ==
+                  RecordScanCardSize.uncertain &&
+              _polygonIoU(old.outer, card.outer) > 0.65) {
+            cards[i] = card;
+          }
+        }
+      }
+    }
+    return cards;
   }
 
   /// Rectifies [quad] from the full-resolution source at its natural size
@@ -1501,18 +2136,23 @@ class RecordScanService {
   /// hold several cards and fill in cards the former missed.
   static _MultiPlan _mergeMultiDetections({
     required _MultiDetection detection,
+    required int sourceWidth,
+    required int sourceHeight,
     required List<_WindowCard> windowCards,
     required double workingToSource,
-    required double previewToSourceX,
-    required double previewToSourceY,
   }) {
-    final windows = [
-      for (final card in windowCards)
-        [
-          for (final p in card.outer)
-            math.Point(p.x * previewToSourceX, p.y * previewToSourceY),
-        ],
-    ];
+    final safeWindowCards = windowCards
+        .where((card) =>
+            RecordScanQuad._fromPoints(card.outer).isSafeForAutomaticCrop(
+              imageWidth: sourceWidth,
+              imageHeight: sourceHeight,
+            ))
+        .toList();
+    final windows = [for (final card in safeWindowCards) card.outer];
+    final warnings = [...detection.warnings];
+    if (safeWindowCards.length != windowCards.length) {
+      warnings.add(RecordScanMultiWarning.unsafeGeometry);
+    }
     final windowUsed = List<bool>.filled(windows.length, true);
     final planned = <_PlannedCard>[];
     for (final candidate in detection.candidates) {
@@ -1520,6 +2160,15 @@ class RecordScanService {
         for (final p in candidate.box.corners)
           math.Point(p.x * workingToSource, p.y * workingToSource),
       ];
+      if (!RecordScanQuad._fromPoints(poly).isSafeForAutomaticCrop(
+        imageWidth: sourceWidth,
+        imageHeight: sourceHeight,
+      )) {
+        if (!warnings.contains(RecordScanMultiWarning.unsafeGeometry)) {
+          warnings.add(RecordScanMultiWarning.unsafeGeometry);
+        }
+        continue;
+      }
       final area = _polygonArea(poly).abs();
       final overlapping = <int>[];
       for (var i = 0; i < windows.length; i++) {
@@ -1538,13 +2187,16 @@ class RecordScanService {
       }
       final i = overlapping.single;
       final iou = _polygonIoU(poly, windows[i]);
-      final trustCandidate = iou >= 0.8 ||
+      // A min-area rectangle can have high overlap yet shear a slanted card
+      // and include background. Prefer four observed edges unless the two
+      // outlines almost coincide; incomplete window edges still use the blob.
+      final trustCandidate = iou >= 0.95 ||
           (!candidate.splitFromMerged &&
               candidate.confidence >= 0.7 &&
-              windowCards[i].seenSides < 4);
+              safeWindowCards[i].seenSides < 4);
       if (trustCandidate) {
         planned.add(_PlannedCard.fromCandidate(candidate,
-            windowAspect: windowCards[i].windowAspect));
+            windowAspect: safeWindowCards[i].windowAspect));
         windowUsed[i] = false;
       }
     }
@@ -1561,13 +2213,12 @@ class RecordScanService {
       planned.add(_PlannedCard(
         candidate: null,
         sourceQuad: windows[i],
-        confidence: windowCards[i].confidence,
-        splitFromMerged: windowCards[i].seenSides < 4,
-        windowAspect: windowCards[i].windowAspect,
+        confidence: safeWindowCards[i].confidence,
+        splitFromMerged: safeWindowCards[i].seenSides < 4,
+        windowAspect: safeWindowCards[i].windowAspect,
       ));
     }
 
-    final warnings = [...detection.warnings];
     if (usedWindows) {
       warnings
         ..remove(RecordScanMultiWarning.lightBackground)
@@ -2870,6 +3521,46 @@ class _Rgb {
         numChannels: 3,
       );
 
+  /// Pixel-centred bilinear resize over packed RGB; no per-pixel objects.
+  /// Reuse each column's source index and weight across all output rows.
+  _Rgb resizeBilinear(int outWidth, int outHeight) {
+    if (outWidth == width && outHeight == height) return this;
+    final x0 = Int32List(outWidth);
+    final fx = Float64List(outWidth);
+    for (var x = 0; x < outWidth; x++) {
+      final sx = ((x + 0.5) * width / outWidth - 0.5)
+          .clamp(0.0, (width - 1).toDouble());
+      final ix = sx.floor();
+      x0[x] = ix * 3;
+      fx[x] = sx - ix;
+    }
+    final out = Uint8List(outWidth * outHeight * 3);
+    final lastX = (width - 1) * 3;
+    final stride = width * 3;
+    var o = 0;
+    for (var y = 0; y < outHeight; y++) {
+      final sy = ((y + 0.5) * height / outHeight - 0.5)
+          .clamp(0.0, (height - 1).toDouble());
+      final iy = sy.floor();
+      final fy = sy - iy;
+      final row0 = iy * stride;
+      final row1 = iy < height - 1 ? row0 + stride : row0;
+      for (var x = 0; x < outWidth; x++) {
+        final left = x0[x];
+        final right = left < lastX ? left + 3 : left;
+        final weight = fx[x];
+        for (var c = 0; c < 3; c++) {
+          final a = data[row0 + left + c];
+          final b = data[row1 + left + c];
+          final top = a + (data[row0 + right + c] - a) * weight;
+          final bottom = b + (data[row1 + right + c] - b) * weight;
+          out[o++] = (top + (bottom - top) * fy).round();
+        }
+      }
+    }
+    return _Rgb(outWidth, outHeight, out);
+  }
+
   /// Area-average downscale so the longest side is at most [maxSide].
   _Rgb downscale(int maxSide) {
     final longest = math.max(width, height);
@@ -3145,10 +3836,11 @@ class _WindowCardDetector {
 
   /// Locally normalised white mask after a 5×5 closing (ink on borders
   /// filled in).
-  late final Uint8List white;
+  late final _masks = _whiteMasks();
+  late final Uint8List white = _closing(_masks.$1, 2);
 
   /// Looser mask for border bands that may be shaded or tinted.
-  late final Uint8List pale;
+  late final Uint8List pale = _closing(_masks.$2, 2);
   late final Float32List gx;
   late final Float32List gy;
 
@@ -3163,9 +3855,6 @@ class _WindowCardDetector {
       luma[i] = RecordScanService._luminance(r, g, b);
       chroma[i] = RecordScanService._chroma(r, g, b);
     }
-    final (strict, loose) = _whiteMasks();
-    white = _closing(strict, 2);
-    pale = _closing(loose, 2);
     _gradients();
   }
 
@@ -3947,6 +4636,107 @@ class _WindowCardDetector {
     return level;
   }
 
+  /// Detection thumbnails lose a few pixels of paper under ink and sleeves.
+  /// Snap only the nearby, observed white-to-background edges at a finer scale.
+  /// The search cannot jump across the paper border to the photo's inner edge.
+  List<math.Point<double>>? refinePaperEdges(
+    List<math.Point<double>> q, {
+    bool requireAllSides = false,
+    bool preferPaper = false,
+  }) {
+    final radius = math.min(
+        12.0,
+        math.max(2.0,
+            math.min(q[0].distanceTo(q[1]), q[1].distanceTo(q[2])) * 0.06));
+    final original = _sides(q);
+    _Line search(int s, double reach, double angle, double angleStep) {
+      final a = q[s], b = q[(s + 1) % 4];
+      final len = a.distanceTo(b);
+      final n = original[s];
+      final mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      // Only the one-side recovery below may use the detector's normal
+      // observed-edge threshold; its other three edges are already strong.
+      var best = preferPaper
+          ? 0.52
+          : angle > 4
+              ? seenEvidence
+              : strongEvidence;
+      var line = n;
+      for (var d = -reach; d <= reach; d += 0.5) {
+        for (var deg = -angle; deg <= angle; deg += angleStep) {
+          final rad = deg * math.pi / 180;
+          final nx = n.nx * math.cos(rad) - n.ny * math.sin(rad);
+          final ny = n.nx * math.sin(rad) + n.ny * math.cos(rad);
+          final bx = mx + n.nx * d, by = my + n.ny * d;
+          final score = preferPaper
+              ? _paperTransition(bx, by, nx, ny, len * 0.43) -
+                  (d.abs() + deg.abs()) * 0.0005
+              : _lineEvidence(bx, by, -ny, nx, len * 0.43, nx, ny) -
+                  (d.abs() + deg.abs()) * 0.002;
+          if (score > best) {
+            best = score;
+            // Half a fine-preview pixel retains antialiased ink at the edge.
+            line = _Line.through(
+                nx, ny, mx + n.nx * (d + 0.5), my + n.ny * (d + 0.5));
+          }
+        }
+      }
+      return line;
+    }
+
+    final lines = [for (var s = 0; s < 4; s++) search(s, radius, 4, 0.5)];
+    final supported = [
+      for (var s = 0; s < 4; s++) !identical(lines[s], original[s]),
+    ];
+    // A white sleeve crease may have tilted just one coarse side. With the
+    // other three paper edges observed, allow that side a wider local search
+    // instead of warping the crease into a diagonal cut through the signature.
+    if (supported.where((v) => v).length == 3) {
+      final s = supported.indexOf(false);
+      lines[s] = search(s, radius * 2, 16, 1);
+    }
+    final refined = _quadFromLines(lines);
+    if (refined != null &&
+        RecordScanService._polygonIoU(q, refined) >= 0.85 &&
+        (!requireAllSides ||
+            List.generate(4, (i) => i)
+                .every((i) => !identical(lines[i], original[i])))) {
+      return refined;
+    }
+    return requireAllSides ? null : q;
+  }
+
+  /// A sleeve can have a stronger gradient than the paper. Prefer a sustained
+  /// transition from neutral paper to darker or more saturated surroundings.
+  double _paperTransition(
+      double x, double y, double nx, double ny, double half) {
+    const samples = 48;
+    var hits = 0;
+    for (var i = 0; i < samples; i++) {
+      final t = -half + 2 * half * (i + 0.5) / samples;
+      final px = x - ny * t, py = y + nx * t;
+      final ax = px - nx * 1.75, ay = py - ny * 1.75;
+      final bx = px + nx * 1.75, by = py + ny * 1.75;
+      if (ax < 0 ||
+          ay < 0 ||
+          ax >= width ||
+          ay >= height ||
+          bx < 0 ||
+          by < 0 ||
+          bx >= width ||
+          by >= height) {
+        continue;
+      }
+      final a = _index(ax, ay), b = _index(bx, by);
+      if (luma[a] >= 150 &&
+          chroma[a] <= 45 &&
+          (luma[a] - luma[b] >= 21 || chroma[b] - chroma[a] >= 15)) {
+        hits++;
+      }
+    }
+    return hits / samples;
+  }
+
   /// Border widths in window short sides, per film: side, top, bottom.
   /// instax mini: 4 / 7 / 17 mm around a 46 mm wide image; WIDE and
   /// SQUARE: about 4.5 / 7 / 17 mm around a 62 mm short side.
@@ -4122,14 +4912,15 @@ class _WindowCardDetector {
     if (outer == null) {
       return null;
     }
-    // Rotate so the thick border is at the bottom (index 2 → side 2).
+    // The thick edge identifies film proportions, not which way the people
+    // face. Keep the frame in source-screen order: rotating every thick edge
+    // down turns a genuine landscape mini into a portrait crop.
     final shift = (bestK - 2) % 4;
-    final rotated = [for (var i = 0; i < 4; i++) outer[(i + shift) % 4]];
     final rotatedWindow = [for (var i = 0; i < 4; i++) q[(i + shift) % 4]];
     final evidence =
         chosen.map((c) => math.min(c.$1, 15) / 15).reduce((a, b) => a + b) / 4;
     final card = _WindowCard(
-      outer: rotated,
+      outer: outer,
       window: rotatedWindow,
       seenSides: seenCount,
       confidence: _clamp01(0.45 + 0.3 * windowScore + 0.25 * evidence),

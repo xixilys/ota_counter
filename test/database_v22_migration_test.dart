@@ -58,7 +58,7 @@ void main() {
             }));
     await old.close();
     final db = await DatabaseService.database;
-    expect(await db.getVersion(), 22);
+    expect(await db.getVersion(), 23);
     expect((await db.query('counters')).single['name'], '测试成员');
     expect((await db.query('face_samples')).single['source'], 'manual');
     await db.insert(DatabaseService.faceEnrollmentActionsTableName, {

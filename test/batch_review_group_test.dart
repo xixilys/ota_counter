@@ -300,12 +300,25 @@ void main() {
       allMembers: const [onDay, offDay],
     )));
 
+    // A plausible off-day candidate must not be posted or teach the model
+    // until the owner is confirmed, even though its name is preselected.
+    final save = find.byKey(const ValueKey('batch_save'));
+    expect(tester.widget<FilledButton>(save).onPressed, isNull);
+    await tester.tap(find.text('待核对 1'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('丁'));
     await tester.pumpAndSettle();
     expect(find.text('最像的'), findsOneWidget);
     // Listed once, under 最像的, even though 丁 is not on the day's list.
     expect(find.byKey(ValueKey('member_${offDay.key}')), findsOneWidget);
     expect(find.byKey(const ValueKey('member_picker_add_new')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('member_picker_done')));
+    await tester.pumpAndSettle();
+    expect(find.text('这批都核对好了'), findsOneWidget);
+    expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
+    await tester.tap(find.text('将要保存'));
+    await tester.pumpAndSettle();
+    expect(find.text('+1 张'), findsOneWidget);
   });
 
   testWidgets('unassigned cards are skipped on save and cards can be deleted',
@@ -369,7 +382,7 @@ void main() {
     )));
     FilledButton save() =>
         tester.widget<FilledButton>(find.byKey(const ValueKey('batch_save')));
-    expect(find.text('保存 1 张，跳过 1 张未指定'), findsOneWidget);
+    expect(find.text('保存 1 张，跳过 1 张待核对'), findsOneWidget);
     expect(save().onPressed, isNotNull);
 
     await tester.tap(find.byKey(const ValueKey('batch_card_delete')).last);
@@ -378,11 +391,11 @@ void main() {
 
     await tester.tap(find.text('撤销'));
     await tester.pumpAndSettle();
-    expect(find.text('保存 1 张，跳过 1 张未指定'), findsOneWidget);
+    expect(find.text('保存 1 张，跳过 1 张待核对'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('batch_card_delete')).first);
     await tester.pumpAndSettle();
-    expect(find.text('先给至少一张指定成员或团体'), findsOneWidget);
+    expect(find.text('先确认至少一张拍立得'), findsOneWidget);
     expect(save().onPressed, isNull);
   });
 }

@@ -219,14 +219,47 @@ class FaceMember {
   String toString() => 'FaceMember($displayLabel, $key)';
 }
 
-List<FaceMember> _mergeMembers(Iterable<FaceMember> members) {
+int _groupPreferenceRank(String groupName, List<String> preferredGroups) {
+  final normalized = _normalizeName(groupName);
+  if (normalized.isEmpty) return 1 << 20;
+  for (var i = 0; i < preferredGroups.length; i++) {
+    if (_normalizeName(preferredGroups[i]) == normalized) return i;
+  }
+  return 1 << 20;
+}
+
+List<FaceMember> _mergeMembers(
+  Iterable<FaceMember> members, {
+  List<String> preferredGroups = const [],
+}) {
   final result = <FaceMember>[];
   for (final member in members) {
     final index = result.indexWhere((m) => m.sameAs(member));
     if (index == -1) {
       result.add(member);
     } else {
-      result[index] = result[index].mergedWith(member);
+      final existing = result[index];
+      // 兼任 / 转团: one face is one real person, but the card (group and
+      // stage name) must follow the session / activity day rather than the
+      // first ledger row that happened to be read.
+      final existingRank =
+          _groupPreferenceRank(existing.groupName, preferredGroups);
+      final incomingRank =
+          _groupPreferenceRank(member.groupName, preferredGroups);
+      if (incomingRank < existingRank) {
+        result[index] = FaceMember(
+          counterId: member.counterId ?? existing.counterId,
+          personId: member.personId ?? existing.personId,
+          name: member.name,
+          personName:
+              member.personName.trim().isNotEmpty
+                  ? member.personName
+                  : existing.personName,
+          groupName: member.groupName,
+        );
+      } else {
+        result[index] = existing.mergedWith(member);
+      }
     }
   }
   return result;
@@ -235,14 +268,22 @@ List<FaceMember> _mergeMembers(Iterable<FaceMember> members) {
 /// Candidates for one batch: members with ledger records that day, then
 /// members of the chosen session's groups; when both are empty, everyone.
 /// Members outside the list can still be picked by hand in the UI.
+///
+/// [preferredGroups] resolves one person's several cards (兼任 / 转团) to the
+/// group that is actually performing: session groups first, then the day's
+/// groups. It only chooses the affiliation, never merges different people.
 List<FaceMember> buildCandidateMembers({
   required Iterable<FaceMember> dayMembers,
   required Iterable<FaceMember> sessionGroupMembers,
   required Iterable<FaceMember> allMembers,
+  List<String> preferredGroups = const [],
 }) {
-  final merged = _mergeMembers([...dayMembers, ...sessionGroupMembers]);
+  final merged = _mergeMembers(
+    [...dayMembers, ...sessionGroupMembers],
+    preferredGroups: preferredGroups,
+  );
   if (merged.isNotEmpty) return merged;
-  return _mergeMembers(allMembers);
+  return _mergeMembers(allMembers, preferredGroups: preferredGroups);
 }
 
 /// A suggestion is informational: it never changes the card's saved type.
@@ -408,6 +449,21 @@ List<CardAssignment> assignFacesToMembers({
   int? sampledPeople,
   int? preferredCount,
 }) {
+  // Without day caps there is no coupling between different cards. Avoid
+  // expanding a batch-wide slot matrix (quadratic memory, cubic solve time).
+  // Keep the same per-card solver, including multi-face conflict resolution.
+  if (caps.isEmpty && cards.length > 1) {
+    return [
+      for (var c = 0; c < cards.length; c++)
+        assignFacesToMembers(
+          cards: [cards[c]],
+          candidateCount: candidateCount,
+          rivals: rivals == null ? null : [rivals[c]],
+          sampledPeople: sampledPeople,
+          preferredCount: preferredCount,
+        ).single,
+    ];
+  }
   double rivalOf(int card, int face) =>
       rivals == null ? -1.0 : rivals[card][face];
   final solo = sampledPeople != null && sampledPeople < 2;

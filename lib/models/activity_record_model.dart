@@ -931,8 +931,13 @@ List<ActivityParticipant> _uniqueParticipants(
 
 CounterModel? resolveCounterForActivityRecord(
   Iterable<CounterModel> counters,
-  ActivityRecordModel record,
-) {
+  ActivityRecordModel record, {
+  /// 转团 deletion/replay needs the person's only card even when the record
+  /// still names the old group. Creating a *new* record in a group without a
+  /// card must not use that fallback, or 兼任 draft selections would write into
+  /// the other group's card instead of creating the chosen one.
+  bool allowUniquePersonFallback = true,
+}) {
   final counterId = record.counterId;
   if (counterId != null) {
     for (final counter in counters) {
@@ -985,6 +990,17 @@ CounterModel? resolveCounterForActivityRecord(
         _normalizeActivityRecordIdentityPart(counter.name) ==
             normalizedMember) {
       return counter;
+    }
+  }
+
+  // 转团 / legacy rows: the record still carries the old group, while the
+  // person has exactly one card now. A single card is unambiguous; with
+  // 兼任 (two cards) the group-scoped lookups above decide.
+  if (allowUniquePersonFallback && personId != null) {
+    final personCards =
+        counters.where((counter) => counter.personId == personId).toList();
+    if (personCards.length == 1) {
+      return personCards.single;
     }
   }
   return null;

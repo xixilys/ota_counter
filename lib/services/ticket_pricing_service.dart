@@ -11,11 +11,14 @@ class TicketPricingService {
   static const List<(String, double, bool)> _defaults = [
     ('免费票', 0, true),
     ('预售票', 0, false),
+    ('早鸟票', 0, false),
     ('现场票', 0, false),
     ('学生票', 0, false),
     ('女性票', 0, false),
     ('特典票', 0, false),
     ('VIP票', 0, false),
+    ('双人票', 0, false),
+    ('通票', 0, false),
   ];
 
   static Future<List<TicketTypeModel>> getTicketTypes() async {
@@ -331,10 +334,151 @@ class TicketPricingService {
     );
   }
 
+  /// Tickets saved without a ticket type, newest first. These are the rows the
+  /// 归类 flow offers to organise.
+  static Future<List<ActivityRecordModel>> getUncategorizedTickets() async {
+    final db = await DatabaseService.database;
+    final rows = await db.query(
+      DatabaseService.activityRecordTableName,
+      where: "record_type = ? AND TRIM(COALESCE(ticket_type, '')) = ''",
+      whereArgs: [ActivityRecordType.ticket.dbValue],
+      orderBy: 'occurred_at DESC, id DESC',
+    );
+    return rows.map(ActivityRecordModel.fromMap).toList(growable: false);
+  }
+
+  /// Per-type counts/amounts plus the latest price actually paid for each type.
+  static Future<Map<String, TicketTypeUsage>> getTypeUsage() async {
+    final db = await DatabaseService.database;
+    final typeRows = await db.rawQuery(
+      '''
+      SELECT COALESCE(NULLIF(TRIM(ticket_type), ''), '未分类') AS type,
+             COUNT(*) AS record_count,
+             COALESCE(SUM(ticket_quantity), 0) AS quantity,
+             COALESCE(SUM(total_amount), 0) AS amount,
+             MAX(occurred_at) AS last_used_at
+      FROM ${DatabaseService.activityRecordTableName}
+      WHERE record_type = ?
+      GROUP BY type
+      ''',
+      [ActivityRecordType.ticket.dbValue],
+    );
+    final usage = <String, TicketTypeUsage>{};
+    for (final row in typeRows) {
+      final typeName = (row['type'] ?? '未分类').toString();
+      usage[typeName] = TicketTypeUsage(
+        typeName: typeName,
+        recordCount: ((row['record_count'] as num?) ?? 0).toInt(),
+        ticketCount: ((row['quantity'] as num?) ?? 0).toInt(),
+        amount: ((row['amount'] as num?) ?? 0).toDouble(),
+        lastUsedAt: DateTime.tryParse('${row['last_used_at'] ?? ''}'),
+      );
+    }
+
+    final latestRows = await db.query(
+      DatabaseService.activityRecordTableName,
+      columns: [
+        'ticket_type',
+        'ticket_unit_price',
+        'ticket_is_free',
+        'total_amount',
+        'occurred_at',
+      ],
+      where: "record_type = ? AND TRIM(COALESCE(ticket_type, '')) != ''",
+      whereArgs: [ActivityRecordType.ticket.dbValue],
+      orderBy: 'occurred_at DESC, id DESC',
+    );
+    final seen = <String>{};
+    for (final row in latestRows) {
+      final typeName = (row['ticket_type'] ?? '').toString().trim();
+      if (typeName.isEmpty || !seen.add(typeName)) continue;
+      final usageRow = usage[typeName];
+      final unitPrice = (row['ticket_unit_price'] as num?)?.toDouble() ?? 0;
+      final total = (row['total_amount'] as num?)?.toDouble() ?? 0;
+      final explicitFree = row['ticket_is_free'];
+      final isFree = explicitFree == null
+          ? unitPrice <= 0 && total <= 0
+          : ((explicitFree as num).toInt() != 0);
+      usage[typeName] =
+          (usageRow ?? TicketTypeUsage(typeName: typeName)).copyWithLastPrice(
+        unitPrice: isFree ? 0 : unitPrice,
+        isFree: isFree,
+        usedAt: DateTime.tryParse('${row['occurred_at'] ?? ''}'),
+      );
+    }
+    return usage;
+  }
+
+  /// Assigns one ticket type to already-saved ticket records. Updates go
+  /// through [DatabaseService.updateActivityRecordWithCounterImpact] — the
+  /// same path as editing a record — so snapshot/backup data stays consistent;
+  /// then [rebuildFromHistory] relearns per-event prices.
+  static Future<TicketBulkAssignResult> assignTypeToTickets({
+    required Iterable<int> recordIds,
+    required String typeName,
+  }) async {
+    final ids = recordIds.where((id) => id > 0).toSet().toList(growable: false);
+    if (ids.isEmpty) {
+      return const TicketBulkAssignResult();
+    }
+    final normalizedType = typeName.trim();
+    if (normalizedType.isEmpty) {
+      throw ArgumentError('票种名称不能为空');
+    }
+    final types = await getTicketTypes();
+    final target = types.where(
+      (type) => type.name.trim().toLowerCase() == normalizedType.toLowerCase(),
+    );
+    if (target.isEmpty) {
+      throw StateError('票种「$normalizedType」不存在');
+    }
+    final targetType = target.first;
+    final db = await DatabaseService.database;
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    final rows = await db.query(
+      DatabaseService.activityRecordTableName,
+      where: 'id IN ($placeholders)',
+      whereArgs: ids,
+    );
+    var assigned = 0;
+    var skipped = 0;
+    for (final row in rows) {
+      final record = ActivityRecordModel.fromMap(row);
+      final id = record.id;
+      if (!record.isTicket || id == null) {
+        skipped += 1;
+        continue;
+      }
+      final updated = record.copyWith(ticketType: targetType.name);
+      await DatabaseService.updateActivityRecordWithCounterImpact(id, updated);
+      assigned += 1;
+    }
+    final learned = await rebuildFromHistory();
+    return TicketBulkAssignResult(
+      assigned: assigned,
+      skipped: skipped,
+      learnedPresets: learned,
+    );
+  }
+
   static String _normalize(String value) {
     return value
         .trim()
         .toLowerCase()
         .replaceAll(RegExp(r'[\s·•・_\-~/\\\(\)\[\]\{\}]+'), '');
   }
+}
+
+class TicketBulkAssignResult {
+  final int assigned;
+  final int skipped;
+  final int learnedPresets;
+
+  const TicketBulkAssignResult({
+    this.assigned = 0,
+    this.skipped = 0,
+    this.learnedPresets = 0,
+  });
+
+  bool get isEmpty => assigned == 0;
 }

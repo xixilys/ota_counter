@@ -45,9 +45,11 @@ class AppTheme {
   static Color paper(Brightness b) =>
       _dark(b) ? const Color(0xFF131115) : const Color(0xFFF6F4F2);
 
-  /// The white border of a cheki print, one step above [paper].
-  static Color polaroid(Brightness b) =>
-      _dark(b) ? const Color(0xFF221E25) : Colors.white;
+  /// The white border of a cheki print. Real cheki paper does not turn black
+  /// when the room does, so this stays cream in both themes; only [paper]
+  /// changes. Everything printed on it keeps a dark ink or a WCAG-checked
+  /// member accent.
+  static Color polaroid(Brightness b) => const Color(0xFFFFFBF5);
 
   /// The dark berry "photo" inside the overview print.
   /// The dark berry "photo" inside the overview print. Same in both themes,

@@ -12,8 +12,11 @@ import 'app_metadata.dart';
 import 'models/activity_record_model.dart';
 import 'models/chart_stats_helpers.dart';
 import 'models/counter_model.dart';
+import 'models/merch_purchase_model.dart';
+import 'models/person_identity.dart';
 import 'models/ticket_type_model.dart';
 import 'pages/add_idol_page.dart';
+import 'pages/album/album_page.dart';
 import 'pages/batch_capture_page.dart';
 import 'pages/chart_page.dart';
 import 'pages/face_recognition_settings_page.dart';
@@ -22,12 +25,16 @@ import 'pages/idol_activity_events_page.dart';
 import 'pages/idol_database_page.dart';
 import 'pages/image_page.dart';
 import 'pages/member_detail_page.dart';
+import 'pages/merch_page.dart';
 import 'pages/recent_records_page.dart';
+import 'pages/ticket_organize_page.dart';
 import 'pages/sync_page.dart';
 import 'services/database_service.dart';
 import 'services/export_import_service.dart';
 import 'services/idol_database_service.dart';
+import 'services/merch_service.dart';
 import 'services/ota_admin_import_service.dart';
+import 'services/person_card_service.dart';
 import 'services/settings_service.dart';
 import 'services/sync_service.dart';
 import 'services/ticket_pricing_service.dart';
@@ -38,6 +45,9 @@ import 'widgets/app_page_background.dart';
 import 'widgets/cheki_overview_parts.dart';
 import 'widgets/counter_card.dart';
 import 'widgets/counter_count_sheet.dart';
+import 'widgets/dream/dream_kit.dart';
+import 'widgets/merch_entry_strip.dart';
+import 'widgets/person/person_cards_sheet.dart';
 import 'widgets/ticket_stub_card.dart';
 
 void main() async {
@@ -52,8 +62,9 @@ void main() async {
 
   try {
     await SettingsService.loadFontScale();
+    await PersonCardService.load();
   } catch (_) {
-    // Keep the default size if preferences are unreadable.
+    // Keep the default size / card preferences if they are unreadable.
   }
 
   runApp(const MyApp());
@@ -134,8 +145,10 @@ class _MyHomePageState extends State<MyHomePage> {
 
   final List<CounterModel> _counters = [];
   final List<ActivityRecordModel> _activityRecords = [];
+  Map<int, DateTime> _latestCounterActivity = const {};
   int _activityRecordCount = 0;
   TicketStats _ticketStats = TicketStats.empty;
+  MerchStats _merchStats = MerchStats.empty;
   List<_HomeCounterEntry>? _homeEntriesCache;
   _HomeOverviewSnapshot? _overviewCache;
   bool _initialLoadDone = false;
@@ -250,11 +263,21 @@ class _MyHomePageState extends State<MyHomePage> {
         DatabaseService.getHomeActivityRecords(),
         DatabaseService.getActivityRecordCount(),
         _loadTicketStats(),
+        _loadMerchStats(),
       ]);
       final counters = results[0] as List<CounterModel>;
       final activityRecords = results[1] as List<ActivityRecordModel>;
       final activityRecordCount = results[2] as int;
       final ticketStats = results[3] as TicketStats;
+      final merchStats = results[4] as MerchStats;
+      // Only people with several cards need their last activity to choose a
+      // default current card. Avoid the extra query for ordinary installs.
+      final latestActivity =
+          counters.map(counterPersonEntryKey).toSet().length < counters.length
+              ? await DatabaseService.getLastCounterActivityDays(
+                  counters: counters,
+                )
+              : const <int, DateTime>{};
       if (!mounted) {
         return;
       }
@@ -266,7 +289,9 @@ class _MyHomePageState extends State<MyHomePage> {
           ..clear()
           ..addAll(activityRecords);
         _activityRecordCount = activityRecordCount;
+        _latestCounterActivity = latestActivity;
         _ticketStats = ticketStats;
+        _merchStats = merchStats;
         _applySort(_counters);
         _invalidateHomeCaches();
         _initialLoadDone = true;
@@ -296,6 +321,14 @@ class _MyHomePageState extends State<MyHomePage> {
       return await TicketPricingService.getStats();
     } catch (_) {
       return TicketStats.empty;
+    }
+  }
+
+  Future<MerchStats> _loadMerchStats() async {
+    try {
+      return await MerchService.getStats();
+    } catch (_) {
+      return MerchStats.empty;
     }
   }
 
@@ -387,20 +420,28 @@ class _MyHomePageState extends State<MyHomePage> {
     _overviewCache = null;
   }
 
-  String _homeEntryKey(CounterModel counter) {
-    if (counter.personId != null) {
-      return 'person-id:${counter.personId}';
-    }
-
-    final personName = counter.personName.trim();
-    if (personName.isNotEmpty) {
-      return 'person-name:${personName.toLowerCase()}';
-    }
-
-    return 'counter:${counter.groupName.trim().toLowerCase()}|${counter.name.trim().toLowerCase()}';
-  }
+  String _homeEntryKey(CounterModel counter) => counterPersonEntryKey(counter);
 
   CounterModel _selectPrimaryCounter(List<CounterModel> counters) {
+    final preferredId = PersonCardService.currentCardIdForAny(counters);
+    if (preferredId != null) {
+      for (final counter in counters) {
+        if (counter.id == preferredId) return counter;
+      }
+    }
+    final latest = [...counters]..sort((a, b) {
+        final aDay = a.id == null ? null : _latestCounterActivity[a.id];
+        final bDay = b.id == null ? null : _latestCounterActivity[b.id];
+        final timeCompare =
+            (bDay ?? DateTime(0)).compareTo(aDay ?? DateTime(0));
+        if (timeCompare != 0) return timeCompare;
+        return b.count.compareTo(a.count);
+      });
+    final latestCounter = latest.first;
+    if (latestCounter.id != null &&
+        _latestCounterActivity[latestCounter.id] != null) {
+      return latestCounter;
+    }
     final sorted = [...counters]..sort((a, b) {
         final countCompare = b.count.compareTo(a.count);
         if (countCompare != 0) {
@@ -1273,12 +1314,20 @@ class _MyHomePageState extends State<MyHomePage> {
     if (_isLocked) return;
 
     var dirty = false;
+    final preferredId =
+        PersonCardService.currentCardIdForAny(entry.sourceCounters);
+    final sheetCounter = preferredId == null
+        ? entry.primaryCounter
+        : entry.sourceCounters.firstWhere(
+            (counter) => counter.id == preferredId,
+            orElse: () => entry.primaryCounter,
+          );
     final openDetails = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (sheetContext) => CounterCountSheet(
-        counter: entry.primaryCounter,
+        counter: sheetCounter,
         allCounters: _counters,
         onCounterChanged: (
           updatedCounter,
@@ -1571,6 +1620,25 @@ class _MyHomePageState extends State<MyHomePage> {
               onTap: () async {
                 Navigator.of(context).pop();
                 await _toggleHomeEntryHidden(entry);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.groups_2_outlined),
+              title: const Text('跨团卡片与真人主档'),
+              subtitle: Text(
+                entry.sourceCounters.length == 1
+                    ? '查看这个真人在别的团有没有卡片'
+                    : '${entry.sourceCounters.length} 个团籍：选当前卡片 / 标记过往 / 关联真人',
+              ),
+              onTap: () async {
+                Navigator.of(context).pop();
+                final changed = await showPersonCardsSheet(
+                  context,
+                  anchor: entry.primaryCounter,
+                );
+                if (changed && mounted) {
+                  await _loadCounters();
+                }
               },
             ),
           ],
@@ -1971,6 +2039,12 @@ class _MyHomePageState extends State<MyHomePage> {
     await _loadCounters();
   }
 
+  Future<void> _openAlbum() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (context) => const AlbumPage()),
+    );
+  }
+
   /// 「新增」: a ledger record, or 批量拍切 (cut + recognise + save a batch).
   Future<void> _openAddRecordEntry() async {
     final choice = await showModalBottomSheet<String>(
@@ -2022,6 +2096,22 @@ class _MyHomePageState extends State<MyHomePage> {
           composerType: ActivityRecordType.ticket,
         ),
       ),
+    );
+    await _loadCounters();
+  }
+
+  Future<void> _openTicketOrganizer() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const TicketOrganizePage()),
+    );
+    await _loadCounters();
+  }
+
+  Future<void> _openMerchPage() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const MerchPage()),
     );
     await _loadCounters();
   }
@@ -2336,8 +2426,31 @@ class _MyHomePageState extends State<MyHomePage> {
                           children: [
                             Row(
                               children: [
-                                const ChekiSticker(text: '我的切奇'),
-                                const Spacer(),
+                                const Expanded(
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: ChekiSticker(text: '我的切奇'),
+                                  ),
+                                ),
+                                FilledButton.tonalIcon(
+                                  onPressed: _openAlbum,
+                                  icon: const Icon(
+                                    Icons.photo_library_outlined,
+                                    size: 18,
+                                  ),
+                                  label: const Text('切册'),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor:
+                                        Colors.white.withValues(alpha: 0.18),
+                                    foregroundColor: onStage,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                ),
                                 IconButton(
                                   onPressed: _showOverviewMetricsDialog,
                                   tooltip: '配置总览指标',
@@ -2510,37 +2623,12 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Widget _buildHomeSectionHeader(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.baseline,
-      textBaseline: TextBaseline.alphabetic,
-      children: [
-        Text(
-          '成员',
-          style: theme.textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.w600,
-            fontSize: 20,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Text(
-          '${_homeEntries.length} 位',
-          style: theme.textTheme.labelLarge?.copyWith(
-            color: scheme.onSurfaceVariant,
-            fontWeight: FontWeight.w500,
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
-        ),
-        const Spacer(),
-        Text(
-          '长按卡片管理',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: scheme.onSurfaceVariant,
-            fontSize: 12,
-          ),
-        ),
-      ],
+    final brightness = Theme.of(context).brightness;
+    return DreamSectionHeader(
+      title: '成员',
+      countLabel: '${_homeEntries.length} 位',
+      trailingText: '长按卡片管理',
+      accent: AppTheme.oshi(brightness),
     );
   }
 
@@ -2836,6 +2924,9 @@ class _MyHomePageState extends State<MyHomePage> {
                     ),
                   );
                   break;
+                case 'album':
+                  await _openAlbum();
+                  break;
                 case 'groupPricing':
                   Navigator.push(
                     context,
@@ -2977,6 +3068,16 @@ class _MyHomePageState extends State<MyHomePage> {
                 ),
               ),
               const PopupMenuItem(
+                value: 'album',
+                child: Row(
+                  children: [
+                    Icon(Icons.photo_library_outlined),
+                    SizedBox(width: 8),
+                    Text('切册'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
                 value: 'groupPricing',
                 child: Row(
                   children: [
@@ -3081,6 +3182,21 @@ class _MyHomePageState extends State<MyHomePage> {
                         stats: _ticketStats,
                         onTap: _showPieChart,
                         onAdd: _openTicketComposer,
+                        onClassify: _openTicketOrganizer,
+                      ),
+                    ),
+                  ),
+                  SliverPadding(
+                    padding: EdgeInsets.fromLTRB(
+                      horizontalPadding,
+                      10,
+                      horizontalPadding,
+                      0,
+                    ),
+                    sliver: SliverToBoxAdapter(
+                      child: MerchEntryStrip(
+                        stats: _merchStats,
+                        onTap: _openMerchPage,
                       ),
                     ),
                   ),

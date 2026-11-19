@@ -198,19 +198,25 @@ class FaceImageOps {
       }
     }
 
+    // Adjacent destination rows share a boundary source row. Its horizontal
+    // convolution is identical, so keep the last row instead of recomputing it.
+    var previousSourceRow = -1;
     var prevDy = ytab.isEmpty ? 0 : ytab[0].di;
     for (var j = 0; j < ytab.length; j++) {
       final beta = ytab[j].alpha;
       final dy = ytab[j].di;
       final rowBase = ytab[j].si * stride;
-      buf.fillRange(0, rowLen, 0);
-      for (final t in xtab) {
-        final si = rowBase + t.si * 3;
-        final di = t.di * 3;
-        final a = t.alpha;
-        buf[di] = buf[di] + toFloat32(s[si] * a);
-        buf[di + 1] = buf[di + 1] + toFloat32(s[si + 1] * a);
-        buf[di + 2] = buf[di + 2] + toFloat32(s[si + 2] * a);
+      if (ytab[j].si != previousSourceRow) {
+        buf.fillRange(0, rowLen, 0);
+        for (final t in xtab) {
+          final si = rowBase + t.si * 3;
+          final di = t.di * 3;
+          final a = t.alpha;
+          buf[di] = buf[di] + toFloat32(s[si] * a);
+          buf[di + 1] = buf[di + 1] + toFloat32(s[si + 1] * a);
+          buf[di + 2] = buf[di + 2] + toFloat32(s[si + 2] * a);
+        }
+        previousSourceRow = ytab[j].si;
       }
       if (dy != prevDy) {
         store(prevDy);

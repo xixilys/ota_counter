@@ -12,6 +12,7 @@ import 'package:ota_counter/models/activity_record_media_model.dart';
 import 'package:ota_counter/models/activity_record_model.dart';
 import 'package:ota_counter/models/counter_model.dart';
 import 'package:ota_counter/models/face_sample_model.dart';
+import 'package:ota_counter/services/album_clarity_service.dart';
 import 'package:ota_counter/services/batch_import_service.dart';
 import 'package:ota_counter/services/database_service.dart';
 import 'package:ota_counter/services/export_import_service.dart';
@@ -349,9 +350,16 @@ void main() {
         isTrue);
     expect(media.every((m) => m.cropQuadJson.contains('"brx"')), isTrue);
     expect(media.where((m) => m.ownerPersonName == '小树').length, 2);
+    final renditions = <String>{};
     for (final m in media) {
       expect(File(m.path).existsSync(), isTrue);
+      final saved = await AlbumPhotoFiles.prepare(m.path,
+          rectifyCut: !m.processingMode.isProcessed, isScan: true);
+      expect(await saved!.file.lastModified(), isNotNull);
+      renditions.add(saved.file.path);
     }
+    expect(renditions, hasLength(media.length),
+        reason: 'crops sharing a source hash are separate photos');
     expect(await DatabaseService.countMediaBySourceHash(['abc123']),
         {'abc123': 4});
 
@@ -360,6 +368,41 @@ void main() {
         .toList();
     expect(confirmed.length, 3);
     expect(confirmed.every((s) => s.mediaId != null), isTrue);
+  });
+
+  test(
+      'media save writes optimized files and keeps archived bytes on processor failure',
+      () async {
+    final (_, _, ticket) = await seed();
+    final saved = await DatabaseService.saveActivityRecordMediaBytes(
+      recordId: ticket.id!,
+      bytes: _jpeg,
+    );
+    final derivatives = Directory(
+        '${documents.path}/activity_record_media/.album-optimized-v1');
+    final files = await derivatives
+        .list(recursive: true)
+        .where((e) => e is File)
+        .cast<File>()
+        .toList();
+    final optimized = files.single;
+    expect(img.decodePng(await optimized.readAsBytes()), isNotNull);
+    expect(await File(saved.path).readAsBytes(), _jpeg);
+
+    await DatabaseService.saveBatchImport(newRecords: [], media: [
+      BatchMediaInput(
+          recordId: ticket.id, bytes: [1, 2, 3], fileExtension: '.jpg'),
+    ]);
+    final media =
+        await DatabaseService.getActivityRecordMedia(recordId: ticket.id);
+    expect(media, hasLength(2));
+    final invalid = media.singleWhere((photo) => photo.id != saved.id);
+    expect(await File(invalid.path).readAsBytes(), [1, 2, 3]);
+
+    await DatabaseService.deleteActivityRecordMedia(saved.id!);
+    expect(await File(saved.path).exists(), isFalse);
+    expect(await optimized.exists(), isFalse);
+    expect(await File(invalid.path).exists(), isTrue);
   });
 
   test('switching a +N off attaches to the session ticket instead', () async {
@@ -766,5 +809,122 @@ void main() {
     expect(
         result.warnings, isNot(contains(RecordScanMultiWarning.noneDetected)));
     file.deleteSync();
+  });
+  group('multi-group recognition affiliations', () {
+    const a = FaceMember(
+      counterId: 1,
+      personId: 9,
+      name: 'P在A',
+      personName: '真人P',
+      groupName: 'A团',
+    );
+    const b = FaceMember(
+      counterId: 2,
+      personId: 9,
+      name: 'P在B',
+      personName: '真人P',
+      groupName: 'B团',
+    );
+    final personCounter = CounterModel(
+      id: 1,
+      name: 'P在A',
+      groupName: 'A团',
+      personId: 9,
+      personName: '真人P',
+      color: '#ffffff',
+    );
+
+    BatchSourceResult oneCard({double similarity = 0.9}) => BatchSourceResult(
+          photo: BatchSourcePhoto(
+            path: '/tmp/multi-group.jpg',
+            capturedAt: DateTime(2026, 3, 14, 12),
+            fromCamera: true,
+          ),
+          sourceHash: 'multi-group',
+          cards: [
+            _card([_face(_vec(0, similarity: similarity))]),
+          ],
+        );
+
+    BatchReviewCard recognizeWith(
+      List<String> preferred, {
+      List<String> session = const [],
+      double similarity = 0.9,
+    }) {
+      return BatchImportService.recognize(
+        sources: [oneCard(similarity: similarity)],
+        candidates: const [a],
+        samples: [_sample(_vec(0), counter: personCounter)],
+        groupCandidates: const [a, b],
+        preferredGroups: preferred,
+        sessionGroups: session,
+      ).single;
+    }
+
+    test('session picks one affiliation and confirms it', () {
+      final card = recognizeWith(const ['B团', 'A团'], session: const ['B团']);
+      expect(card.members, hasLength(1));
+      expect(card.members.single.groupName, 'B团');
+      expect(card.members.single.counterId, 2);
+      expect(card.unresolvedAffiliationMembers, isEmpty);
+      expect(card.affiliationsFor(card.members.single), hasLength(2));
+    });
+
+    test('session outranks an old same-day group without asking', () {
+      final card = recognizeWith(const ['B团', 'A团'], session: const ['B团']);
+      expect(card.members.single.groupName, 'B团');
+      expect(card.unresolvedAffiliationMembers, isEmpty);
+    });
+
+    test('auto match only awaiting affiliation becomes auto after group choice',
+        () {
+      final card =
+          recognizeWith(const ['A团', 'B团'], session: const ['A团', 'B团']);
+      expect(card.status, FaceMatchStatus.review);
+      expect(card.unresolvedAffiliationMembers, hasLength(1));
+      card.confirmAffiliation(b);
+      expect(card.members.single.groupName, 'B团');
+      expect(card.unresolvedAffiliationMembers, isEmpty);
+      expect(card.status, FaceMatchStatus.auto);
+    });
+
+    test('low-confidence match still needs review after group choice', () {
+      final card = recognizeWith(const ['A团', 'B团'],
+          session: const ['A团', 'B团'], similarity: 0.65);
+      expect(card.status, FaceMatchStatus.review);
+      expect(card.members, hasLength(1));
+      expect(card.unresolvedAffiliationMembers, hasLength(1));
+      card.confirmAffiliation(b);
+      expect(card.members.single.groupName, 'B团');
+      expect(card.unresolvedAffiliationMembers, isEmpty);
+      expect(card.status, FaceMatchStatus.review);
+    });
+
+    test('two relevant groups stay ambiguous and block silent saving', () {
+      final card =
+          recognizeWith(const ['A团', 'B团'], session: const ['A团', 'B团']);
+      expect(card.members.single.personId, 9);
+      expect(card.isAffiliationAmbiguous(card.members.single), isTrue);
+      expect(card.unresolvedAffiliationMembers, hasLength(1));
+
+      final context = BatchDayContext(
+        day: DateTime(2026, 3, 14),
+        records: const [],
+        sessions: const [],
+        dayMembers: const [],
+        counters: const [],
+      );
+      expect(
+        () => BatchImportService.buildSavePlan(
+          cards: [card],
+          day: context,
+        ),
+        throwsA(isA<StateError>()),
+      );
+
+      card.confirmAffiliation(b);
+      expect(card.members.single.groupName, 'B团');
+      expect(card.unresolvedAffiliationMembers, isEmpty);
+    });
   });
 }

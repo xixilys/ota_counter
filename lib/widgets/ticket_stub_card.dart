@@ -10,11 +10,15 @@ class TicketStubCard extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback onAdd;
 
+  /// Opens the 归类 flow for tickets saved without a ticket type.
+  final VoidCallback? onClassify;
+
   const TicketStubCard({
     super.key,
     required this.stats,
     required this.onAdd,
     this.onTap,
+    this.onClassify,
   });
 
   static const double _stubWidth = 132;
@@ -30,7 +34,9 @@ class TicketStubCard extends StatelessWidget {
     final ticketPaper = AppTheme.ticketPaper(brightness);
     const ink = AppTheme.ticketInk;
     const inkMuted = AppTheme.ticketInkMuted;
-    final topTypes = stats.countByType.entries.toList()
+    final topTypes = stats.countByType.entries
+        .where((entry) => entry.key != '未分类' && entry.value > 0)
+        .toList()
       ..sort((a, b) => b.value.compareTo(a.value));
     final typeLine = [
       for (final entry in topTypes.take(3)) '${entry.key} ${entry.value}',
@@ -139,6 +145,56 @@ class TicketStubCard extends StatelessWidget {
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: inkMuted,
                                 fontSize: 12,
+                              ),
+                            ),
+                          ],
+                          if (stats.uncategorizedCount > 0 &&
+                              onClassify != null) ...[
+                            const SizedBox(height: 6),
+                            Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(8),
+                                onTap: onClassify,
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 3,
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(
+                                        Icons.label_outline_rounded,
+                                        size: 14,
+                                        color: ink,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Flexible(
+                                        child: Text(
+                                          '未分类 ${stats.uncategorizedCount} · 去归类',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                            color: ink,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                            decoration:
+                                                TextDecoration.underline,
+                                            decorationColor:
+                                                ink.withValues(alpha: 0.45),
+                                          ),
+                                        ),
+                                      ),
+                                      const Icon(
+                                        Icons.chevron_right_rounded,
+                                        size: 15,
+                                        color: ink,
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
                           ],

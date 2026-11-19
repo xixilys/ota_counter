@@ -13,6 +13,7 @@ import '../models/counter_model.dart';
 import '../models/face_sample_model.dart';
 import '../models/group_pricing_model.dart';
 import '../models/idol_activity_event_model.dart';
+import 'album_orientation_service.dart';
 import 'database_service.dart';
 import 'face/face_models.dart';
 import 'face/face_recognition_rules.dart';
@@ -102,6 +103,17 @@ class BatchSession {
     this.event,
     this.groupNames = const [],
   });
+
+  // Match using the same metadata that supplementary records will store.
+  String get _activityName =>
+      ticket?.resolvedActivityName.trim() ?? event?.eventName ?? '';
+  String get _venueName =>
+      ticket?.resolvedVenueName.trim() ?? event?.venue ?? '';
+  String get _sessionLabel =>
+      ticket?.sessionLabel.trim() ?? event?.sessionLabel ?? '';
+  List<String> get _ledgerFields => [_activityName, _venueName, _sessionLabel]
+      .map(BatchImportService._norm)
+      .toList();
 }
 
 /// Ledger facts of one activity day.
@@ -166,56 +178,125 @@ class BatchDayContext {
             record.fiveInchShukudaiCount,
       };
 
+  // Recognition intentionally shares a person across groups. Accounting must
+  // also respect the affiliation selected on the card, and historic record
+  // groups must not be overwritten by a counter's current affiliation.
+  static FaceMember _withRecordedGroup(FaceMember member, String group) =>
+      group.trim().isEmpty
+          ? member
+          : FaceMember(
+              counterId: member.counterId,
+              personId: member.personId,
+              name: member.name,
+              personName: member.personName,
+              groupName: group,
+            );
+
+  static bool _sameLedgerMember(FaceMember a, FaceMember b) =>
+      a.sameAs(b) &&
+      (a.groupName.trim().isEmpty ||
+          b.groupName.trim().isEmpty ||
+          BatchImportService._norm(a.groupName) ==
+              BatchImportService._norm(b.groupName));
+
   bool _sameSet(List<FaceMember> a, List<FaceMember> b) =>
       a.length == b.length &&
-      a.every((x) => b.any((y) => y.sameAs(x))) &&
-      b.every((y) => a.any((x) => x.sameAs(y)));
+      a.every((x) => b.any((y) => _sameLedgerMember(y, x))) &&
+      b.every((y) => a.any((x) => _sameLedgerMember(y, x)));
 
-  /// Records of this day matching a ledger line's members (one member =
-  /// counter records, several = multi records with exactly that set).
+  bool _matchesSession(ActivityRecordModel record, BatchSession? session) {
+    if (session == null) return true;
+    final actual = [
+      record.resolvedActivityName,
+      record.resolvedVenueName,
+      record.sessionLabel
+    ].map(BatchImportService._norm).toList();
+    // Legacy undifferentiated day records remain usable. A known conflicting
+    // field, however, must never be hidden by another matching/empty field.
+    if (actual.every((field) => field.isEmpty)) return true;
+    final selected = session._ledgerFields;
+    var shared = false;
+    for (var i = 0; i < actual.length; i++) {
+      if (actual[i].isEmpty) continue;
+      if (selected[i].isNotEmpty) {
+        if (actual[i] != selected[i]) return false;
+        shared = true;
+      } else {
+        // A partially labelled selection cannot pick between two known
+        // same-day sessions that differ precisely in this missing field.
+        final alternatives = sessions
+            .where((other) {
+              final fields = other._ledgerFields;
+              return List.generate(3, (j) => j).every((j) =>
+                  selected[j].isEmpty ||
+                  fields[j].isEmpty ||
+                  selected[j] == fields[j]);
+            })
+            .map((other) => other._ledgerFields[i])
+            .where((field) => field.isNotEmpty)
+            .toSet();
+        if (alternatives.length > 1) return false;
+      }
+    }
+    return shared;
+  }
+
+  /// Same-day ledger records for the selected members, affiliations and optional
+  /// session. Missing legacy metadata is compatible; known conflicts are not.
   List<ActivityRecordModel> recordsFor(List<FaceMember> members,
-      {ChekiSize? size, bool? multiCut}) {
+      {ChekiSize? size, bool? multiCut, BatchSession? session}) {
     if (members.isEmpty) return const [];
     if (!(multiCut ?? members.length > 1)) {
       return [
         for (final r in records)
-          if (r.isCounter &&
-              (memberOfRecord(r)?.sameAs(members.single) ?? false) &&
-              (size == null || _countOfSize(r, size) > 0))
-            r,
+          if (r.isCounter && _matchesSession(r, session))
+            if (memberOfRecord(r) case final member?)
+              if (_sameLedgerMember(_withRecordedGroup(member, r.groupName),
+                      members.single) &&
+                  (size == null || _countOfSize(r, size) > 0))
+                r,
       ];
     }
     return [
       for (final r in records)
         if (r.isMulti &&
+            _matchesSession(r, session) &&
             r.multiCountField != CounterCountField.groupCut &&
             (size == null || _sizeOfMultiField(r.multiCountField) == size) &&
-            _sameSet(membersOfMulti(r), members))
+            _sameSet([
+              for (final p in r.effectiveParticipants)
+                _withRecordedGroup(
+                    _resolveParticipant(p, counters), p.groupName),
+            ], members))
           r,
     ];
   }
 
-  /// Polaroids of [size] the ledger already has for [members] that day.
   int existingCount(List<FaceMember> members, ChekiSize size,
-      {bool? multiCut}) {
+      {bool? multiCut, BatchSession? session}) {
     final isMulti = multiCut ?? members.length > 1;
     var total = 0;
-    for (final r in recordsFor(members, size: size, multiCut: isMulti)) {
+    for (final r in recordsFor(members,
+        size: size, multiCut: isMulti, session: session)) {
       total += isMulti ? r.effectiveMultiQuantity : _countOfSize(r, size);
     }
     return total;
   }
 
-  List<ActivityRecordModel> groupRecordsFor(String groupName) => [
+  List<ActivityRecordModel> groupRecordsFor(String groupName,
+          {BatchSession? session}) =>
+      [
         for (final r in records)
           if (r.isMulti &&
+              _matchesSession(r, session) &&
               r.multiCountField == CounterCountField.groupCut &&
               groupLedgerLineKey(r.groupName) == groupLedgerLineKey(groupName))
             r,
       ];
 
-  int existingGroupCount(String groupName) => groupRecordsFor(groupName)
-      .fold(0, (sum, record) => sum + record.effectiveMultiQuantity);
+  int existingGroupCount(String groupName, {BatchSession? session}) =>
+      groupRecordsFor(groupName, session: session)
+          .fold(0, (sum, record) => sum + record.effectiveMultiQuantity);
 
   /// All polaroids of [member] that day (own records + multi cuts), or null
   /// when the ledger has none (= no soft cap).
@@ -264,6 +345,11 @@ class BatchReviewCard {
   List<FaceMember> members;
   FaceMatchStatus status;
 
+  // Only recognition auto-matches downgraded solely for unresolved affiliation
+  // can become auto again when the user picks the group. A similarity review
+  // still needs its own confirmation.
+  bool _autoAfterAffiliation = false;
+
   /// Up to three suggestions for 待确认 / 未认出.
   final List<FaceMember> suggestions;
   ChekiSize size;
@@ -272,6 +358,15 @@ class BatchReviewCard {
   /// The user changed the members.
   bool edited = false;
   final List<FaceMember> removedRecognizedMembers = [];
+
+  /// All cards of the same real person across groups (兼任 / 转团), keyed by
+  /// [FaceMember.key]. Recognition scores one person once, but saving needs
+  /// one concrete group card.
+  final Map<String, List<FaceMember>> affiliationOptions;
+
+  /// Person keys whose group the user explicitly chose (or that had only one
+  /// possible card), so the save flow does not need to ask again.
+  final Set<String> confirmedAffiliationKeys = <String>{};
 
   void rememberRemovedRecognitions(
       List<FaceMember> before, List<FaceMember> after) {
@@ -302,6 +397,39 @@ class BatchReviewCard {
       : members.isNotEmpty &&
           (cutType != BatchCutType.single || members.length == 1);
 
+  List<FaceMember> affiliationsFor(FaceMember member) =>
+      affiliationOptions[member.key] ?? [member];
+
+  /// True when one person has cards in several groups and the batch context
+  /// (session / day's groups) did not pick exactly one. Saving must not guess.
+  bool isAffiliationAmbiguous(FaceMember member) {
+    if (confirmedAffiliationKeys.contains(member.key)) return false;
+    final groups = affiliationsFor(member)
+        .map((m) => m.groupName.trim().toLowerCase())
+        .where((group) => group.isNotEmpty)
+        .toSet();
+    return groups.length > 1;
+  }
+
+  List<FaceMember> get unresolvedAffiliationMembers => [
+        for (final member in members)
+          if (isAffiliationAmbiguous(member)) member,
+      ];
+
+  void confirmAffiliation(FaceMember selected) {
+    confirmedAffiliationKeys.add(selected.key);
+    final index = members.indexWhere((m) => m.key == selected.key);
+    if (index >= 0) {
+      members[index] = selected;
+      if (_autoAfterAffiliation &&
+          status == FaceMatchStatus.review &&
+          unresolvedAffiliationMembers.isEmpty) {
+        status = FaceMatchStatus.auto;
+        _autoAfterAffiliation = false;
+      }
+    }
+  }
+
   /// Non-self faces and the member each was matched to (null = none).
   final List<({FaceAnalysis face, FaceMember? member})> faceMatches;
 
@@ -314,6 +442,7 @@ class BatchReviewCard {
     required this.size,
     required this.sizeUncertain,
     required this.faceMatches,
+    this.affiliationOptions = const {},
     this.groupSuggested = false,
     this.suggestedGroupName,
   })  : bytes = card.bytes,
@@ -431,14 +560,33 @@ class BatchImportService {
       Isolate.run(
           () async => readExifCaptureTime(await File(path).readAsBytes()));
 
-  /// Hash → cut (isolate) → faces of every card (when [analyzer] given).
+  /// Hash + missing gallery EXIF time from one read → cut → optional faces.
+  /// The returned photo carries the resolved original capture time even when
+  /// recognition is disabled; supplied times always take precedence.
   static Future<BatchSourceResult> processPhoto(
     BatchSourcePhoto photo, {
     FaceAnalyzer? analyzer,
   }) async {
     var hash = '';
+    var resolvedPhoto = photo;
     try {
-      hash = await sha1OfFile(photo.path);
+      final path = photo.path;
+      final readCaptureTime = !photo.fromCamera && photo.capturedAt == null;
+      final metadata = await Isolate.run(() async {
+        final bytes = await File(path).readAsBytes();
+        return (
+          hash: sha1.convert(bytes).toString(),
+          capturedAt: readCaptureTime ? readExifCaptureTime(bytes) : null,
+        );
+      });
+      hash = metadata.hash;
+      if (metadata.capturedAt != null) {
+        resolvedPhoto = BatchSourcePhoto(
+          path: photo.path,
+          capturedAt: metadata.capturedAt,
+          fromCamera: photo.fromCamera,
+        );
+      }
       final already =
           (await DatabaseService.countMediaBySourceHash([hash]))[hash] ?? 0;
       final scan =
@@ -484,16 +632,19 @@ class BatchImportService {
       }
       final cards = <BatchCard>[];
       for (final card in scanCards) {
+        // Orientation belongs to the cut bytes, not the thumbnail. The
+        // original source hash and source-space crop quad stay unchanged.
+        final bytes = await AlbumOrientationService.orientScanBytes(card.bytes);
         var faces = const <FaceAnalysis>[];
         if (analyzer != null) {
           try {
-            faces = await analyzer(card.bytes);
+            faces = await analyzer(bytes);
           } catch (_) {
             faces = const [];
           }
         }
         cards.add(BatchCard(
-          bytes: card.bytes,
+          bytes: bytes,
           fileExtension: card.fileExtension,
           processingMode: card.processingMode,
           quad: card.quad,
@@ -504,7 +655,7 @@ class BatchImportService {
         ));
       }
       return BatchSourceResult(
-        photo: photo,
+        photo: resolvedPhoto,
         sourceHash: hash,
         cards: cards,
         warnings: warnings,
@@ -514,7 +665,7 @@ class BatchImportService {
       );
     } catch (error) {
       return BatchSourceResult(
-        photo: photo,
+        photo: resolvedPhoto,
         sourceHash: hash,
         cards: const [],
         error: '$error',
@@ -701,6 +852,8 @@ class BatchImportService {
     List<FaceMember>? groupCandidates,
     BatchDayContext? day,
     int? preferredCount,
+    List<String> preferredGroups = const [],
+    List<String> sessionGroups = const [],
   }) {
     final selfSamples = [
       for (final s in samples)
@@ -755,21 +908,97 @@ class BatchImportService {
       sampledPeople: sampledPeople,
       preferredCount: preferredCount,
     );
+    final affiliationPool = groupCandidates ?? candidates;
+    List<FaceMember> affiliationsFor(FaceMember member) {
+      final result = <FaceMember>[];
+      for (final candidate in affiliationPool) {
+        if (!candidate.sameAs(member)) continue;
+        final groupKey = candidate.groupName.trim().toLowerCase();
+        if (result.any((m) => m.groupName.trim().toLowerCase() == groupKey)) {
+          continue;
+        }
+        result.add(candidate);
+      }
+      if (!result.any((m) =>
+          m.groupName.trim().toLowerCase() ==
+          member.groupName.trim().toLowerCase())) {
+        result.insert(0, member);
+      }
+      return result;
+    }
+
+    FaceMember preferredAffiliation(
+      List<FaceMember> options,
+      FaceMember fallback,
+    ) {
+      for (final group in preferredGroups) {
+        final normalized = group.trim().toLowerCase();
+        if (normalized.isEmpty) continue;
+        for (final option in options) {
+          if (option.groupName.trim().toLowerCase() == normalized) {
+            return option;
+          }
+        }
+      }
+      return options.firstWhere(
+        (option) =>
+            option.groupName.trim().toLowerCase() ==
+            fallback.groupName.trim().toLowerCase(),
+        orElse: () => options.first,
+      );
+    }
+
     final reviewCards = <BatchReviewCard>[];
     for (var i = 0; i < flat.length; i++) {
-      final recognized = [
-        for (final c in assignments[i].candidates) candidates[c],
-      ];
+      final recognized = <FaceMember>[];
+      final optionsByKey = <String, List<FaceMember>>{};
+      final ambiguousKeys = <String>{};
+      for (final c in assignments[i].candidates) {
+        final person = candidates[c];
+        final options = affiliationsFor(person);
+        final chosen =
+            options.length > 1 ? preferredAffiliation(options, person) : person;
+        recognized.add(chosen);
+        optionsByKey[chosen.key] = options;
+        if (options.length > 1) {
+          // The chosen session is the strongest signal. If it names exactly
+          // one of this person's cards, no question is needed. Without a
+          // session, only exactly one card active that day is safe; two day
+          // groups / two session groups must ask instead of guessing.
+          final normalizedSessionGroups = {
+            for (final group in sessionGroups) group.trim().toLowerCase(),
+          }..remove('');
+          final sessionMatches = options
+              .where((option) => normalizedSessionGroups.contains(
+                    option.groupName.trim().toLowerCase(),
+                  ))
+              .length;
+          final dayMatches = options
+              .where((option) => preferredGroups.any(
+                    (group) =>
+                        group.trim().toLowerCase() ==
+                        option.groupName.trim().toLowerCase(),
+                  ))
+              .length;
+          final unambiguousSession = sessionMatches == 1;
+          final unambiguousDay = sessionMatches == 0 && dayMatches == 1;
+          if (!unambiguousSession && !unambiguousDay) {
+            ambiguousKeys.add(chosen.key);
+          }
+        }
+      }
       final group = suggestGroupCut(
         candidates: groupCandidates ?? candidates,
         recognized: recognized,
         nonSelfFaceCount: faceLists[i].length,
       );
-      reviewCards.add(BatchReviewCard(
+      final card = BatchReviewCard(
         source: flat[i].source,
         card: flat[i].card,
         members: recognized,
-        status: assignments[i].status,
+        status: ambiguousKeys.isEmpty
+            ? assignments[i].status
+            : FaceMatchStatus.review,
         suggestions: [
           for (final c in assignments[i].topCandidates) candidates[c],
         ],
@@ -781,12 +1010,27 @@ class BatchImportService {
               face: faceLists[i][f],
               member: assignments[i].faces[f].candidate == null
                   ? null
-                  : candidates[assignments[i].faces[f].candidate!],
+                  : (() {
+                      final original =
+                          candidates[assignments[i].faces[f].candidate!];
+                      return recognized.firstWhere(
+                        (m) => m.sameAs(original),
+                        orElse: () => original,
+                      );
+                    })(),
             ),
         ],
+        affiliationOptions: optionsByKey,
         groupSuggested: group.suggested,
         suggestedGroupName: group.groupName,
-      ));
+      );
+      card._autoAfterAffiliation =
+          assignments[i].status == FaceMatchStatus.auto &&
+              ambiguousKeys.isNotEmpty;
+      card.confirmedAffiliationKeys.addAll(
+        optionsByKey.keys.where((key) => !ambiguousKeys.contains(key)),
+      );
+      reviewCards.add(card);
     }
     return reviewCards;
   }
@@ -794,16 +1038,22 @@ class BatchImportService {
   // ---------------------------------------------------------------------
   // Ledger + save
 
-  /// Groups cards with members into ledger lines (see [planLedger]).
+  static String _ledgerMemberKey(FaceMember member) =>
+      member.groupName.trim().isEmpty
+          ? member.key
+          : '${member.key}|g:${_norm(member.groupName)}';
+
+  /// Groups confirmed affiliations into lines, offset by the selected session.
   static List<BatchLedgerEntry> planEntries(
     List<BatchReviewCard> cards,
-    BatchDayContext day,
-  ) {
+    BatchDayContext day, {
+    BatchSession? session,
+  }) {
     final groups = <String, List<BatchReviewCard>>{};
     final membersByKey = <String, List<FaceMember>>{};
     for (final card in cards) {
       if (!card.hasRequiredDetails) continue;
-      final memberKeys = card.members.map((m) => m.key).toSet().toList()
+      final memberKeys = card.members.map(_ledgerMemberKey).toSet().toList()
         ..sort();
       final key = card.cutType == BatchCutType.group
           ? groupLedgerLineKey(card.groupName)
@@ -811,14 +1061,16 @@ class BatchImportService {
       groups.putIfAbsent(key, () => []).add(card);
       final members = membersByKey.putIfAbsent(key, () => []);
       for (final member in card.members) {
-        if (!members.any((m) => m.sameAs(member))) members.add(member);
+        if (!members.any((m) => BatchDayContext._sameLedgerMember(m, member))) {
+          members.add(member);
+        }
       }
     }
     final entries = <BatchLedgerEntry>[];
     for (final entry in groups.entries) {
       final first = entry.value.first;
       final members = membersByKey[entry.key]!;
-      final memberKeys = members.map((m) => m.key).toSet().toList()..sort();
+      final memberKeys = members.map(_ledgerMemberKey).toSet().toList()..sort();
       final isGroup = first.cutType == BatchCutType.group;
       final isMulti = first.cutType == BatchCutType.multi;
       final line = LedgerLine(
@@ -826,8 +1078,9 @@ class BatchImportService {
         size: first.size,
         photoCount: entry.value.length,
         existingCount: isGroup
-            ? day.existingGroupCount(first.groupName)
-            : day.existingCount(members, first.size, multiCut: isMulti),
+            ? day.existingGroupCount(first.groupName, session: session)
+            : day.existingCount(members, first.size,
+                multiCut: isMulti, session: session),
         multiCut: isMulti,
         groupName: isGroup ? first.groupName.trim() : '',
       );
@@ -871,24 +1124,29 @@ class BatchImportService {
     if (unassigned > 0) {
       throw StateError('还有 $unassigned 张没有指定成员或团体');
     }
+    for (final card in cards) {
+      final ambiguous = card.unresolvedAffiliationMembers;
+      if (ambiguous.isNotEmpty) {
+        throw StateError(
+          '${ambiguous.map((m) => '${m.name}（${m.groupName}）').join('、')} '
+          '在多个团都有卡片，请先在复核卡上选择这张算到哪个团',
+        );
+      }
+    }
     final newRecords = <ActivityRecordModel>[];
     final media = <BatchMediaInput>[];
     final mediaCards = <BatchReviewCard>[];
     final occurredAt = _recordTime(day, session);
-    final event = session?.event;
-    final activityName =
-        session?.ticket?.resolvedActivityName.trim() ?? event?.eventName ?? '';
-    final venueName =
-        session?.ticket?.resolvedVenueName.trim() ?? event?.venue ?? '';
-    final sessionLabel =
-        session?.ticket?.sessionLabel.trim() ?? event?.sessionLabel ?? '';
+    final activityName = session?._activityName ?? '';
+    final venueName = session?._venueName ?? '';
+    final sessionLabel = session?._sessionLabel ?? '';
 
-    for (final entry in planEntries(cards, day)) {
+    for (final entry in planEntries(cards, day, session: session)) {
       final line = entry.line;
       final existingRecords = (line.isGroup
-              ? day.groupRecordsFor(line.groupName)
+              ? day.groupRecordsFor(line.groupName, session: session)
               : day.recordsFor(entry.members,
-                  size: line.size, multiCut: line.isMulti))
+                  size: line.size, multiCut: line.isMulti, session: session))
           .toList()
         ..sort((a, b) => _sizeCount(b, line.size, line.isMulti || line.isGroup)
             .compareTo(_sizeCount(a, line.size, line.isMulti || line.isGroup)));
@@ -896,7 +1154,8 @@ class BatchImportService {
           ? (line.isGroup
               ? null
               : day
-                  .recordsFor(entry.members, multiCut: line.isMulti)
+                  .recordsFor(entry.members,
+                      multiCut: line.isMulti, session: session)
                   .firstOrNull)
           : existingRecords.first;
       int? supplementIndex;

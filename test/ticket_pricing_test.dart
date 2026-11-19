@@ -137,6 +137,16 @@ void main() {
     );
   });
 
+  test('deleted built-in types are not resurrected by getTicketTypes',
+      () async {
+    final types = await TicketPricingService.getTicketTypes();
+    final vip = types.singleWhere((type) => type.name == 'VIP票');
+    await TicketPricingService.deleteTicketType(vip.id!);
+    final after = await TicketPricingService.getTicketTypes();
+    expect(after.where((type) => type.name == 'VIP票'), isEmpty);
+    expect(after.map((type) => type.name), contains('免费票'));
+  });
+
   testWidgets('ticket dialog exposes type and free controls', (tester) async {
     await tester.pumpWidget(
       MaterialApp(

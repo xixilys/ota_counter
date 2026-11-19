@@ -72,7 +72,7 @@ void main() {
     await old.close();
 
     final db = await DatabaseService.database;
-    expect(await db.getVersion(), 22);
+    expect(await db.getVersion(), 23);
     final receiptColumns = (await db.rawQuery(
       'PRAGMA table_info(face_enrollment_actions)',
     ))

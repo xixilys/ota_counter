@@ -3,6 +3,8 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:lpinyin/lpinyin.dart';
 
+import 'member_short_name.dart';
+
 class CounterCountField {
   final String key;
   final String label;
@@ -135,6 +137,11 @@ class CounterModel {
   final int fiveInchShukudaiCount;
   final String namePinyin;
 
+  /// The 1-4 character text printed on the member's card / avatar.
+  ///
+  /// Empty means "derive one from the name" (see [displayShortName]).
+  final String shortName;
+
   CounterModel({
     this.id,
     required this.name,
@@ -150,11 +157,17 @@ class CounterModel {
     this.groupCutCount = 0,
     this.threeInchShukudaiCount = 0,
     this.fiveInchShukudaiCount = 0,
+    this.shortName = '',
   }) : namePinyin = PinyinHelper.getPinyinE(
           name,
           defPinyin: '#',
           format: PinyinFormat.WITHOUT_TONE,
         );
+
+  /// Short text to draw for this member: the configured value when present,
+  /// otherwise a name-derived default (小雪→雪, 娜娜→娜, 浙璃Kiko→浙璃).
+  String get displayShortName =>
+      resolveMemberShortName(name: name, configured: shortName);
 
   int get count =>
       threeInchCount +
@@ -187,6 +200,7 @@ class CounterModel {
     int? groupCutCount,
     int? threeInchShukudaiCount,
     int? fiveInchShukudaiCount,
+    String? shortName,
   }) {
     return CounterModel(
       id: id ?? this.id,
@@ -207,6 +221,7 @@ class CounterModel {
           threeInchShukudaiCount ?? this.threeInchShukudaiCount,
       fiveInchShukudaiCount:
           fiveInchShukudaiCount ?? this.fiveInchShukudaiCount,
+      shortName: shortName ?? this.shortName,
     );
   }
 
@@ -285,6 +300,8 @@ class CounterModel {
     return {
       'id': id,
       'name': name,
+      'shortName': shortName,
+      'short_name': shortName,
       'groupName': groupName,
       'personId': personId,
       'personName': personName,
@@ -307,6 +324,7 @@ class CounterModel {
     return CounterModel(
       id: _readNullableInt(map, ['id']),
       name: (map['name'] ?? '') as String,
+      shortName: (map['shortName'] ?? map['short_name'] ?? '') as String,
       groupName: (map['groupName'] ?? map['group_name'] ?? '') as String,
       personId: _readNullableInt(map, ['personId', 'person_id']),
       personName: (map['personName'] ?? map['person_name'] ?? '') as String,

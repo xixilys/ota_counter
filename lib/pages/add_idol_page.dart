@@ -64,11 +64,16 @@ class _ExistingPersonMatch {
   final String groupName;
   final String counterName;
 
+  /// True when the idol library already knows these memberships share a
+  /// verified person id. A pure name match is only a suggestion.
+  final bool explicitIdentity;
+
   const _ExistingPersonMatch({
     required this.personId,
     required this.personName,
     required this.groupName,
     required this.counterName,
+    this.explicitIdentity = false,
   });
 
   String get displayName =>
@@ -265,6 +270,7 @@ class _AddIdolPageState extends State<AddIdolPage> {
         personName: counterPersonName,
         groupName: counter.groupName.trim(),
         counterName: counter.name.trim(),
+        explicitIdentity: explicitMatch,
       );
       if (explicitMatch) {
         return match;
@@ -388,7 +394,11 @@ class _AddIdolPageState extends State<AddIdolPage> {
         _samePersonChoices.remove(candidate.key);
       } else {
         _selected[candidate.key] = candidate;
-        _samePersonChoices[candidate.key] = false;
+        // 兼任 / 转团: a verified person id in the idol library is proof that
+        // this card belongs to the same real person, so linking is the safe
+        // default. A same-name match without an id stays opt-in.
+        _samePersonChoices[candidate.key] =
+            _personMatchFor(candidate)?.explicitIdentity ?? false;
       }
     });
     // Selecting a result reveals the bottom action bar; do not leave it

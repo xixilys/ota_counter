@@ -124,6 +124,48 @@ class TicketPriceSuggestion {
   });
 }
 
+/// Usage of one ticket type in the saved ledger. Used by the ticket page
+/// summary and the reorganise flow to show what is actually in use.
+class TicketTypeUsage {
+  final String typeName;
+  final int recordCount;
+  final int ticketCount;
+  final double amount;
+  final double lastUnitPrice;
+  final bool lastIsFree;
+  final DateTime? lastUsedAt;
+
+  const TicketTypeUsage({
+    required this.typeName,
+    this.recordCount = 0,
+    this.ticketCount = 0,
+    this.amount = 0,
+    this.lastUnitPrice = 0,
+    this.lastIsFree = false,
+    this.lastUsedAt,
+  });
+
+  bool get isUsed => ticketCount > 0 || recordCount > 0;
+
+  double get averagePrice => ticketCount <= 0 ? 0 : amount / ticketCount;
+
+  TicketTypeUsage copyWithLastPrice({
+    required double unitPrice,
+    required bool isFree,
+    DateTime? usedAt,
+  }) {
+    return TicketTypeUsage(
+      typeName: typeName,
+      recordCount: recordCount,
+      ticketCount: ticketCount,
+      amount: amount,
+      lastUnitPrice: unitPrice,
+      lastIsFree: isFree,
+      lastUsedAt: usedAt ?? lastUsedAt,
+    );
+  }
+}
+
 class TicketStats {
   final int recordCount;
   final int ticketCount;
@@ -146,6 +188,10 @@ class TicketStats {
   static const empty = TicketStats();
 
   bool get isEmpty => recordCount == 0 && ticketCount == 0;
+
+  int get uncategorizedCount => countByType['未分类'] ?? 0;
+
+  double get uncategorizedAmount => amountByType['未分类'] ?? 0;
 
   factory TicketStats.fromRecords(
     Iterable<ActivityRecordModel> records, {

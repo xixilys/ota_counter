@@ -53,6 +53,7 @@ class _BatchCapturePageState extends State<BatchCapturePage>
   String? _cameraError;
   bool _recognition = false;
   bool _shooting = false;
+  bool _picking = false;
   bool _continuing = false;
 
   @override
@@ -146,7 +147,12 @@ class _BatchCapturePageState extends State<BatchCapturePage>
 
   Future<void> _shoot() async {
     final camera = _camera;
-    if (camera == null || _shooting || !camera.value.isInitialized) return;
+    if (camera == null ||
+        _shooting ||
+        _continuing ||
+        !camera.value.isInitialized) {
+      return;
+    }
     final pressedAt = DateTime.now();
     setState(() => _shooting = true);
     try {
@@ -157,6 +163,7 @@ class _BatchCapturePageState extends State<BatchCapturePage>
       final path =
           p.join(dir.path, 'shot_${pressedAt.microsecondsSinceEpoch}.jpg');
       await File(shot.path).copy(path);
+      if (!mounted) return;
       _enqueue(BatchSourcePhoto(
         path: path,
         capturedAt: pressedAt,
@@ -173,16 +180,27 @@ class _BatchCapturePageState extends State<BatchCapturePage>
   }
 
   Future<void> _pickFromGallery() async {
-    // No resizing: re-encoding would drop EXIF (capture time).
-    final files = await _picker.pickMultiImage();
-    for (final file in files) {
-      final takenAt =
-          await BatchImportService.readExifCaptureTimeFromFile(file.path);
-      _enqueue(BatchSourcePhoto(
-        path: file.path,
-        capturedAt: takenAt,
-        fromCamera: false,
-      ));
+    if (_picking || _continuing) return;
+    setState(() => _picking = true);
+    try {
+      // Keep originals; the processing queue reads EXIF alongside its hash.
+      final files = await _picker.pickMultiImage();
+      if (!mounted) return;
+      for (final file in files) {
+        _enqueue(BatchSourcePhoto(
+          path: file.path,
+          capturedAt: null,
+          fromCamera: false,
+        ));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('读取相册失败：$error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _picking = false);
     }
   }
 
@@ -200,12 +218,11 @@ class _BatchCapturePageState extends State<BatchCapturePage>
       if (!mounted) return;
       final sources = [
         for (final item in _photos)
-          if (item.result != null && item.result!.cards.isNotEmpty)
-            item.result!,
+          if (item.result != null && item.result!.error == null) item.result!,
       ];
       if (sources.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('还没有切出拍立得')),
+          const SnackBar(content: Text('照片读取或处理失败，请重试或重新选择')),
         );
         return;
       }
@@ -249,12 +266,20 @@ class _BatchCapturePageState extends State<BatchCapturePage>
       final all = BatchImportService.allMembers(context0.counters);
       // Keep each affiliation for group coverage even though face assignment
       // merges the same person across their different groups.
+      final preferredGroups = <String>[
+        ...?choice.session?.groupNames,
+        for (final record in context0.records)
+          if (record.groupName.trim().isNotEmpty) record.groupName.trim(),
+        for (final member in [...context0.dayMembers, ...sessionMembers])
+          if (member.groupName.trim().isNotEmpty) member.groupName.trim(),
+      ];
       final groupCandidates = [...context0.dayMembers, ...sessionMembers];
       if (groupCandidates.isEmpty) groupCandidates.addAll(all);
       final candidates = buildCandidateMembers(
         dayMembers: context0.dayMembers,
         sessionGroupMembers: sessionMembers,
         allMembers: all,
+        preferredGroups: preferredGroups,
       );
       final samples = _recognition
           ? await FaceSampleService.getSamples()
@@ -266,11 +291,13 @@ class _BatchCapturePageState extends State<BatchCapturePage>
         dayMembers: context0.dayMembers,
         sessionGroupMembers: sessionMembers,
         allMembers: const [],
+        preferredGroups: preferredGroups,
       );
       final everyone = buildCandidateMembers(
         dayMembers: [...preferred, ...all],
         sessionGroupMembers: const [],
         allMembers: const [],
+        preferredGroups: preferredGroups,
       );
       final cards = BatchImportService.recognize(
         sources: sources,
@@ -279,21 +306,20 @@ class _BatchCapturePageState extends State<BatchCapturePage>
         groupCandidates: groupCandidates,
         samples: samples,
         day: context0,
+        preferredGroups: preferredGroups,
+        sessionGroups: choice.session?.groupNames ?? const [],
       );
       if (!mounted) return;
       final saved = await Navigator.of(context).push<bool>(
         MaterialPageRoute(
           builder: (context) => BatchReviewPage(
             cards: cards,
+            sources: sources,
             day: context0,
             session: choice.session,
             candidates: candidates,
             groupCandidates: groupCandidates,
-            allMembers: buildCandidateMembers(
-              dayMembers: [...candidates, ...all],
-              sessionGroupMembers: const [],
-              allMembers: const [],
-            ),
+            allMembers: everyone,
             samples: samples,
             learnFaces: _recognition,
           ),
@@ -315,7 +341,7 @@ class _BatchCapturePageState extends State<BatchCapturePage>
         actions: [
           IconButton(
             tooltip: '从相册多选',
-            onPressed: _pickFromGallery,
+            onPressed: _picking || _continuing ? null : _pickFromGallery,
             icon: const Icon(Icons.photo_library_outlined),
           ),
         ],
@@ -343,7 +369,9 @@ class _BatchCapturePageState extends State<BatchCapturePage>
                           ),
                           const SizedBox(height: 12),
                           FilledButton.tonalIcon(
-                            onPressed: _pickFromGallery,
+                            onPressed: _picking || _continuing
+                                ? null
+                                : _pickFromGallery,
                             icon: const Icon(Icons.photo_library_outlined),
                             label: const Text('从相册多选'),
                           ),
@@ -388,21 +416,27 @@ class _BatchCapturePageState extends State<BatchCapturePage>
                       Expanded(
                         child: Text(
                           '${_photos.length} 张照片 · 已切出 $_cardCount 张'
-                          '${_busy ? ' · 处理中…' : ''}',
+                          '${_busy ? ' · 正在处理 ${_photos.indexWhere((p) => p.state == _PhotoState.processing) + 1}/${_photos.length}' : ''}',
                         ),
                       ),
                       IconButton.filled(
                         key: const ValueKey('batch_shutter'),
                         iconSize: 32,
-                        onPressed: camera == null || _shooting ? null : _shoot,
+                        onPressed: camera == null || _shooting || _continuing
+                            ? null
+                            : _shoot,
                         icon: const Icon(Icons.camera_alt_rounded),
                         tooltip: '拍照',
                       ),
                       const SizedBox(width: 12),
                       FilledButton(
                         key: const ValueKey('batch_next'),
-                        onPressed:
-                            _photos.isEmpty || _continuing ? null : _continue,
+                        onPressed: _photos.isEmpty ||
+                                _continuing ||
+                                _picking ||
+                                _shooting
+                            ? null
+                            : _continue,
                         child: Text(_continuing ? '处理中…' : '下一步'),
                       ),
                     ],

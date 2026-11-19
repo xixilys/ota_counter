@@ -8,13 +8,20 @@ import '../models/activity_record_model.dart';
 import '../models/chart_stats_helpers.dart';
 import '../models/counter_model.dart';
 import '../models/group_pricing_model.dart';
+import '../models/merch_purchase_model.dart';
 import '../models/ticket_type_model.dart';
 import '../services/database_service.dart';
 import '../services/face/face_recognition_rules.dart';
+import '../services/merch_service.dart';
 import '../services/settings_service.dart';
 import '../services/ticket_pricing_service.dart';
+import '../theme/app_theme.dart';
 import '../widgets/add_activity_record_dialog.dart';
 import '../widgets/app_page_background.dart';
+import '../widgets/dream/dream_kit.dart';
+import 'album/album_models.dart';
+import 'album/album_viewer_page.dart';
+import 'album/album_widgets.dart';
 import 'group_pricing_page.dart';
 import 'ticket_pricing_page.dart';
 
@@ -34,6 +41,8 @@ class ChartPage extends StatefulWidget {
 
 class _ChartPageState extends State<ChartPage> {
   List<CounterModel> _counters = [];
+  List<MerchPurchaseModel> _merchPurchases = const [];
+  MerchStats _merchStats = MerchStats.empty;
   ChartRecordScope _recordScope = ChartRecordScope(
     counters: const [],
     records: const [],
@@ -68,6 +77,8 @@ class _ChartPageState extends State<ChartPage> {
         ? const <ActivityRecordMediaModel>[]
         : await DatabaseService.getActivityRecordMedia(recordIds: recordIds);
     final pricings = await DatabaseService.getGroupPricings();
+    final merchPurchases = await MerchService.getPurchases();
+    final merchStats = await _loadMerchStatsForRange();
 
     if (!mounted) {
       return;
@@ -82,6 +93,8 @@ class _ChartPageState extends State<ChartPage> {
       );
       _recordMedia = media;
       _pricings = pricings;
+      _merchPurchases = merchPurchases;
+      _merchStats = merchStats;
       _pricingsByGroupName = {
         for (final pricing in pricings) pricing.groupName.trim(): pricing,
       };
@@ -89,6 +102,53 @@ class _ChartPageState extends State<ChartPage> {
     });
 
     _openInitialComposerIfNeeded();
+  }
+
+  /// Merch spending for the visible period. Uses the service range query so
+  /// the page never re-implements date boundaries.
+  /// The merch purchases bought on [day], for the day summary card.
+  MerchStats _merchStatsForDay(DateTime day) {
+    final start = DateTime(day.year, day.month, day.day);
+    final end = start.add(const Duration(days: 1));
+    return MerchStats.fromPurchases(_merchPurchases.where((purchase) {
+      final at = DateTime(
+        purchase.occurredAt.year,
+        purchase.occurredAt.month,
+        purchase.occurredAt.day,
+      );
+      return !at.isBefore(start) && at.isBefore(end);
+    }));
+  }
+
+  Future<MerchStats> _loadMerchStatsForRange() async {
+    final range = _activeRange;
+    if (range == null) {
+      return MerchService.getStats();
+    }
+    return MerchService.getStatsForRange(
+      from: range.start,
+      to: range.end.subtract(const Duration(days: 1)),
+    );
+  }
+
+  /// Recomputes the merch sticker from the already-loaded ledger whenever the
+  /// period changes. Pure in-memory work: switching a period must never wait
+  /// on the database.
+  void _refreshPeriodMerchStats() {
+    final range = _activeRange;
+    final purchases = range == null
+        ? _merchPurchases
+        : _merchPurchases.where((purchase) {
+            final day = DateTime(
+              purchase.occurredAt.year,
+              purchase.occurredAt.month,
+              purchase.occurredAt.day,
+            );
+            return !day.isBefore(range.start) && day.isBefore(range.end);
+          });
+    setState(() {
+      _merchStats = MerchStats.fromPurchases(purchases);
+    });
   }
 
   void _openInitialComposerIfNeeded() {
@@ -178,8 +238,13 @@ class _ChartPageState extends State<ChartPage> {
       }
       if (record.isTicket) {
         summary.ticketCount += record.ticketQuantity;
-      } else if (!record.isMulti) {
-        summary.cutCount += record.counterCountTotal;
+      } else {
+        for (final color in _memberColorsForRecord(record)) {
+          summary.addMemberColor(color);
+        }
+        if (!record.isMulti) {
+          summary.cutCount += record.counterCountTotal;
+        }
       }
 
       if (record.id != null) {
@@ -210,6 +275,97 @@ class _ChartPageState extends State<ChartPage> {
     return {
       for (final entry in summaries.entries) entry.key: entry.value.build(),
     };
+  }
+
+  static const List<Color> _fallbackMemberPalette = [
+    Color(0xFFE85D7A),
+    Color(0xFF4E8DF5),
+    Color(0xFF0F9E8E),
+    Color(0xFFF2A93B),
+    Color(0xFF8A63E8),
+    Color(0xFFE85D9B),
+    Color(0xFF2DA9A0),
+    Color(0xFFC66A2C),
+  ];
+
+  Color _fallbackMemberColor(String key) {
+    var hash = 0;
+    for (final unit in key.codeUnits) {
+      hash = (hash * 31 + unit) & 0x7fffffff;
+    }
+    return _fallbackMemberPalette[hash % _fallbackMemberPalette.length];
+  }
+
+  Color _identityColor(ChartStatsIdentity identity) {
+    final counter = identity.counter;
+    if (counter != null) {
+      return counter.colorValue;
+    }
+    return _fallbackMemberColor(identity.memberKey);
+  }
+
+  Iterable<Color> _memberColorsForRecord(ActivityRecordModel record) sync* {
+    if (record.isTicket) {
+      return;
+    }
+    if (record.isMulti) {
+      final seen = <String>{};
+      var emitted = false;
+      for (final participant in _recordScope.participantsFor(record)) {
+        final identity = _recordScope.identityForParticipant(
+          participant,
+          fallbackGroupName: record.groupName,
+        );
+        if (!seen.add(identity.memberKey)) {
+          continue;
+        }
+        emitted = true;
+        yield _identityColor(identity);
+      }
+      if (!emitted) {
+        yield _fallbackMemberColor(record.groupName + record.subjectName);
+      }
+      return;
+    }
+    yield _identityColor(_recordScope.identityForRecord(record));
+  }
+
+  List<_DayMember> _membersOnDay(Iterable<ActivityRecordModel> records) {
+    final members = <String, _DayMember>{};
+    for (final record in records) {
+      if (record.isTicket) {
+        continue;
+      }
+      if (record.isMulti) {
+        for (final participant in _recordScope.participantsFor(record)) {
+          final identity = _recordScope.identityForParticipant(
+            participant,
+            fallbackGroupName: record.groupName,
+          );
+          members.putIfAbsent(
+            identity.memberKey,
+            () => _DayMember(
+              name: identity.memberLabel,
+              groupName: identity.groupName,
+              color: _identityColor(identity),
+            ),
+          );
+        }
+        continue;
+      }
+      final identity = _recordScope.identityForRecord(record);
+      members.putIfAbsent(
+        identity.memberKey,
+        () => _DayMember(
+          name: identity.memberLabel,
+          groupName: identity.groupName,
+          color: _identityColor(identity),
+        ),
+      );
+    }
+    final sorted = members.values.toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+    return sorted;
   }
 
   String _activitySummaryKey(ActivityRecordModel record) {
@@ -251,6 +407,7 @@ class _ChartPageState extends State<ChartPage> {
     setState(() {
       _anchor = date;
     });
+    _refreshPeriodMerchStats();
   }
 
   void _changeCalendarMonth(int offset) {
@@ -265,6 +422,7 @@ class _ChartPageState extends State<ChartPage> {
         current.day.clamp(1, lastDay),
       );
     });
+    _refreshPeriodMerchStats();
   }
 
   Future<void> _pickCalendarDate() async {
@@ -282,6 +440,7 @@ class _ChartPageState extends State<ChartPage> {
     setState(() {
       _anchor = selected;
     });
+    _refreshPeriodMerchStats();
   }
 
   String get _scopeTitle {
@@ -313,6 +472,7 @@ class _ChartPageState extends State<ChartPage> {
     setState(() {
       _anchor = _scope.shift(_anchor, offset);
     });
+    _refreshPeriodMerchStats();
   }
 
   bool get _canMoveForward {
@@ -354,6 +514,7 @@ class _ChartPageState extends State<ChartPage> {
               ? StatsScope.week.rangeFor(selected)!.start
               : selected;
         });
+        _refreshPeriodMerchStats();
         return;
       case StatsScope.month:
         final selected = await showDatePicker(
@@ -370,6 +531,7 @@ class _ChartPageState extends State<ChartPage> {
         setState(() {
           _anchor = DateTime(selected.year, selected.month, 1);
         });
+        _refreshPeriodMerchStats();
         return;
       case StatsScope.year:
         final selected = await showDatePicker(
@@ -386,6 +548,7 @@ class _ChartPageState extends State<ChartPage> {
         setState(() {
           _anchor = DateTime(selected.year, 1, 1);
         });
+        _refreshPeriodMerchStats();
         return;
       case StatsScope.all:
         return;
@@ -627,6 +790,15 @@ class _ChartPageState extends State<ChartPage> {
   }
 
   Future<void> _previewMedia(ActivityRecordMediaModel media) async {
+    if (media.isScan) {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (context) =>
+              AlbumViewerPage(photos: [AlbumPhoto.attachment(media)]),
+        ),
+      );
+      return;
+    }
     await showDialog<void>(
       context: context,
       builder: (context) => Dialog.fullscreen(
@@ -644,12 +816,8 @@ class _ChartPageState extends State<ChartPage> {
               left: 16,
               child: FilledButton.tonalIcon(
                 onPressed: null,
-                icon: Icon(
-                  media.isScan
-                      ? Icons.document_scanner_outlined
-                      : Icons.photo_library_outlined,
-                ),
-                label: Text(media.isScan ? '切图' : '纪念照'),
+                icon: const Icon(Icons.photo_library_outlined),
+                label: const Text('纪念照'),
               ),
             ),
             Positioned(
@@ -745,6 +913,8 @@ class _ChartPageState extends State<ChartPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final brightness = theme.brightness;
+    final scrapAccent = AppTheme.oshi(brightness);
     final calendarMonth = _calendarMonth;
     final calendarSummaries = _calendarMonthSummaries;
     final selectedCalendarDate = _selectedCalendarDate;
@@ -760,6 +930,7 @@ class _ChartPageState extends State<ChartPage> {
         }
         return (b.id ?? 0).compareTo(a.id ?? 0);
       });
+    final selectedDayMembers = _membersOnDay(selectedDayRecords);
     final selectedDayMediaByRecordId = <int, List<ActivityRecordMediaModel>>{};
     final selectedRecordIds =
         selectedDayRecords.map((record) => record.id).toSet();
@@ -851,6 +1022,9 @@ class _ChartPageState extends State<ChartPage> {
         ),
       );
       entry.groups.add(identity.groupName);
+      final counterColor = identity.counter?.colorValue;
+      entry.color ??= counterColor ?? _fallbackMemberColor(identity.memberKey);
+      entry.colorFromCounter = entry.colorFromCounter || counterColor != null;
       entry.count += record.counterCountTotal;
       entry.amount += _effectiveTotalAmount(record);
     }
@@ -872,6 +1046,10 @@ class _ChartPageState extends State<ChartPage> {
           ),
         );
         entry.groups.add(identity.groupName);
+        final counterColor = identity.counter?.colorValue;
+        entry.color ??=
+            counterColor ?? _fallbackMemberColor(identity.memberKey);
+        entry.colorFromCounter = entry.colorFromCounter || counterColor != null;
         entry.count += record.effectiveMultiQuantity;
         entry.amount += _effectiveMultiParticipantAmountShare(record);
       }
@@ -1040,7 +1218,9 @@ class _ChartPageState extends State<ChartPage> {
         _PieDatum(
           label: entry.chartLabel,
           value: entry.count.toDouble(),
-          color: piePalette[index % piePalette.length],
+          color: entry.colorFromCounter
+              ? AppTheme.readableAccent(entry.color!, brightness)
+              : (entry.color ?? _fallbackMemberColor(entry.name)),
         ),
       );
     }
@@ -1115,699 +1295,816 @@ class _ChartPageState extends State<ChartPage> {
         ],
       ),
       body: AppPageBackground(
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : RefreshIndicator(
-                onRefresh: _loadData,
-                child: ListView(
-                  padding: EdgeInsets.fromLTRB(
-                    16,
-                    MediaQuery.paddingOf(context).top + kToolbarHeight + 8,
-                    16,
-                    96,
-                  ),
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(18),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(26),
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            theme.colorScheme.primary.withAlpha(28),
-                            theme.colorScheme.secondary.withAlpha(18),
-                          ],
-                        ),
-                        border: Border.all(
-                          color: theme.colorScheme.primary.withAlpha(28),
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+        child: DreamPaperBackground(
+          accent: scrapAccent,
+          ruled: false,
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : RefreshIndicator(
+                  onRefresh: _loadData,
+                  child: ListView(
+                    padding: EdgeInsets.fromLTRB(
+                      16,
+                      MediaQuery.paddingOf(context).top + kToolbarHeight + 8,
+                      16,
+                      96,
+                    ),
+                    children: [
+                      Stack(
+                        clipBehavior: Clip.none,
                         children: [
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 4,
-                            children: StatsScope.values.map((scope) {
-                              return ChoiceChip(
-                                label: Text(scope.label),
-                                selected: _scope == scope,
-                                onSelected: (_) =>
-                                    setState(() => _scope = scope),
-                              );
-                            }).toList(),
-                          ),
-                          if (_scope == StatsScope.day) ...[
-                            const SizedBox(height: 12),
-                            Text(
-                              '单日直接在下方日历切换日期和月份',
-                              style: theme.textTheme.bodyMedium,
+                          Container(
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.surface,
+                              borderRadius: BorderRadius.circular(22),
+                              border: Border.all(
+                                color: scrapAccent.withValues(alpha: 0.22),
+                              ),
+                              boxShadow: DreamPalette.pageShadow(brightness),
                             ),
-                            const SizedBox(height: 16),
-                          ] else ...[
-                            const SizedBox(height: 16),
-                            Row(
-                              children: [
-                                IconButton.filledTonal(
-                                  onPressed: _scope == StatsScope.all
-                                      ? null
-                                      : () => _moveScope(-1),
-                                  icon: const Icon(Icons.chevron_left),
-                                ),
-                                Expanded(
-                                  child: Column(
-                                    children: [
-                                      Text(
-                                        _scope.label,
-                                        style: theme.textTheme.labelLarge,
-                                      ),
-                                      const SizedBox(height: 4),
-                                      InkWell(
-                                        onTap: _scope == StatsScope.all
-                                            ? null
-                                            : _pickScopeAnchor,
-                                        borderRadius: BorderRadius.circular(18),
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 12,
-                                            vertical: 10,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: theme.colorScheme.surface,
-                                            borderRadius:
-                                                BorderRadius.circular(18),
-                                            border: Border.all(
-                                              color: theme
-                                                  .colorScheme.outlineVariant,
-                                            ),
-                                          ),
-                                          child: Column(
-                                            children: [
-                                              if (_scope != StatsScope.all)
-                                                Padding(
-                                                  padding:
-                                                      const EdgeInsets.only(
-                                                    bottom: 4,
-                                                  ),
-                                                  child: Icon(
-                                                    Icons
-                                                        .calendar_month_outlined,
-                                                    size: 18,
-                                                    color: theme
-                                                        .colorScheme.primary,
-                                                  ),
-                                                ),
-                                              Text(
-                                                _scopeTitle,
-                                                textAlign: TextAlign.center,
-                                                style: theme
-                                                    .textTheme.headlineSmall
-                                                    ?.copyWith(
-                                                  fontWeight: FontWeight.w800,
-                                                ),
-                                              ),
-                                            ],
+                            child: DreamPaperBackground(
+                              accent: scrapAccent,
+                              ruled: false,
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        SparkleMark(
+                                          size: 16,
+                                          color: scrapAccent,
+                                          variant: SparkleVariant.star,
+                                        ),
+                                        const SizedBox(width: 7),
+                                        Text(
+                                          '手帐统计',
+                                          style: theme.textTheme.labelLarge
+                                              ?.copyWith(
+                                            fontWeight: FontWeight.w700,
+                                            color: theme.colorScheme.onSurface,
                                           ),
                                         ),
+                                        const Spacer(),
+                                        Text(
+                                          '${_filteredRecords.length} 条流水',
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                            color: theme
+                                                .colorScheme.onSurfaceVariant,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 10),
+                                    DreamSegmentedStrip<StatsScope>(
+                                      values: StatsScope.values,
+                                      selected: _scope,
+                                      accent: scrapAccent,
+                                      labelOf: (scope) => scope.label,
+                                      onSelected: (scope) {
+                                        setState(() => _scope = scope);
+                                        _refreshPeriodMerchStats();
+                                      },
+                                    ),
+                                    if (_scope == StatsScope.day) ...[
+                                      const SizedBox(height: 11),
+                                      Text(
+                                        '单日直接在下方日历切换日期和月份',
+                                        style: theme.textTheme.bodyMedium
+                                            ?.copyWith(
+                                          color: theme
+                                              .colorScheme.onSurfaceVariant,
+                                        ),
                                       ),
+                                      const SizedBox(height: 14),
+                                    ] else ...[
+                                      const SizedBox(height: 14),
+                                      Row(
+                                        children: [
+                                          IconButton.filledTonal(
+                                            onPressed: _scope == StatsScope.all
+                                                ? null
+                                                : () => _moveScope(-1),
+                                            icon:
+                                                const Icon(Icons.chevron_left),
+                                            style: IconButton.styleFrom(
+                                              backgroundColor: theme.colorScheme
+                                                  .surfaceContainerLow,
+                                              foregroundColor:
+                                                  theme.colorScheme.onSurface,
+                                            ),
+                                          ),
+                                          Expanded(
+                                            child: Column(
+                                              children: [
+                                                Text(
+                                                  _scope.label,
+                                                  style: theme
+                                                      .textTheme.labelLarge
+                                                      ?.copyWith(
+                                                    color: theme.colorScheme
+                                                        .onSurfaceVariant,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 4),
+                                                InkWell(
+                                                  onTap:
+                                                      _scope == StatsScope.all
+                                                          ? null
+                                                          : _pickScopeAnchor,
+                                                  borderRadius:
+                                                      BorderRadius.circular(18),
+                                                  child: TicketNotchEdge(
+                                                    color: theme
+                                                        .colorScheme.surface,
+                                                    borderColor:
+                                                        scrapAccent.withValues(
+                                                            alpha: 0.35),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                      16,
+                                                    ),
+                                                    notchRadius: 6,
+                                                    child: Padding(
+                                                      padding: const EdgeInsets
+                                                          .symmetric(
+                                                        horizontal: 16,
+                                                        vertical: 9,
+                                                      ),
+                                                      child: Column(
+                                                        children: [
+                                                          if (_scope !=
+                                                              StatsScope.all)
+                                                            Padding(
+                                                              padding:
+                                                                  const EdgeInsets
+                                                                      .only(
+                                                                bottom: 3,
+                                                              ),
+                                                              child: Icon(
+                                                                Icons
+                                                                    .calendar_month_outlined,
+                                                                size: 17,
+                                                                color:
+                                                                    scrapAccent,
+                                                              ),
+                                                            ),
+                                                          Text(
+                                                            _scopeTitle,
+                                                            textAlign: TextAlign
+                                                                .center,
+                                                            style: theme
+                                                                .textTheme
+                                                                .headlineSmall
+                                                                ?.copyWith(
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w800,
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          IconButton.filledTonal(
+                                            onPressed: _canMoveForward
+                                                ? () => _moveScope(1)
+                                                : null,
+                                            icon:
+                                                const Icon(Icons.chevron_right),
+                                            style: IconButton.styleFrom(
+                                              backgroundColor: theme.colorScheme
+                                                  .surfaceContainerLow,
+                                              foregroundColor:
+                                                  theme.colorScheme.onSurface,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 14),
                                     ],
-                                  ),
+                                    SegmentedButton<MemberStatsMode>(
+                                      segments: const [
+                                        ButtonSegment<MemberStatsMode>(
+                                          value: MemberStatsMode.group,
+                                          label: Text('按团籍'),
+                                          icon: Icon(Icons.groups_2_outlined),
+                                        ),
+                                        ButtonSegment<MemberStatsMode>(
+                                          value: MemberStatsMode.person,
+                                          label: Text('按真人'),
+                                          icon: Icon(
+                                              Icons.person_search_outlined),
+                                        ),
+                                      ],
+                                      selected: {_memberStatsMode},
+                                      style: SegmentedButton.styleFrom(
+                                        backgroundColor: theme
+                                            .colorScheme.surfaceContainerLow,
+                                        selectedBackgroundColor:
+                                            Color.alphaBlend(
+                                          scrapAccent.withValues(alpha: 0.14),
+                                          theme.colorScheme.surface,
+                                        ),
+                                        selectedForegroundColor:
+                                            theme.colorScheme.onSurface,
+                                        foregroundColor:
+                                            theme.colorScheme.onSurfaceVariant,
+                                        side: BorderSide(
+                                          color:
+                                              theme.colorScheme.outlineVariant,
+                                        ),
+                                      ),
+                                      onSelectionChanged: (selection) {
+                                        setState(() {
+                                          _memberStatsMode = selection.first;
+                                        });
+                                      },
+                                    ),
+                                  ],
                                 ),
-                                IconButton.filledTonal(
-                                  onPressed: _canMoveForward
-                                      ? () => _moveScope(1)
-                                      : null,
-                                  icon: const Icon(Icons.chevron_right),
-                                ),
-                              ],
+                              ),
                             ),
-                            const SizedBox(height: 16),
-                          ],
-                          SegmentedButton<MemberStatsMode>(
-                            segments: const [
-                              ButtonSegment<MemberStatsMode>(
-                                value: MemberStatsMode.group,
-                                label: Text('按团籍'),
-                                icon: Icon(Icons.groups_2_outlined),
-                              ),
-                              ButtonSegment<MemberStatsMode>(
-                                value: MemberStatsMode.person,
-                                label: Text('按真人'),
-                                icon: Icon(Icons.person_search_outlined),
-                              ),
-                            ],
-                            selected: {_memberStatsMode},
-                            onSelectionChanged: (selection) {
-                              setState(() {
-                                _memberStatsMode = selection.first;
-                              });
-                            },
+                          ),
+                          Positioned(
+                            top: -8,
+                            left: 28,
+                            child: WashiTape(
+                              color: DreamPalette.tape(scrapAccent, brightness),
+                              width: 60,
+                              height: 19,
+                              label: '这一页',
+                              angle: -0.08,
+                            ),
                           ),
                         ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    if (_showCalendar) ...[
-                      _CalendarOverviewCard(
-                        month: calendarMonth,
-                        selectedDate: selectedCalendarDate,
-                        scope: _scope,
-                        activeRange: _activeRange,
-                        summaries: calendarSummaries,
-                        onDateSelected: _handleCalendarDaySelected,
-                        onPreviousMonth: () => _changeCalendarMonth(-1),
-                        onNextMonth: () => _changeCalendarMonth(1),
-                        onHeaderTap: _pickCalendarDate,
-                      ),
-                      const SizedBox(height: 12),
-                      _CalendarDayDetailCard(
-                        date: selectedCalendarDate,
-                        summary: selectedCalendarSummary,
-                        dateFormatter: _formatDate,
-                        records: selectedDayRecords,
-                        mediaByRecordId: selectedDayMediaByRecordId,
-                        recordSubtitleBuilder: _recordSubtitle,
-                        recordAmountBuilder: _effectiveTotalAmount,
-                        amountFormatter: _formatAmount,
-                        onPreviewMedia: _previewMedia,
                       ),
                       const SizedBox(height: 16),
-                    ],
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Wrap(
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        spacing: 8,
-                        children: [
-                          Text(
-                            _recordScope.showHiddenCounters
-                                ? '流水 · 包含已隐藏成员'
-                                : '流水 · 跟随首页隐藏设置',
-                            style: theme.textTheme.bodyMedium,
-                          ),
-                          TextButton.icon(
-                            onPressed: () => showDialog<void>(
-                              context: context,
-                              builder: (context) => AlertDialog(
-                                title: const Text('统计口径'),
-                                content: const SingleChildScrollView(
-                                  child: Text(
-                                    '活动日：06:00 前的记录归前一天，仅日期的记录保留当天。\n\n'
-                                    '隐藏与未知：跟随首页隐藏设置；未知成员和无人团切保留，全为已知隐藏成员的多人流水会被过滤。\n\n'
-                                    '多人切：按实体张数计入合计，成员及团体贡献可能重复计入；金额按筛选前去重人数分摊，隐藏份额不转给其他人。保留的事件计入整笔金额。\n\n'
-                                    '首页计数与历史流水来源不同：旧计数可能无流水，历史未匹配流水仍保留。',
-                                  ),
-                                ),
-                                actions: [
-                                  TextButton(
-                                      onPressed: () => Navigator.pop(context),
-                                      child: const Text('关闭'))
-                                ],
-                              ),
-                            ),
-                            icon: const Icon(Icons.info_outline),
-                            label: const Text('统计口径'),
-                          ),
-                        ],
-                      ),
-                    ),
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final columns = constraints.maxWidth > 720
-                            ? 4
-                            : MediaQuery.textScalerOf(context).scale(1) > 1.3
-                                ? 1
-                                : 2;
-                        final spacing = 12.0;
-                        final itemWidth =
-                            (constraints.maxWidth - (spacing * (columns - 1))) /
-                                columns;
-
-                        return Wrap(
-                          spacing: spacing,
-                          runSpacing: spacing,
+                      if (_showCalendar) ...[
+                        _CalendarOverviewCard(
+                          month: calendarMonth,
+                          selectedDate: selectedCalendarDate,
+                          scope: _scope,
+                          activeRange: _activeRange,
+                          summaries: calendarSummaries,
+                          onDateSelected: _handleCalendarDaySelected,
+                          onPreviousMonth: () => _changeCalendarMonth(-1),
+                          onNextMonth: () => _changeCalendarMonth(1),
+                          onHeaderTap: _pickCalendarDate,
+                        ),
+                        const SizedBox(height: 12),
+                        _CalendarDayDetailCard(
+                          date: selectedCalendarDate,
+                          summary: selectedCalendarSummary,
+                          dateFormatter: _formatDate,
+                          records: selectedDayRecords,
+                          members: selectedDayMembers,
+                          mediaByRecordId: selectedDayMediaByRecordId,
+                          recordSubtitleBuilder: _recordSubtitle,
+                          recordAmountBuilder: _effectiveTotalAmount,
+                          amountFormatter: _formatAmount,
+                          onPreviewMedia: _previewMedia,
+                          merchStats: _merchStatsForDay(selectedCalendarDate),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 8,
                           children: [
-                            SizedBox(
-                              width: itemWidth,
-                              child: _SummaryCard(
-                                label: '记录数',
-                                value: '$recordCount',
-                                hint: '本周期共 $recordCount 条',
-                                icon: Icons.receipt_long_outlined,
-                              ),
+                            Text(
+                              _recordScope.showHiddenCounters
+                                  ? '流水 · 包含已隐藏成员'
+                                  : '流水 · 跟随首页隐藏设置',
+                              style: theme.textTheme.bodyMedium,
                             ),
-                            SizedBox(
-                              width: itemWidth,
-                              child: _SummaryCard(
-                                label: '拍切总数',
-                                value: '$counterCountTotal',
-                                hint: '拍切记录规格求和，含团切，不含多人切',
-                                icon: Icons.photo_library_outlined,
+                            TextButton.icon(
+                              onPressed: () => showDialog<void>(
+                                context: context,
+                                builder: (context) => AlertDialog(
+                                  title: const Text('统计口径'),
+                                  content: const SingleChildScrollView(
+                                    child: Text(
+                                      '活动日：06:00 前的记录归前一天，仅日期的记录保留当天。\n\n'
+                                      '隐藏与未知：跟随首页隐藏设置；未知成员和无人团切保留，全为已知隐藏成员的多人流水会被过滤。\n\n'
+                                      '多人切：按实体张数计入合计，成员及团体贡献可能重复计入；金额按筛选前去重人数分摊，隐藏份额不转给其他人。保留的事件计入整笔金额。\n\n'
+                                      '首页计数与历史流水来源不同：旧计数可能无流水，历史未匹配流水仍保留。',
+                                    ),
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                        onPressed: () => Navigator.pop(context),
+                                        child: const Text('关闭'))
+                                  ],
+                                ),
                               ),
-                            ),
-                            SizedBox(
-                              width: itemWidth,
-                              child: _SummaryCard(
-                                label: '多人切总数',
-                                value: '$multiCountTotal',
-                                hint: '按实体张数统计',
-                                icon: Icons.people_alt_outlined,
-                              ),
-                            ),
-                            SizedBox(
-                              width: itemWidth,
-                              child: _SummaryCard(
-                                label: '切奇合计',
-                                value: '${counterCountTotal + multiCountTotal}',
-                                hint: '拍切记录 + 多人切实体张数',
-                                icon: Icons.collections_outlined,
-                              ),
-                            ),
-                            SizedBox(
-                              width: itemWidth,
-                              child: _SummaryCard(
-                                label: '门票总数',
-                                value: '$ticketCountTotal',
-                                hint: '门票记录数量求和',
-                                icon: Icons.confirmation_num_outlined,
-                              ),
-                            ),
-                            SizedBox(
-                              width: itemWidth,
-                              child: _SummaryCard(
-                                label: '门票金额',
-                                value: '¥${_formatAmount(ticketStats.amount)}',
-                                hint:
-                                    '免费 ${ticketStats.freeTicketCount} / 付费 ${ticketStats.paidTicketCount}',
-                                icon: Icons.local_activity_outlined,
-                              ),
-                            ),
-                            SizedBox(
-                              width: itemWidth,
-                              child: _SummaryCard(
-                                label: '总金额',
-                                value: '¥${_formatAmount(totalAmount)}',
-                                hint: '按记录定价方式统计，含当前团价',
-                                icon: Icons.payments_outlined,
-                              ),
+                              icon: const Icon(Icons.info_outline),
+                              label: const Text('统计口径'),
                             ),
                           ],
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    if (memberPieData.isNotEmpty ||
-                        groupPieData.isNotEmpty ||
-                        memberHasNegative ||
-                        groupHasNegative)
+                        ),
+                      ),
                       LayoutBuilder(
                         builder: (context, constraints) {
-                          final wide = constraints.maxWidth > 760;
-                          final chartWidth = wide
-                              ? (constraints.maxWidth - 12) / 2
-                              : constraints.maxWidth;
+                          final columns = constraints.maxWidth > 720
+                              ? 4
+                              : MediaQuery.textScalerOf(context).scale(1) > 1.3
+                                  ? 1
+                                  : 2;
+                          final spacing = 12.0;
+                          final itemWidth = (constraints.maxWidth -
+                                  (spacing * (columns - 1))) /
+                              columns;
 
                           return Wrap(
-                            spacing: 12,
-                            runSpacing: 12,
+                            spacing: spacing,
+                            runSpacing: spacing,
                             children: [
                               SizedBox(
-                                width: chartWidth,
-                                child: _PieBreakdownCard(
-                                  title:
-                                      _memberStatsMode == MemberStatsMode.group
-                                          ? '成员占比'
-                                          : '真人占比',
-                                  emptyMessage:
-                                      _memberStatsMode == MemberStatsMode.group
-                                          ? '当前周期内还没有成员记录。'
-                                          : '当前周期内还没有真人维度数据。',
-                                  centerLabel: '贡献合计',
-                                  hasNegative: memberHasNegative,
-                                  explanation:
-                                      '按参与成员计入，多人切可重复计入；份额以成员贡献合计为分母，与实体张数不同。',
-                                  data: memberPieData,
+                                width: itemWidth,
+                                child: _SummaryCard(
+                                  label: '记录数',
+                                  value: '$recordCount',
+                                  hint: '本周期共 $recordCount 条',
+                                  icon: Icons.receipt_long_outlined,
                                 ),
                               ),
                               SizedBox(
-                                width: chartWidth,
-                                child: _PieBreakdownCard(
-                                  title: '各团参与占比（跨团可重复计入）',
-                                  emptyMessage: '当前周期内还没有团体数据。',
-                                  centerLabel: '贡献合计',
-                                  hasNegative: groupHasNegative,
-                                  explanation:
-                                      '跨团参与可重复计入；份额以团体贡献合计为分母，与实体张数不同。',
-                                  data: groupPieData,
+                                width: itemWidth,
+                                child: _SummaryCard(
+                                  label: '拍切总数',
+                                  value: '$counterCountTotal',
+                                  hint: '拍切记录规格求和，含团切，不含多人切',
+                                  icon: Icons.photo_library_outlined,
+                                ),
+                              ),
+                              SizedBox(
+                                width: itemWidth,
+                                child: _SummaryCard(
+                                  label: '多人切总数',
+                                  value: '$multiCountTotal',
+                                  hint: '按实体张数统计',
+                                  icon: Icons.people_alt_outlined,
+                                ),
+                              ),
+                              SizedBox(
+                                width: itemWidth,
+                                child: _SummaryCard(
+                                  label: '切奇合计',
+                                  value:
+                                      '${counterCountTotal + multiCountTotal}',
+                                  hint: '拍切记录 + 多人切实体张数',
+                                  icon: Icons.collections_outlined,
+                                ),
+                              ),
+                              SizedBox(
+                                width: itemWidth,
+                                child: _SummaryCard(
+                                  label: '门票总数',
+                                  value: '$ticketCountTotal',
+                                  hint: '门票记录数量求和',
+                                  icon: Icons.confirmation_num_outlined,
+                                ),
+                              ),
+                              SizedBox(
+                                width: itemWidth,
+                                child: _SummaryCard(
+                                  label: '门票金额',
+                                  value:
+                                      '¥${_formatAmount(ticketStats.amount)}',
+                                  hint:
+                                      '免费 ${ticketStats.freeTicketCount} / 付费 ${ticketStats.paidTicketCount}',
+                                  icon: Icons.local_activity_outlined,
+                                ),
+                              ),
+                              SizedBox(
+                                width: itemWidth,
+                                child: _SummaryCard(
+                                  label: '总金额',
+                                  value: '¥${_formatAmount(totalAmount)}',
+                                  hint: '按记录定价方式统计，含当前团价',
+                                  icon: Icons.payments_outlined,
                                 ),
                               ),
                             ],
                           );
                         },
                       ),
-                    if (memberPieData.isNotEmpty ||
-                        groupPieData.isNotEmpty ||
-                        memberHasNegative ||
-                        groupHasNegative)
                       const SizedBox(height: 16),
-                    _SectionCard(
-                      title: '规格汇总',
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Wrap(
-                            spacing: 10,
-                            runSpacing: 10,
-                            children: CounterCountField.values.map((field) {
-                              return _MetricChip(
-                                label: field.label,
-                                value: '${typeTotals[field] ?? 0}',
-                              );
-                            }).toList(),
-                          ),
-                          if (customTypeTotals.isNotEmpty) ...[
-                            const SizedBox(height: 12),
-                            Text(
-                              '自定义类型',
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
+                      if (memberPieData.isNotEmpty ||
+                          groupPieData.isNotEmpty ||
+                          memberHasNegative ||
+                          groupHasNegative)
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final wide = constraints.maxWidth > 760;
+                            final chartWidth = wide
+                                ? (constraints.maxWidth - 12) / 2
+                                : constraints.maxWidth;
+
+                            return Wrap(
+                              spacing: 12,
+                              runSpacing: 12,
+                              children: [
+                                SizedBox(
+                                  width: chartWidth,
+                                  child: _PieBreakdownCard(
+                                    title: _memberStatsMode ==
+                                            MemberStatsMode.group
+                                        ? '成员占比'
+                                        : '真人占比',
+                                    emptyMessage: _memberStatsMode ==
+                                            MemberStatsMode.group
+                                        ? '当前周期内还没有成员记录。'
+                                        : '当前周期内还没有真人维度数据。',
+                                    centerLabel: '贡献合计',
+                                    hasNegative: memberHasNegative,
+                                    explanation:
+                                        '按参与成员计入，多人切可重复计入；份额以成员贡献合计为分母，与实体张数不同。',
+                                    data: memberPieData,
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: chartWidth,
+                                  child: _PieBreakdownCard(
+                                    title: '各团参与占比（跨团可重复计入）',
+                                    emptyMessage: '当前周期内还没有团体数据。',
+                                    centerLabel: '贡献合计',
+                                    hasNegative: groupHasNegative,
+                                    explanation:
+                                        '跨团参与可重复计入；份额以团体贡献合计为分母，与实体张数不同。',
+                                    data: groupPieData,
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      if (memberPieData.isNotEmpty ||
+                          groupPieData.isNotEmpty ||
+                          memberHasNegative ||
+                          groupHasNegative)
+                        const SizedBox(height: 16),
+                      _SectionCard(
+                        title: '规格汇总',
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
                             Wrap(
                               spacing: 10,
                               runSpacing: 10,
-                              children: customTypeTotals.entries.map((entry) {
+                              children: CounterCountField.values.map((field) {
                                 return _MetricChip(
-                                  label: entry.key,
-                                  value: '${entry.value}',
+                                  label: field.label,
+                                  value: '${typeTotals[field] ?? 0}',
                                 );
                               }).toList(),
                             ),
+                            if (customTypeTotals.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              Text(
+                                '自定义类型',
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 10,
+                                runSpacing: 10,
+                                children: customTypeTotals.entries.map((entry) {
+                                  return _MetricChip(
+                                    label: entry.key,
+                                    value: '${entry.value}',
+                                  );
+                                }).toList(),
+                              ),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    _SectionCard(
-                      title: '团体统计',
-                      child: sortedGroupSummaries.isEmpty
-                          ? const Text('当前周期内还没有成员记录。')
-                          : Column(
-                              children: sortedGroupSummaries.map((summary) {
-                                return Padding(
-                                  padding: const EdgeInsets.only(bottom: 12),
-                                  child: Container(
-                                    width: double.infinity,
-                                    padding: const EdgeInsets.all(14),
-                                    decoration: BoxDecoration(
-                                      color: theme
-                                          .colorScheme.surfaceContainerHighest,
-                                      borderRadius: BorderRadius.circular(16),
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              child: Text(
-                                                summary.groupName,
+                      const SizedBox(height: 16),
+                      _SectionCard(
+                        title: '团体统计',
+                        child: sortedGroupSummaries.isEmpty
+                            ? const Text('当前周期内还没有成员记录。')
+                            : Column(
+                                children: sortedGroupSummaries.map((summary) {
+                                  return Padding(
+                                    padding: const EdgeInsets.only(bottom: 12),
+                                    child: Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.all(14),
+                                      decoration: BoxDecoration(
+                                        color: theme
+                                            .colorScheme.surfaceContainerLowest,
+                                        borderRadius: BorderRadius.circular(16),
+                                        border: Border.all(
+                                          color:
+                                              theme.colorScheme.outlineVariant,
+                                        ),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: Text(
+                                                  summary.groupName,
+                                                  style: theme
+                                                      .textTheme.titleMedium
+                                                      ?.copyWith(
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                              ),
+                                              Text(
+                                                '¥${_formatAmount(summary.amount)}',
                                                 style: theme
                                                     .textTheme.titleMedium
                                                     ?.copyWith(
                                                   fontWeight: FontWeight.bold,
                                                 ),
                                               ),
-                                            ),
-                                            Text(
-                                              '¥${_formatAmount(summary.amount)}',
-                                              style: theme.textTheme.titleMedium
-                                                  ?.copyWith(
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Text('贡献 ${summary.totalCount}'),
-                                        const SizedBox(height: 8),
-                                        Wrap(
-                                          spacing: 8,
-                                          runSpacing: 8,
-                                          children: CounterCountField.values
-                                              .map((field) {
-                                            return _MetricChip(
-                                              label: field.shortLabel,
-                                              value:
-                                                  '${summary.counts[field] ?? 0}',
-                                            );
-                                          }).toList()
-                                            ..add(
-                                              _MetricChip(
-                                                label: '多人切',
-                                                value: '${summary.multiCount}',
-                                              ),
-                                            )
-                                            ..addAll(
-                                              summary.customCounts.entries.map(
-                                                (entry) => _MetricChip(
-                                                  label: entry.key,
-                                                  value: '${entry.value}',
+                                            ],
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Text('贡献 ${summary.totalCount}'),
+                                          const SizedBox(height: 8),
+                                          Wrap(
+                                            spacing: 8,
+                                            runSpacing: 8,
+                                            children: CounterCountField.values
+                                                .map((field) {
+                                              return _MetricChip(
+                                                label: field.shortLabel,
+                                                value:
+                                                    '${summary.counts[field] ?? 0}',
+                                              );
+                                            }).toList()
+                                              ..add(
+                                                _MetricChip(
+                                                  label: '多人切',
+                                                  value:
+                                                      '${summary.multiCount}',
+                                                ),
+                                              )
+                                              ..addAll(
+                                                summary.customCounts.entries
+                                                    .map(
+                                                  (entry) => _MetricChip(
+                                                    label: entry.key,
+                                                    value: '${entry.value}',
+                                                  ),
                                                 ),
                                               ),
-                                            ),
-                                        ),
-                                      ],
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                );
-                              }).toList(),
+                                  );
+                                }).toList(),
+                              ),
+                      ),
+                      const SizedBox(height: 16),
+                      _SectionCard(
+                        title: '多人切',
+                        child: sortedMultiSummaries.isEmpty
+                            ? const Text('当前周期内还没有多人切记录。')
+                            : Column(
+                                children: sortedMultiSummaries.map((summary) {
+                                  return ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    leading:
+                                        const Icon(Icons.people_alt_outlined),
+                                    title: Text(summary.title),
+                                    subtitle: Text(
+                                      [
+                                        summary.date,
+                                        if (summary.groupLabel.isNotEmpty)
+                                          summary.groupLabel,
+                                        if (summary.specLabel.isNotEmpty)
+                                          summary.specLabel,
+                                        if (summary.participantCount > 0)
+                                          '${summary.participantCount} 人',
+                                        if (summary.notes.isNotEmpty)
+                                          summary.notes.last,
+                                      ].join(' · '),
+                                    ),
+                                    trailing: Text(
+                                      '${summary.quantity} 次\n¥${_formatAmount(summary.amount)}',
+                                      textAlign: TextAlign.right,
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                      ),
+                      const SizedBox(height: 16),
+                      _SectionCard(
+                        title: '门票场次',
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _TicketBreakdownHeader(
+                              stats: ticketStats,
+                              merch: _merchStats,
                             ),
-                    ),
-                    const SizedBox(height: 16),
-                    _SectionCard(
-                      title: '多人切',
-                      child: sortedMultiSummaries.isEmpty
-                          ? const Text('当前周期内还没有多人切记录。')
-                          : Column(
-                              children: sortedMultiSummaries.map((summary) {
+                            const SizedBox(height: 10),
+                            if (sortedTicketSummaries.isEmpty)
+                              const Text('当前周期内还没有门票记录。')
+                            else
+                              ...sortedTicketSummaries.map((summary) {
                                 return ListTile(
                                   contentPadding: EdgeInsets.zero,
-                                  leading:
-                                      const Icon(Icons.people_alt_outlined),
-                                  title: Text(summary.title),
+                                  leading: Icon(
+                                    summary.freeQuantity > 0 &&
+                                            summary.paidQuantity == 0
+                                        ? Icons.card_giftcard_outlined
+                                        : Icons.confirmation_num_outlined,
+                                  ),
+                                  title: Text(summary.eventName),
                                   subtitle: Text(
                                     [
                                       summary.date,
-                                      if (summary.groupLabel.isNotEmpty)
-                                        summary.groupLabel,
-                                      if (summary.specLabel.isNotEmpty)
-                                        summary.specLabel,
-                                      if (summary.participantCount > 0)
-                                        '${summary.participantCount} 人',
-                                      if (summary.notes.isNotEmpty)
+                                      if (summary.venueName.isNotEmpty)
+                                        summary.venueName,
+                                      if (summary.sessionLabel.isNotEmpty)
+                                        summary.sessionLabel,
+                                      if (summary.types.isNotEmpty)
+                                        summary.types.join(' / '),
+                                      if (summary.freeQuantity > 0 &&
+                                          summary.paidQuantity > 0)
+                                        '免费 ${summary.freeQuantity} · 付费 ${summary.paidQuantity}',
+                                      if (summary.notes.isNotEmpty &&
+                                          !summary.types.contains(
+                                            summary.notes.last,
+                                          ))
                                         summary.notes.last,
                                     ].join(' · '),
                                   ),
                                   trailing: Text(
-                                    '${summary.quantity} 次\n¥${_formatAmount(summary.amount)}',
+                                    '${summary.quantity} 张\n¥${_formatAmount(summary.amount)}',
                                     textAlign: TextAlign.right,
                                   ),
                                 );
-                              }).toList(),
-                            ),
-                    ),
-                    const SizedBox(height: 16),
-                    _SectionCard(
-                      title: '门票场次',
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _TicketBreakdownHeader(stats: ticketStats),
-                          const SizedBox(height: 10),
-                          if (sortedTicketSummaries.isEmpty)
-                            const Text('当前周期内还没有门票记录。')
-                          else
-                            ...sortedTicketSummaries.map((summary) {
-                              return ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                leading: Icon(
-                                  summary.freeQuantity > 0 &&
-                                          summary.paidQuantity == 0
-                                      ? Icons.card_giftcard_outlined
-                                      : Icons.confirmation_num_outlined,
-                                ),
-                                title: Text(summary.eventName),
-                                subtitle: Text(
-                                  [
-                                    summary.date,
-                                    if (summary.venueName.isNotEmpty)
-                                      summary.venueName,
-                                    if (summary.sessionLabel.isNotEmpty)
-                                      summary.sessionLabel,
-                                    if (summary.types.isNotEmpty)
-                                      summary.types.join(' / '),
-                                    if (summary.freeQuantity > 0 &&
-                                        summary.paidQuantity > 0)
-                                      '免费 ${summary.freeQuantity} · 付费 ${summary.paidQuantity}',
-                                    if (summary.notes.isNotEmpty &&
-                                        !summary.types.contains(
-                                          summary.notes.last,
-                                        ))
-                                      summary.notes.last,
-                                  ].join(' · '),
-                                ),
-                                trailing: Text(
-                                  '${summary.quantity} 张\n¥${_formatAmount(summary.amount)}',
-                                  textAlign: TextAlign.right,
-                                ),
-                              );
-                            }),
-                        ],
+                              }),
+                          ],
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    _SectionCard(
-                      title: _memberStatsMode == MemberStatsMode.group
-                          ? '成员贡献'
-                          : '真人贡献',
-                      child: memberEntries.isEmpty
-                          ? Text(
-                              _memberStatsMode == MemberStatsMode.group
-                                  ? '当前周期内还没有成员记录。'
-                                  : '当前周期内还没有真人维度数据。',
-                            )
-                          : Column(
-                              children: [
-                                if (memberHasNegative)
-                                  const Padding(
-                                    padding: EdgeInsets.only(bottom: 12),
-                                    child: Text('本周期含负数修正，暂不显示占比'),
-                                  ),
-                                ...(memberHasNegative
-                                        ? memberEntries
-                                        : memberEntries.take(20))
-                                    .map((entry) {
-                                  final percent = memberContributionTotal == 0
-                                      ? 0.0
-                                      : entry.count / memberContributionTotal;
-                                  return Padding(
-                                    padding: const EdgeInsets.only(bottom: 12),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                    entry.name,
-                                                    style: theme
-                                                        .textTheme.titleMedium
-                                                        ?.copyWith(
-                                                      fontWeight:
-                                                          FontWeight.w700,
-                                                    ),
-                                                  ),
-                                                  if (entry
-                                                      .groupLabel.isNotEmpty)
+                      const SizedBox(height: 16),
+                      _SectionCard(
+                        title: _memberStatsMode == MemberStatsMode.group
+                            ? '成员贡献'
+                            : '真人贡献',
+                        child: memberEntries.isEmpty
+                            ? Text(
+                                _memberStatsMode == MemberStatsMode.group
+                                    ? '当前周期内还没有成员记录。'
+                                    : '当前周期内还没有真人维度数据。',
+                              )
+                            : Column(
+                                children: [
+                                  if (memberHasNegative)
+                                    const Padding(
+                                      padding: EdgeInsets.only(bottom: 12),
+                                      child: Text('本周期含负数修正，暂不显示占比'),
+                                    ),
+                                  ...(memberHasNegative
+                                          ? memberEntries
+                                          : memberEntries.take(20))
+                                      .map((entry) {
+                                    final percent = memberContributionTotal == 0
+                                        ? 0.0
+                                        : entry.count / memberContributionTotal;
+                                    return Padding(
+                                      padding:
+                                          const EdgeInsets.only(bottom: 12),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
                                                     Text(
-                                                      entry.groupLabel,
+                                                      entry.name,
                                                       style: theme
-                                                          .textTheme.bodySmall,
+                                                          .textTheme.titleMedium
+                                                          ?.copyWith(
+                                                        fontWeight:
+                                                            FontWeight.w700,
+                                                      ),
                                                     ),
-                                                ],
+                                                    if (entry
+                                                        .groupLabel.isNotEmpty)
+                                                      Text(
+                                                        entry.groupLabel,
+                                                        style: theme.textTheme
+                                                            .bodySmall,
+                                                      ),
+                                                  ],
+                                                ),
                                               ),
-                                            ),
-                                            Text(
-                                              '${entry.count}',
-                                              style: theme.textTheme.titleMedium
-                                                  ?.copyWith(
-                                                fontWeight: FontWeight.w800,
+                                              Text(
+                                                '${entry.count}',
+                                                style: theme
+                                                    .textTheme.titleMedium
+                                                    ?.copyWith(
+                                                  fontWeight: FontWeight.w800,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          if (!memberHasNegative) ...[
+                                            const SizedBox(height: 6),
+                                            ClipRRect(
+                                              borderRadius:
+                                                  BorderRadius.circular(999),
+                                              child: LinearProgressIndicator(
+                                                value: percent.clamp(0.0, 1.0),
+                                                minHeight: 8,
+                                                backgroundColor: theme
+                                                    .colorScheme
+                                                    .surfaceContainerHighest,
                                               ),
                                             ),
                                           ],
-                                        ),
-                                        if (!memberHasNegative) ...[
-                                          const SizedBox(height: 6),
-                                          ClipRRect(
-                                            borderRadius:
-                                                BorderRadius.circular(999),
-                                            child: LinearProgressIndicator(
-                                              value: percent.clamp(0.0, 1.0),
-                                              minHeight: 8,
-                                              backgroundColor: theme.colorScheme
-                                                  .surfaceContainerHighest,
-                                            ),
-                                          ),
                                         ],
+                                      ),
+                                    );
+                                  }),
+                                ],
+                              ),
+                      ),
+                      const SizedBox(height: 16),
+                      _SectionCard(
+                        title: '流水明细',
+                        child: filteredRecords.isEmpty
+                            ? const Text('当前周期内还没有记录。')
+                            : Column(
+                                children:
+                                    filteredRecords.take(50).map((record) {
+                                  final trailingAmount =
+                                      '¥${_formatAmount(_effectiveTotalAmount(record))}';
+                                  final subtitle = _recordSubtitle(record);
+
+                                  return ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    leading: Icon(_recordIcon(record)),
+                                    title: Text(_recordTitle(record)),
+                                    subtitle: Text(subtitle),
+                                    trailing: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(trailingAmount),
+                                        if (_canMutateRecord(record))
+                                          PopupMenuButton<_RecordAction>(
+                                            tooltip: '记录操作',
+                                            onSelected: (action) async {
+                                              switch (action) {
+                                                case _RecordAction.edit:
+                                                  await _editRecord(record);
+                                                  break;
+                                                case _RecordAction.delete:
+                                                  await _deleteRecord(record);
+                                                  break;
+                                              }
+                                            },
+                                            itemBuilder: (context) => const [
+                                              PopupMenuItem(
+                                                value: _RecordAction.edit,
+                                                child: Text('编辑'),
+                                              ),
+                                              PopupMenuItem(
+                                                value: _RecordAction.delete,
+                                                child: Text('删除'),
+                                              ),
+                                            ],
+                                          ),
                                       ],
                                     ),
                                   );
-                                }),
-                              ],
-                            ),
-                    ),
-                    const SizedBox(height: 16),
-                    _SectionCard(
-                      title: '流水明细',
-                      child: filteredRecords.isEmpty
-                          ? const Text('当前周期内还没有记录。')
-                          : Column(
-                              children: filteredRecords.take(50).map((record) {
-                                final trailingAmount =
-                                    '¥${_formatAmount(_effectiveTotalAmount(record))}';
-                                final subtitle = _recordSubtitle(record);
-
-                                return ListTile(
-                                  contentPadding: EdgeInsets.zero,
-                                  leading: Icon(_recordIcon(record)),
-                                  title: Text(_recordTitle(record)),
-                                  subtitle: Text(subtitle),
-                                  trailing: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(trailingAmount),
-                                      if (_canMutateRecord(record))
-                                        PopupMenuButton<_RecordAction>(
-                                          tooltip: '记录操作',
-                                          onSelected: (action) async {
-                                            switch (action) {
-                                              case _RecordAction.edit:
-                                                await _editRecord(record);
-                                                break;
-                                              case _RecordAction.delete:
-                                                await _deleteRecord(record);
-                                                break;
-                                            }
-                                          },
-                                          itemBuilder: (context) => const [
-                                            PopupMenuItem(
-                                              value: _RecordAction.edit,
-                                              child: Text('编辑'),
-                                            ),
-                                            PopupMenuItem(
-                                              value: _RecordAction.delete,
-                                              child: Text('删除'),
-                                            ),
-                                          ],
-                                        ),
-                                    ],
-                                  ),
-                                );
-                              }).toList(),
-                            ),
-                    ),
-                  ],
+                                }).toList(),
+                              ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+        ),
       ),
     );
   }
@@ -2078,6 +2375,10 @@ class _CalendarDaySummary {
   final double amount;
   final List<String> activityLabels;
 
+  /// Member 応援色 touched that day, used for the little glowstick marks in
+  /// the journal calendar. Raw colours; the calendar softens them per theme.
+  final List<Color> memberColors;
+
   const _CalendarDaySummary({
     required this.date,
     required this.recordCount,
@@ -2087,6 +2388,7 @@ class _CalendarDaySummary {
     required this.ticketCount,
     required this.amount,
     required this.activityLabels,
+    required this.memberColors,
   });
 
   bool get hasRecords => recordCount > 0;
@@ -2101,10 +2403,19 @@ class _CalendarDaySummaryBuilder {
   double amount = 0;
   final Set<String> activityKeys = <String>{};
   final List<String> activityLabels = <String>[];
+  final List<Color> memberColors = <Color>[];
+  final Set<int> _colorValues = <int>{};
 
   _CalendarDaySummaryBuilder({
     required this.date,
   });
+
+  void addMemberColor(Color color) {
+    final value = color.toARGB32();
+    if (_colorValues.add(value)) {
+      memberColors.add(color);
+    }
+  }
 
   _CalendarDaySummary build() {
     return _CalendarDaySummary(
@@ -2116,6 +2427,7 @@ class _CalendarDaySummaryBuilder {
       ticketCount: ticketCount,
       amount: amount,
       activityLabels: List<String>.from(activityLabels),
+      memberColors: List<Color>.from(memberColors),
     );
   }
 }
@@ -2146,7 +2458,9 @@ class _CalendarOverviewCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    const recordIndicatorColor = Color(0xFF2563EB);
+    final scheme = theme.colorScheme;
+    final brightness = theme.brightness;
+    final accent = AppTheme.oshi(brightness);
     const scanIndicatorColor = Color(0xFFD9480F);
     final firstDay = DateTime(month.year, month.month, 1);
     final daysInMonth = month.month == 12
@@ -2155,203 +2469,298 @@ class _CalendarOverviewCard extends StatelessWidget {
     final leadingSlots = firstDay.weekday - 1;
     final totalSlots = ((leadingSlots + daysInMonth + 6) ~/ 7) * 7;
     const weekLabels = ['一', '二', '三', '四', '五', '六', '日'];
+    final recordDays =
+        summaries.values.where((summary) => summary.hasRecords).length;
 
     return Container(
-      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(26),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: theme.colorScheme.shadow.withAlpha(10),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: scheme.outlineVariant),
+        boxShadow: DreamPalette.pageShadow(brightness),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Stack(
+        clipBehavior: Clip.none,
         children: [
-          Row(
-            children: [
-              IconButton.filledTonal(
-                onPressed: onPreviousMonth,
-                icon: const Icon(Icons.chevron_left),
-                tooltip: '上个月',
-              ),
-              Expanded(
-                child: InkWell(
-                  onTap: onHeaderTap,
-                  borderRadius: BorderRadius.circular(18),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Text(
-                      '${month.year} 年 ${month.month} 月',
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              IconButton.filledTonal(
-                onPressed: onNextMonth,
-                icon: const Icon(Icons.chevron_right),
-                tooltip: '下个月',
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 12,
-            runSpacing: 8,
-            children: [
-              _CalendarLegend(
-                color: recordIndicatorColor,
-                label: '有记录',
-              ),
-              _CalendarLegend(
-                color: scanIndicatorColor,
-                label: '有切图',
-              ),
-              _CalendarLegend(
-                color: theme.colorScheme.primary.withAlpha(28),
-                label: scope == StatsScope.week ? '当前选中周' : '当前选中日期',
-                hollow: scope == StatsScope.week,
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: weekLabels.map((label) {
-              return Expanded(
-                child: Center(
-                  child: Text(
-                    label,
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 10),
-          GridView.builder(
-            padding: EdgeInsets.zero,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: totalSlots,
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 7,
-              crossAxisSpacing: 4,
-              mainAxisSpacing: 8,
-              mainAxisExtent: MediaQuery.textScalerOf(context).scale(34) + 20,
-            ),
-            itemBuilder: (context, index) {
-              final dayNumber = index - leadingSlots + 1;
-              if (dayNumber <= 0 || dayNumber > daysInMonth) {
-                return const SizedBox.shrink();
-              }
-
-              final date = DateTime(month.year, month.month, dayNumber);
-              final summary = summaries[date];
-              final hasRecords = summary?.hasRecords ?? false;
-              final hasScans = (summary?.scanCount ?? 0) > 0;
-              final isSelected = _sameDay(date, selectedDate);
-              final isInActiveWeek = scope == StatsScope.week &&
-                  activeRange != null &&
-                  !date.isBefore(activeRange!.start) &&
-                  date.isBefore(activeRange!.end);
-
-              return Semantics(
-                label:
-                    '${month.month}月$dayNumber日${hasRecords ? '，有记录' : '，无记录'}${hasScans ? '，有切图' : ''}',
-                selected: isSelected,
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(16),
-                    onTap: () => onDateSelected(date),
-                    child: Ink(
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? theme.colorScheme.primaryContainer
-                            : isInActiveWeek
-                                ? theme.colorScheme.primary.withAlpha(16)
-                                : Colors.transparent,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: isSelected
-                              ? theme.colorScheme.primary
-                              : isInActiveWeek
-                                  ? theme.colorScheme.primary.withAlpha(80)
-                                  : Colors.transparent,
-                          width: isSelected ? 1.6 : 1,
+          DreamPaperBackground(
+            accent: accent,
+            ruled: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      IconButton.filledTonal(
+                        onPressed: onPreviousMonth,
+                        icon: const Icon(Icons.chevron_left),
+                        tooltip: '上个月',
+                        style: IconButton.styleFrom(
+                          backgroundColor: scheme.surfaceContainerLow,
+                          foregroundColor: scheme.onSurface,
                         ),
                       ),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Container(
-                            width: 34,
-                            height: 34,
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: hasRecords
-                                  ? (isSelected
-                                      ? recordIndicatorColor
-                                      : recordIndicatorColor.withAlpha(24))
-                                  : Colors.transparent,
-                              border: Border.all(
-                                color: hasRecords
-                                    ? recordIndicatorColor
-                                    : theme.colorScheme.outlineVariant,
-                              ),
+                      Expanded(
+                        child: InkWell(
+                          onTap: onHeaderTap,
+                          borderRadius: BorderRadius.circular(14),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Column(
+                              children: [
+                                Text(
+                                  '${month.year} 年 ${month.month} 月',
+                                  textAlign: TextAlign.center,
+                                  style: theme.textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '$recordDays 天有记录 · 手帐月历',
+                                  textAlign: TextAlign.center,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: scheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
                             ),
-                            child: Text(
-                              '$dayNumber',
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                color: isSelected
-                                    ? (hasRecords
-                                        ? Colors.white
-                                        : theme.colorScheme.onPrimaryContainer)
-                                    : theme.colorScheme.onSurface,
+                          ),
+                        ),
+                      ),
+                      IconButton.filledTonal(
+                        onPressed: onNextMonth,
+                        icon: const Icon(Icons.chevron_right),
+                        tooltip: '下个月',
+                        style: IconButton.styleFrom(
+                          backgroundColor: scheme.surfaceContainerLow,
+                          foregroundColor: scheme.onSurface,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 7,
+                    children: [
+                      _CalendarLegend(
+                        color: accent,
+                        label: '有记录',
+                      ),
+                      _CalendarLegend(
+                        color: scanIndicatorColor,
+                        label: '有切图',
+                      ),
+                      _CalendarLegend(
+                        color: scheme.surface,
+                        label: scope == StatsScope.week ? '当前选中周' : '当前选中日期',
+                        hollow: true,
+                        borderColor: scheme.outline,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: weekLabels.map((label) {
+                      return Expanded(
+                        child: Center(
+                          child: Text(
+                            label,
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 5),
+                  GridView.builder(
+                    padding: EdgeInsets.zero,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: totalSlots,
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 7,
+                      crossAxisSpacing: 3,
+                      mainAxisSpacing: 5,
+                      mainAxisExtent:
+                          MediaQuery.textScalerOf(context).scale(36) + 20,
+                    ),
+                    itemBuilder: (context, index) {
+                      final dayNumber = index - leadingSlots + 1;
+                      if (dayNumber <= 0 || dayNumber > daysInMonth) {
+                        return const SizedBox.shrink();
+                      }
+
+                      final date = DateTime(month.year, month.month, dayNumber);
+                      final summary = summaries[date];
+                      final hasRecords = summary?.hasRecords ?? false;
+                      final hasScans = (summary?.scanCount ?? 0) > 0;
+                      final memberColors = summary?.memberColors ?? const [];
+                      final isSelected = _sameDay(date, selectedDate);
+                      final isInActiveWeek = scope == StatsScope.week &&
+                          activeRange != null &&
+                          !date.isBefore(activeRange!.start) &&
+                          date.isBefore(activeRange!.end);
+                      final cellColor = isSelected
+                          ? Color.alphaBlend(
+                              accent.withValues(
+                                alpha:
+                                    brightness == Brightness.dark ? 0.20 : 0.10,
+                              ),
+                              scheme.surface,
+                            )
+                          : Colors.transparent;
+
+                      return Semantics(
+                        label:
+                            '${month.month}月$dayNumber日${hasRecords ? '，有记录' : '，无记录'}${hasScans ? '，有切图' : ''}',
+                        selected: isSelected,
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(10),
+                            onTap: () => onDateSelected(date),
+                            child: Ink(
+                              decoration: BoxDecoration(
+                                color: cellColor,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: isSelected
+                                      ? accent.withValues(alpha: 0.55)
+                                      : isInActiveWeek
+                                          ? accent.withValues(alpha: 0.24)
+                                          : Colors.transparent,
+                                  width: isSelected ? 1.2 : 1,
+                                ),
+                                boxShadow: isSelected
+                                    ? DreamPalette.pageShadow(brightness)
+                                    : null,
+                              ),
+                              child: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  if (isSelected)
+                                    Positioned.fill(
+                                      child: IgnorePointer(
+                                        child: DecoratedBox(
+                                          decoration: BoxDecoration(
+                                            borderRadius:
+                                                BorderRadius.circular(10),
+                                            border: Border(
+                                              bottom: BorderSide(
+                                                color: accent.withValues(
+                                                  alpha: 0.5,
+                                                ),
+                                                width: 2,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  Positioned(
+                                    left: 2,
+                                    top: 2,
+                                    child: Container(
+                                      width: 30,
+                                      height: 30,
+                                      alignment: Alignment.center,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: hasRecords
+                                            ? accent.withValues(
+                                                alpha:
+                                                    isSelected ? 0.10 : 0.045,
+                                              )
+                                            : Colors.transparent,
+                                      ),
+                                      child: Text(
+                                        '$dayNumber',
+                                        style: theme.textTheme.titleSmall
+                                            ?.copyWith(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                          color: scheme.onSurface,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  Positioned(
+                                    left: 4,
+                                    right: 4,
+                                    top: 33,
+                                    child: SizedBox(
+                                      height: 8,
+                                      child: Row(
+                                        children: [
+                                          if (hasRecords &&
+                                              memberColors.isEmpty)
+                                            Container(
+                                              width: 8,
+                                              height: 3,
+                                              decoration: BoxDecoration(
+                                                color: accent,
+                                                borderRadius:
+                                                    BorderRadius.circular(999),
+                                              ),
+                                            ),
+                                          for (final color
+                                              in memberColors.take(5))
+                                            Container(
+                                              width: 2.5,
+                                              height: 7,
+                                              margin: const EdgeInsets.only(
+                                                right: 2,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: DreamPalette.accent(
+                                                  color,
+                                                  brightness,
+                                                ),
+                                                borderRadius:
+                                                    BorderRadius.circular(999),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  if (hasScans)
+                                    const Positioned(
+                                      right: 4,
+                                      top: 4,
+                                      child: _CalendarStatusDot(
+                                        color: scanIndicatorColor,
+                                        size: 5,
+                                      ),
+                                    ),
+                                ],
                               ),
                             ),
                           ),
-                          const SizedBox(height: 8),
-                          if (hasRecords || hasScans)
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                if (hasRecords)
-                                  _CalendarStatusDot(
-                                    color: recordIndicatorColor,
-                                  ),
-                                if (hasScans) ...[
-                                  if (hasRecords) const SizedBox(width: 4),
-                                  _CalendarStatusDot(
-                                    color: scanIndicatorColor,
-                                  ),
-                                ],
-                              ],
-                            )
-                          else
-                            const SizedBox(height: 7),
-                        ],
-                      ),
-                    ),
+                        ),
+                      );
+                    },
                   ),
-                ),
-              );
-            },
+                ],
+              ),
+            ),
+          ),
+          Positioned(
+            top: -6,
+            left: 22,
+            child: WashiTape(
+              color: DreamPalette.tape(accent, brightness),
+              width: 44,
+              height: 15,
+              label: '月历',
+              angle: -0.08,
+            ),
           ),
         ],
       ),
@@ -2365,257 +2774,580 @@ class _CalendarOverviewCard extends StatelessWidget {
   }
 }
 
+class _DayMember {
+  final String name;
+  final String groupName;
+  final Color color;
+
+  const _DayMember({
+    required this.name,
+    required this.groupName,
+    required this.color,
+  });
+}
+
 class _CalendarDayDetailCard extends StatelessWidget {
   final DateTime date;
   final _CalendarDaySummary? summary;
   final String Function(DateTime value) dateFormatter;
   final List<ActivityRecordModel> records;
+  final List<_DayMember> members;
   final Map<int, List<ActivityRecordMediaModel>> mediaByRecordId;
   final String Function(ActivityRecordModel record) recordSubtitleBuilder;
   final double Function(ActivityRecordModel record) recordAmountBuilder;
   final String Function(double value) amountFormatter;
   final ValueChanged<ActivityRecordMediaModel> onPreviewMedia;
+  final MerchStats merchStats;
 
   const _CalendarDayDetailCard({
     required this.date,
     required this.summary,
     required this.dateFormatter,
     required this.records,
+    required this.members,
     required this.mediaByRecordId,
     required this.recordSubtitleBuilder,
     required this.recordAmountBuilder,
     required this.amountFormatter,
     required this.onPreviewMedia,
+    this.merchStats = MerchStats.empty,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final brightness = theme.brightness;
+    final accent = AppTheme.oshi(brightness);
     final currentSummary = summary;
 
-    return _SectionCard(
-      title: '当日摘要',
-      child: currentSummary == null
-          ? Text('${dateFormatter(date)} 还没有记录。')
-          : Column(
+    return Container(
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: accent.withValues(alpha: 0.16)),
+        boxShadow: DreamPalette.pageShadow(brightness),
+      ),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  dateFormatter(date),
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 10),
                 Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  runSpacing: 2,
                   children: [
-                    _MetricChip(
-                      label: '偶活',
-                      value: '${currentSummary.activityCount}',
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SparkleMark(
+                          size: 15,
+                          color: accent,
+                          variant: SparkleVariant.star,
+                        ),
+                        const SizedBox(width: 7),
+                        Text(
+                          '当日摘要',
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
                     ),
-                    _MetricChip(
-                      label: '切数',
-                      value: '${currentSummary.cutCount}',
-                    ),
-                    if (currentSummary.scanCount > 0)
-                      _MetricChip(
-                        label: '切图',
-                        value: '${currentSummary.scanCount}',
+                    Text(
+                      dateFormatter(date),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                        fontFeatures: const [FontFeature.tabularFigures()],
                       ),
-                    if (currentSummary.ticketCount > 0)
-                      _MetricChip(
-                        label: '门票',
-                        value: '${currentSummary.ticketCount}',
-                      ),
-                    _MetricChip(
-                      label: '金额',
-                      value: '¥${amountFormatter(currentSummary.amount)}',
                     ),
                   ],
                 ),
-                if (currentSummary.activityLabels.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children:
-                        currentSummary.activityLabels.take(6).map((label) {
-                      return Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(label),
-                      );
-                    }).toList(),
-                  ),
-                ],
-                if (records.isNotEmpty) ...[
-                  const SizedBox(height: 16),
-                  Text(
-                    '当天记录与切图',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w800,
+                const SizedBox(height: 10),
+                if (currentSummary == null)
+                  _emptyDay(theme)
+                else ...[
+                  if (members.isNotEmpty) ...[
+                    Wrap(
+                      spacing: 7,
+                      runSpacing: 6,
+                      children: [
+                        for (final member in members.take(6))
+                          _DayMemberChip(member: member),
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  ...records.map((record) {
-                    final media = record.id == null
-                        ? const <ActivityRecordMediaModel>[]
-                        : (mediaByRecordId[record.id!] ??
-                            const <ActivityRecordMediaModel>[]);
-                    final scanCount = media.where((item) => item.isScan).length;
-                    final memoryCount = media.length - scanCount;
-
-                    return Container(
-                      width: double.infinity,
-                      margin: const EdgeInsets.only(bottom: 12),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(18),
+                    const SizedBox(height: 10),
+                  ],
+                  Wrap(
+                    spacing: 7,
+                    runSpacing: 7,
+                    children: [
+                      _DayMetricSticker(
+                        label: '偶活',
+                        value: '${currentSummary.activityCount}',
+                        accent: accent,
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                width: 36,
-                                height: 36,
-                                decoration: BoxDecoration(
-                                  color: theme.colorScheme.primaryContainer,
-                                  borderRadius: BorderRadius.circular(12),
+                      _DayMetricSticker(
+                        label: '切数',
+                        value: '${currentSummary.cutCount}',
+                        accent: AppTheme.cheki3,
+                      ),
+                      if (currentSummary.scanCount > 0)
+                        _DayMetricSticker(
+                          label: '切图',
+                          value: '${currentSummary.scanCount}',
+                          accent: const Color(0xFFD9480F),
+                        ),
+                      if (currentSummary.ticketCount > 0)
+                        _DayMetricSticker(
+                          label: '门票',
+                          value: '${currentSummary.ticketCount}',
+                          accent: AppTheme.chekiGroup,
+                        ),
+                      _DayMetricSticker(
+                        label: '金额',
+                        value: '¥${amountFormatter(currentSummary.amount)}',
+                        accent: AppTheme.mint,
+                      ),
+                      if (!merchStats.isEmpty)
+                        _DayMetricSticker(
+                          label: '周边',
+                          value: '¥${amountFormatter(merchStats.amount)}',
+                          accent: AppTheme.sakura,
+                        ),
+                    ],
+                  ),
+                  if (currentSummary.activityLabels.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 7,
+                      runSpacing: 7,
+                      children:
+                          currentSummary.activityLabels.take(6).map((label) {
+                        return Container(
+                          constraints: const BoxConstraints(maxWidth: 250),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 9,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Color.alphaBlend(
+                              accent.withValues(alpha: 0.09),
+                              scheme.surfaceContainerLowest,
+                            ),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: accent.withValues(alpha: 0.18),
+                            ),
+                          ),
+                          child: Text(
+                            label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: scheme.onSurface,
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                  if (records.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    Text(
+                      '当天记录与切图',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 9),
+                    ...records.map((record) {
+                      final media = record.id == null
+                          ? const <ActivityRecordMediaModel>[]
+                          : (mediaByRecordId[record.id!] ??
+                              const <ActivityRecordMediaModel>[]);
+                      final scanCount =
+                          media.where((item) => item.isScan).length;
+                      final memoryCount = media.length - scanCount;
+                      final recordAccent = record.isTicket
+                          ? AppTheme.chekiGroup
+                          : (record.isMulti ? AppTheme.cheki5 : accent);
+
+                      return Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.only(bottom: 10),
+                        padding: const EdgeInsets.all(11),
+                        decoration: BoxDecoration(
+                          color: Color.alphaBlend(
+                            recordAccent.withValues(alpha: 0.055),
+                            scheme.surfaceContainerLowest,
+                          ),
+                          borderRadius: BorderRadius.circular(15),
+                          border: Border.all(
+                            color: recordAccent.withValues(alpha: 0.16),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  width: 34,
+                                  height: 34,
+                                  decoration: BoxDecoration(
+                                    color: Color.alphaBlend(
+                                      recordAccent.withValues(alpha: 0.14),
+                                      scheme.surfaceContainerLowest,
+                                    ),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  alignment: Alignment.center,
+                                  child: Icon(
+                                    record.isTicket
+                                        ? Icons.confirmation_num_outlined
+                                        : record.isMulti
+                                            ? Icons.people_alt_outlined
+                                            : Icons.photo_library_outlined,
+                                    size: 17,
+                                    color: scheme.onSurface,
+                                  ),
                                 ),
-                                alignment: Alignment.center,
-                                child: Icon(
-                                  record.isTicket
-                                      ? Icons.confirmation_num_outlined
-                                      : record.isMulti
-                                          ? Icons.people_alt_outlined
-                                          : Icons.photo_library_outlined,
-                                  size: 18,
-                                  color: theme.colorScheme.onPrimaryContainer,
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      record.isMulti
-                                          ? record.multiDisplayName
-                                          : record.subjectName,
-                                      style:
-                                          theme.textTheme.titleMedium?.copyWith(
-                                        fontWeight: FontWeight.w700,
+                                const SizedBox(width: 9),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        record.isMulti
+                                            ? record.multiDisplayName
+                                            : record.subjectName,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: theme.textTheme.titleMedium
+                                            ?.copyWith(
+                                          fontWeight: FontWeight.w700,
+                                          height: 1.2,
+                                        ),
                                       ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      recordSubtitleBuilder(record),
-                                      style: theme.textTheme.bodySmall,
-                                    ),
-                                  ],
+                                      const SizedBox(height: 3),
+                                      Text(
+                                        recordSubtitleBuilder(record),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style:
+                                            theme.textTheme.bodySmall?.copyWith(
+                                          color: scheme.onSurfaceVariant,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  '¥${amountFormatter(recordAmountBuilder(record))}',
+                                  style: theme.textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                    fontFeatures: const [
+                                      FontFeature.tabularFigures(),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (media.isNotEmpty) ...[
+                              const SizedBox(height: 9),
+                              Row(
+                                children: [
+                                  if (scanCount > 0)
+                                    _MediaCountLabel(
+                                      icon: Icons.document_scanner_outlined,
+                                      text: '切图 $scanCount',
+                                    ),
+                                  if (scanCount > 0 && memoryCount > 0)
+                                    const SizedBox(width: 10),
+                                  if (memoryCount > 0)
+                                    _MediaCountLabel(
+                                      icon: Icons.photo_camera_outlined,
+                                      text: '纪念照 $memoryCount',
+                                    ),
+                                ],
                               ),
-                              Text(
-                                '¥${amountFormatter(recordAmountBuilder(record))}',
-                                style: theme.textTheme.titleSmall?.copyWith(
-                                  fontWeight: FontWeight.w800,
+                              const SizedBox(height: 9),
+                              SizedBox(
+                                height: 116,
+                                child: ListView.separated(
+                                  scrollDirection: Axis.horizontal,
+                                  itemCount: media.length,
+                                  separatorBuilder: (_, __) =>
+                                      const SizedBox(width: 10),
+                                  itemBuilder: (context, index) {
+                                    final item = media[index];
+                                    final tilt = index.isEven ? -1.3 : 1.1;
+                                    return Material(
+                                      color: Colors.transparent,
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(5),
+                                        onTap: () => onPreviewMedia(item),
+                                        child: SizedBox(
+                                          width: 80,
+                                          child: PolaroidFrame(
+                                            tilt: tilt,
+                                            framePadding:
+                                                const EdgeInsets.fromLTRB(
+                                              3,
+                                              3,
+                                              3,
+                                              3,
+                                            ),
+                                            captionTop: 3,
+                                            captionBottom: 1,
+                                            shadow: false,
+                                            photo: SizedBox(
+                                              height: 82,
+                                              width: double.infinity,
+                                              child: item.isScan
+                                                  ? AlbumPhotoThumb(
+                                                      photo:
+                                                          AlbumPhoto.attachment(
+                                                              item),
+                                                      cacheWidth: 200,
+                                                    )
+                                                  : Image.file(
+                                                      File(item.path),
+                                                      fit: BoxFit.cover,
+                                                      cacheWidth: 200,
+                                                      errorBuilder: (context,
+                                                          error, stackTrace) {
+                                                        return ColoredBox(
+                                                          color: scheme
+                                                              .surfaceContainerHigh,
+                                                          child: Icon(
+                                                            Icons
+                                                                .broken_image_outlined,
+                                                            size: 18,
+                                                            color: scheme
+                                                                .onSurfaceVariant,
+                                                          ),
+                                                        );
+                                                      },
+                                                    ),
+                                            ),
+                                            caption: Text(
+                                              item.isScan ? '切图' : '纪念照',
+                                              maxLines: 1,
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                fontSize: 7,
+                                                height: 1,
+                                                fontWeight: FontWeight.w600,
+                                                color: scheme.onSurfaceVariant,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
                                 ),
                               ),
                             ],
-                          ),
-                          if (media.isNotEmpty) ...[
-                            const SizedBox(height: 10),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                if (scanCount > 0)
-                                  _MetricChip(
-                                    label: '切图',
-                                    value: '$scanCount',
-                                  ),
-                                if (memoryCount > 0)
-                                  _MetricChip(
-                                    label: '纪念照',
-                                    value: '$memoryCount',
-                                  ),
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            SizedBox(
-                              height: 96,
-                              child: ListView.separated(
-                                scrollDirection: Axis.horizontal,
-                                itemCount: media.length,
-                                separatorBuilder: (_, __) =>
-                                    const SizedBox(width: 8),
-                                itemBuilder: (context, index) {
-                                  final item = media[index];
-                                  return Material(
-                                    color: Colors.transparent,
-                                    child: InkWell(
-                                      borderRadius: BorderRadius.circular(14),
-                                      onTap: () => onPreviewMedia(item),
-                                      child: Ink(
-                                        width: 78,
-                                        height: 96,
-                                        decoration: BoxDecoration(
-                                          borderRadius:
-                                              BorderRadius.circular(14),
-                                          border: Border.all(
-                                            color: item.isScan
-                                                ? const Color(0xFFD9480F)
-                                                : theme
-                                                    .colorScheme.outlineVariant,
-                                            width: item.isScan ? 2 : 1,
-                                          ),
-                                        ),
-                                        child: ClipRRect(
-                                          borderRadius:
-                                              BorderRadius.circular(13),
-                                          child: Image.file(
-                                            File(item.path),
-                                            fit: BoxFit.cover,
-                                            cacheWidth: 200,
-                                            errorBuilder:
-                                                (context, error, stackTrace) {
-                                              return Container(
-                                                color: theme.colorScheme
-                                                    .surfaceContainerLow,
-                                                alignment: Alignment.center,
-                                                child: const Icon(
-                                                  Icons.broken_image_outlined,
-                                                ),
-                                              );
-                                            },
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
                           ],
-                        ],
-                      ),
-                    );
-                  }),
+                        ),
+                      );
+                    }),
+                  ],
                 ],
               ],
             ),
+          ),
+          Positioned(
+            top: -5,
+            right: 30,
+            child: Transform.rotate(
+              angle: 0.09,
+              child: WashiTape(
+                color: DreamPalette.tape(accent, brightness),
+                width: 40,
+                height: 12,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyDay(ThemeData theme) {
+    final scheme = theme.colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.event_note_outlined,
+            size: 19,
+            color: scheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              '${dateFormatter(date)} 还没有记录。',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DayMemberChip extends StatelessWidget {
+  final _DayMember member;
+
+  const _DayMemberChip({required this.member});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final brightness = theme.brightness;
+    final accent = DreamPalette.accent(member.color, brightness);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: Color.alphaBlend(
+          accent.withValues(alpha: 0.09),
+          theme.colorScheme.surfaceContainerLowest,
+        ),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: accent.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 3,
+            height: 12,
+            decoration: BoxDecoration(
+              color: accent,
+              borderRadius: BorderRadius.circular(999),
+            ),
+          ),
+          const SizedBox(width: 6),
+          RichText(
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            text: TextSpan(
+              text: member.name,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DayMetricSticker extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color accent;
+
+  const _DayMetricSticker({
+    required this.label,
+    required this.value,
+    required this.accent,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(
+        color: Color.alphaBlend(
+          accent.withValues(alpha: 0.10),
+          scheme.surfaceContainerLowest,
+        ),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: accent.withValues(alpha: 0.22)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w600,
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+              height: 1,
+              color: scheme.onSurface,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MediaCountLabel extends StatelessWidget {
+  final IconData icon;
+  final String text;
+
+  const _MediaCountLabel({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: scheme.onSurfaceVariant),
+        const SizedBox(width: 4),
+        Text(
+          text,
+          style: TextStyle(
+            fontSize: 10.5,
+            fontWeight: FontWeight.w600,
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -2624,11 +3356,13 @@ class _CalendarLegend extends StatelessWidget {
   final Color color;
   final String label;
   final bool hollow;
+  final Color? borderColor;
 
   const _CalendarLegend({
     required this.color,
     required this.label,
     this.hollow = false,
+    this.borderColor,
   });
 
   @override
@@ -2642,11 +3376,16 @@ class _CalendarLegend extends StatelessWidget {
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: hollow ? Colors.transparent : color,
-            border: Border.all(color: color),
+            border: Border.all(color: borderColor ?? color),
           ),
         ),
         const SizedBox(width: 6),
-        Text(label),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+        ),
       ],
     );
   }
@@ -2654,16 +3393,18 @@ class _CalendarLegend extends StatelessWidget {
 
 class _CalendarStatusDot extends StatelessWidget {
   final Color color;
+  final double size;
 
   const _CalendarStatusDot({
     required this.color,
+    this.size = 7,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 7,
-      height: 7,
+      width: size,
+      height: size,
       decoration: BoxDecoration(
         color: color,
         shape: BoxShape.circle,
@@ -2699,34 +3440,90 @@ class _SummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: Theme.of(context).colorScheme.outlineVariant.withAlpha(90),
-        ),
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final brightness = theme.brightness;
+    final accent = _summaryAccent(label, scheme, brightness);
+    return TicketNotchEdge(
+      color: Color.alphaBlend(
+        accent.withValues(alpha: brightness == Brightness.dark ? 0.12 : 0.05),
+        scheme.surface,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon),
-          const SizedBox(height: 12),
-          Text(label, style: Theme.of(context).textTheme.bodyMedium),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
+      borderColor: accent.withValues(alpha: 0.24),
+      borderRadius: BorderRadius.circular(14),
+      notchRadius: 6,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
                 ),
-          ),
-          const SizedBox(height: 6),
-          Text(hint, style: Theme.of(context).textTheme.bodySmall),
-        ],
+                Icon(icon, size: 15, color: accent),
+              ],
+            ),
+            const SizedBox(height: 6),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                value,
+                maxLines: 1,
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              hint,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+                fontSize: 10.5,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
+}
+
+Color _summaryAccent(String label, ColorScheme scheme, Brightness brightness) {
+  if (label.contains('记录数')) {
+    return AppTheme.oshi(brightness);
+  }
+  if (label.contains('拍切')) {
+    return AppTheme.readableAccent(AppTheme.cheki3, brightness);
+  }
+  if (label.contains('多人')) {
+    return AppTheme.readableAccent(AppTheme.cheki5, brightness);
+  }
+  if (label.contains('切奇')) {
+    return AppTheme.readableAccent(AppTheme.mint, brightness);
+  }
+  if (label.contains('门票金额') || label.contains('总金额')) {
+    return AppTheme.readableAccent(AppTheme.chekiGroup, brightness);
+  }
+  if (label.contains('门票')) {
+    return AppTheme.readableAccent(AppTheme.sky, brightness);
+  }
+  return scheme.primary;
 }
 
 class _PieBreakdownCard extends StatelessWidget {
@@ -2879,23 +3676,41 @@ class _MetricChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final brightness = theme.brightness;
+    final accent = AppTheme.metricColor(label, scheme);
+    final readable = AppTheme.readableAccent(accent, brightness);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(14),
+        color: Color.alphaBlend(
+          readable.withValues(alpha: 0.08),
+          scheme.surfaceContainerLowest,
+        ),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: readable.withValues(alpha: 0.20)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(label, style: Theme.of(context).textTheme.bodySmall),
-          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 3),
           Text(
             value,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w900,
+              height: 1.05,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
           ),
         ],
       ),
@@ -2914,26 +3729,63 @@ class _SectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final brightness = theme.brightness;
+    final accent = AppTheme.oshi(brightness);
     return Container(
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: Theme.of(context).colorScheme.outlineVariant.withAlpha(80),
-        ),
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: accent.withValues(alpha: 0.13)),
+        boxShadow: DreamPalette.pageShadow(brightness),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Stack(
+        clipBehavior: Clip.none,
         children: [
-          Text(
-            title,
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    SparkleMark(
+                      size: 15,
+                      color: accent,
+                      variant: SparkleVariant.sparkle,
+                    ),
+                    const SizedBox(width: 7),
+                    Expanded(
+                      child: Text(
+                        title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
+                const SizedBox(height: 10),
+                child,
+              ],
+            ),
           ),
-          const SizedBox(height: 12),
-          child,
+          Positioned(
+            top: -4,
+            right: 24,
+            child: Transform.rotate(
+              angle: 0.08,
+              child: WashiTape(
+                color: DreamPalette.tape(accent, brightness),
+                width: 36,
+                height: 11,
+                folds: false,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -2963,6 +3815,11 @@ class _MemberStatEntry {
   final String groupName;
   final bool isPersonEntry;
   final Set<String> groups = {};
+  Color? color;
+
+  /// True when [color] came from the member's current card rather than the
+  /// deterministic fallback used for historical rows without a counter.
+  bool colorFromCounter = false;
   int count = 0;
   double amount = 0;
 
@@ -3029,8 +3886,12 @@ class _MultiSummary {
 
 class _TicketBreakdownHeader extends StatelessWidget {
   final TicketStats stats;
+  final MerchStats merch;
 
-  const _TicketBreakdownHeader({required this.stats});
+  const _TicketBreakdownHeader({
+    required this.stats,
+    this.merch = MerchStats.empty,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -3040,15 +3901,14 @@ class _TicketBreakdownHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
-        gradient: LinearGradient(
-          colors: [
-            scheme.tertiaryContainer.withValues(alpha: 0.8),
-            scheme.primaryContainer.withValues(alpha: 0.55),
-          ],
+        color: Color.alphaBlend(
+          scheme.tertiaryContainer.withValues(alpha: 0.34),
+          scheme.surfaceContainerLowest,
         ),
         border: Border.all(
           color: scheme.tertiary.withValues(alpha: 0.14),
         ),
+        boxShadow: DreamPalette.pageShadow(theme.brightness),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3111,12 +3971,114 @@ class _TicketBreakdownHeader extends StatelessWidget {
               ],
             ),
           ],
+          if (!merch.isEmpty) ...[
+            const SizedBox(height: 10),
+            _MerchSpendTicket(stats: merch),
+          ],
         ],
       ),
     );
   }
 
   static String _formatTicketAmount(double value) {
+    if (value == value.roundToDouble()) return value.toStringAsFixed(0);
+    return value.toStringAsFixed(2);
+  }
+}
+
+/// A small merch "ticket" printed next to the ticket spending summary: total
+/// amount, purchase count and a by-kind breakdown for the selected period.
+class _MerchSpendTicket extends StatelessWidget {
+  final MerchStats stats;
+
+  const _MerchSpendTicket({required this.stats});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final accent = AppTheme.readableAccent(AppTheme.sakura, theme.brightness);
+    final kinds = stats.countByKind.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    return Container(
+      key: const ValueKey<String>('merch-spend-ticket'),
+      padding: const EdgeInsets.fromLTRB(11, 9, 11, 9),
+      decoration: BoxDecoration(
+        color: Color.alphaBlend(
+          accent.withValues(alpha: 0.10),
+          scheme.surface.withValues(alpha: 0.82),
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: accent.withValues(alpha: 0.28)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.redeem_outlined, size: 15, color: accent),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  '周边',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '¥${_formatMerchAmount(stats.amount)}',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            '${stats.purchaseCount} 笔 · ${stats.itemCount} 件',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          if (kinds.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: [
+                for (final entry in kinds.take(6))
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: scheme.surface.withValues(alpha: 0.88),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: accent.withValues(alpha: 0.18),
+                      ),
+                    ),
+                    child: Text(
+                      '${entry.key} ${entry.value}',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  static String _formatMerchAmount(double value) {
     if (value == value.roundToDouble()) return value.toStringAsFixed(0);
     return value.toStringAsFixed(2);
   }

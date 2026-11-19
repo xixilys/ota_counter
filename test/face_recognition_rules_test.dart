@@ -130,6 +130,63 @@ void main() {
     });
   });
 
+  group('multi-group affiliations', () {
+    const a = FaceMember(
+      counterId: 1,
+      personId: 9,
+      name: 'P在A',
+      personName: '真人P',
+      groupName: 'A团',
+    );
+    const b = FaceMember(
+      counterId: 2,
+      personId: 9,
+      name: 'P在B',
+      personName: '真人P',
+      groupName: 'B团',
+    );
+
+    test('one person keeps one candidate but follows the session group', () {
+      final candidates = buildCandidateMembers(
+        dayMembers: const [a, b],
+        sessionGroupMembers: const [b],
+        allMembers: const [],
+        preferredGroups: const ['B团', 'A团'],
+      );
+      expect(candidates, hasLength(1));
+      expect(candidates.single.groupName, 'B团');
+      expect(candidates.single.name, 'P在B');
+      expect(candidates.single.counterId, 2);
+      expect(candidates.single.personId, 9);
+    });
+
+    test('without context the first affiliation is kept, never merged by name',
+        () {
+      final candidates = buildCandidateMembers(
+        dayMembers: const [a, b],
+        sessionGroupMembers: const [],
+        allMembers: const [],
+      );
+      expect(candidates, hasLength(1));
+      expect(candidates.single.personId, 9);
+      // Both cards remain available for the group picker / affiliation UI.
+      expect(candidates.single.counterId, 1);
+    });
+
+    test('two different same-name people stay two candidates', () {
+      const c = FaceMember(counterId: 3, name: '同名', groupName: 'C团');
+      const d = FaceMember(counterId: 4, name: '同名', groupName: 'D团');
+      final candidates = buildCandidateMembers(
+        dayMembers: const [c, d],
+        sessionGroupMembers: const [],
+        allMembers: const [],
+        preferredGroups: const ['C团'],
+      );
+      expect(candidates, hasLength(2));
+      expect(candidates.map((m) => m.groupName).toSet(), {'C团', 'D团'});
+    });
+  });
+
   group('group cut suggestion', () {
     const members = [
       FaceMember(counterId: 1, name: '甲', groupName: '一团'),
@@ -406,6 +463,30 @@ void main() {
       );
       expect(r.every((c) => c.candidates.single == 0), isTrue);
       expect(r.every((c) => c.status == FaceMatchStatus.auto), isTrue);
+    });
+
+    test('uncapped batch keeps per-card rivals and confidence restrictions', () {
+      final result = assignFacesToMembers(
+        cards: const [
+          [[0.80, 0.20]], // high-confidence preferred member
+          [[0.55, 0.10]], // solo low-confidence stranger
+          [[0.20, 0.85]], // off-list member: review even with a high score
+          [[0.80, 0.20]], // closer to an outside person: reject
+          [],
+        ],
+        candidateCount: 2,
+        rivals: const [[-1], [-1], [-1], [0.84], []],
+        sampledPeople: 1,
+        preferredCount: 1,
+      );
+      expect(result.map((card) => card.status), [
+        FaceMatchStatus.auto,
+        FaceMatchStatus.unknown,
+        FaceMatchStatus.review,
+        FaceMatchStatus.unknown,
+        FaceMatchStatus.unknown,
+      ]);
+      expect(result.map((card) => card.candidates), [[0], [], [1], [], []]);
     });
 
     test('soft cap: weakest over-cap polaroid becomes review, not reassigned',

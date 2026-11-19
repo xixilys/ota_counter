@@ -45,6 +45,7 @@ import 'package:ota_counter/services/face/face_engine.dart';
 import 'package:ota_counter/services/face/face_sample_service.dart';
 import 'package:ota_counter/services/settings_service.dart';
 import 'package:ota_counter/widgets/counter_card.dart';
+import 'package:ota_counter/widgets/dream/sticker_badge.dart';
 
 const String _fixtureUrl = String.fromEnvironment(
   'BATCH_FIXTURE_URL',
@@ -231,7 +232,7 @@ void main() {
         tester,
         find.byWidgetPredicate((w) =>
             w is Text &&
-            (w.data ?? '').contains('处理中') == false &&
+            (w.data ?? '').contains('正在处理') == false &&
             (w.data ?? '').startsWith('2 张照片')));
     _log('cut + faces for 2 photos: ${processing.elapsedMilliseconds} ms');
 
@@ -257,8 +258,8 @@ void main() {
       final status = texts.first;
       final members = texts[1];
       _log('card $i truth=${truth[i]} status=$status members=$members');
-      if (members == truth[i]) {
-        if (status == '自动') autoRight++;
+      if (members == truth[i] && status == '自动') {
+        autoRight++;
       } else {
         needed++;
         await tester
@@ -292,6 +293,8 @@ void main() {
 
     await tester.scrollUntilVisible(find.text('将要保存'), -200,
         scrollable: scrollable);
+    await tester.tap(find.text('将要保存'));
+    await tester.pumpAndSettle();
     final treeBatch = truth.where((t) => t == '小树').length;
     // 小树: ledger has 1 → +(n-1). 小雪: none → +1.
     final supplements = [treeBatch - 1, 1];
@@ -337,16 +340,18 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(cardName);
     await tester.pumpAndSettle();
-    await _pumpUntil(tester, find.text('存图数'));
-    Finder metric(String label) => find
-        .ancestor(of: find.text(label), matching: find.byType(Column))
-        .first;
-    expect(
-        find.descendant(of: metric('存图数'), matching: find.text('$treeBatch')),
+    await _pumpUntil(tester, find.text('查看详情'));
+    expect(find.text('总计 $treeBatch'), findsOneWidget);
+    await tester.tap(find.text('查看详情'));
+    await _pumpUntil(tester, find.textContaining('$treeBatch 张存图'));
+    final totalBadge = find.byWidgetPredicate((widget) =>
+        widget is StickerBadge &&
+        widget.semanticLabel == '小树 共 $treeBatch 张切奇');
+    expect(totalBadge, findsOneWidget);
+    expect(find.descendant(of: totalBadge, matching: find.text('$treeBatch')),
         findsOneWidget);
-    expect(find.descendant(of: metric('总计'), matching: find.text('$treeBatch')),
-        findsOneWidget);
-    _log('member detail 小树: 总计 $treeBatch, 存图数 $treeBatch');
+    expect(find.textContaining('$treeBatch 张存图'), findsOneWidget);
+    _log('member detail 小树: 总计 $treeBatch, 存图 $treeBatch');
 
     final enrollment = find.text('登记人脸');
     await tester.ensureVisible(enrollment);

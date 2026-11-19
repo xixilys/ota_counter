@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -11,6 +12,8 @@ import '../models/activity_record_media_model.dart';
 import '../models/counter_model.dart';
 import '../models/group_pricing_model.dart';
 import '../models/idol_database_models.dart';
+import 'album_clarity_service.dart';
+import 'album_camera_recovery.dart';
 import 'idol_database_service.dart';
 
 class DatabaseService {
@@ -20,13 +23,15 @@ class DatabaseService {
   static const String activityRecordTableName = 'activity_records';
   static const String activityRecordMediaTableName = 'activity_record_media';
   static const String counterSyncTableName = 'counter_sync_log';
+  static const String merchKindTableName = 'merch_kinds';
+  static const String merchPurchaseTableName = 'merch_purchases';
 
   /// On-device face embeddings for 批量拍切. Private: deliberately left out of
   /// full backups (see ExportImportService._buildFullBackupBundle).
   static const String faceSamplesTableName = 'face_samples';
   static const String faceEnrollmentActionsTableName =
       'face_enrollment_actions';
-  static const int _version = 22;
+  static const int _version = 23;
 
   static Database? _database;
   static Future<Database>? _databaseOpening;
@@ -160,6 +165,9 @@ class DatabaseService {
     if (oldVersion < 21) {
       await _migrateToV21(db);
     }
+    if (oldVersion < 23) {
+      await _migrateToV23(db);
+    }
     await _ensureLatestSchema(db);
   }
 
@@ -175,6 +183,7 @@ class DatabaseService {
         group_name TEXT NOT NULL DEFAULT '',
         person_id INTEGER,
         person_name TEXT NOT NULL DEFAULT '',
+        short_name TEXT NOT NULL DEFAULT '',
         count INTEGER NOT NULL,
         color TEXT NOT NULL,
         is_hidden INTEGER NOT NULL DEFAULT 0,
@@ -282,16 +291,7 @@ class DatabaseService {
       CREATE INDEX IF NOT EXISTS idx_activity_records_type
       ON $activityRecordTableName(record_type)
     ''');
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS ticket_types(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL UNIQUE,
-        default_price REAL NOT NULL DEFAULT 0,
-        is_free INTEGER NOT NULL DEFAULT 0,
-        sort_order INTEGER NOT NULL DEFAULT 0,
-        updated_at TEXT NOT NULL
-      )
-    ''');
+    await _createTicketTypeCatalogSchema(db);
     await db.execute('''
       CREATE TABLE IF NOT EXISTS ticket_price_presets(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -310,6 +310,7 @@ class DatabaseService {
       CREATE INDEX IF NOT EXISTS idx_ticket_price_presets_scope
       ON ticket_price_presets(scope_key, ticket_type)
     ''');
+    await _createMerchSchema(db);
     await db.execute('''
       CREATE TABLE IF NOT EXISTS $activityRecordMediaTableName(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -378,6 +379,53 @@ class DatabaseService {
     await db.execute('''
       CREATE INDEX IF NOT EXISTS idx_face_samples_media
       ON $faceSamplesTableName(media_id)
+    ''');
+  }
+
+  /// 周边 purchases are their own ledger: they are purchases, not cheki
+  /// activity, so they must not feed member counters, chart revenue or the
+  /// MCP record stream. Full backups include both tables.
+  static Future<void> _createMerchSchema(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $merchKindTableName(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        default_price REAL NOT NULL DEFAULT 0,
+        is_preset INTEGER NOT NULL DEFAULT 0,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $merchPurchaseTableName(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind TEXT NOT NULL DEFAULT '',
+        member_name TEXT NOT NULL DEFAULT '',
+        group_name TEXT NOT NULL DEFAULT '',
+        event_name TEXT NOT NULL DEFAULT '',
+        venue_name TEXT NOT NULL DEFAULT '',
+        session_label TEXT NOT NULL DEFAULT '',
+        note TEXT NOT NULL DEFAULT '',
+        quantity INTEGER NOT NULL DEFAULT 1,
+        unit_price REAL NOT NULL DEFAULT 0,
+        total_amount REAL NOT NULL DEFAULT 0,
+        photo_path TEXT NOT NULL DEFAULT '',
+        occurred_at TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL DEFAULT ''
+      )
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_merch_purchases_occurred_at
+      ON $merchPurchaseTableName(occurred_at DESC)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_merch_purchases_kind
+      ON $merchPurchaseTableName(kind)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_merch_purchases_member
+      ON $merchPurchaseTableName(member_name)
     ''');
   }
 
@@ -675,6 +723,66 @@ class DatabaseService {
     await _createMediaSourceHashIndex(db);
   }
 
+  static Future<void> _migrateToV23(Database db) async {
+    // 周边手帐: preset/custom merch kinds and the purchase ledger. Old rows
+    // and old backups are untouched; backup restore only writes those tables
+    // when the manifest contains them.
+    await _createMerchSchema(db);
+
+    // 卡面简称: a per-member 1-4 character label for cards / avatars. Legacy
+    // upgrade fixtures may not create the counters table at all; the
+    // ensure-latest-schema pass below adds the column whenever it exists.
+    if ((await _getColumnNames(db, tableName)).isNotEmpty) {
+      await _ensureColumns(db, tableName, {
+        'short_name': "TEXT NOT NULL DEFAULT ''",
+      });
+    }
+
+    // Ticketing gained a few built-ins. Insert only the missing ones so a
+    // deliberately deleted default does not come back on every app launch.
+    // An empty catalog is left to TicketPricingService so a very old database
+    // upgrading straight to v23 still gets the full default list.
+    await _createTicketTypeCatalogSchema(db);
+    final typeCount = await db.rawQuery(
+      'SELECT COUNT(*) AS count FROM ticket_types',
+    );
+    if (((typeCount.first['count'] as num?)?.toInt() ?? 0) > 0) {
+      final now = DateTime.now().toIso8601String();
+      for (final (name, sortOrder) in [
+        ('早鸟票', 2),
+        ('双人票', 8),
+        ('通票', 9),
+      ]) {
+        await db.insert(
+          'ticket_types',
+          {
+            'name': name,
+            'default_price': 0,
+            'is_free': 0,
+            'sort_order': sortOrder,
+            'updated_at': now,
+          },
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+      }
+    }
+  }
+
+  static Future<void> _createTicketTypeCatalogSchema(
+    DatabaseExecutor db,
+  ) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ticket_types(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        default_price REAL NOT NULL DEFAULT 0,
+        is_free INTEGER NOT NULL DEFAULT 0,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+  }
+
   static Future<void> _createMediaSourceHashIndex(DatabaseExecutor db) async {
     await db.execute('''
       CREATE INDEX IF NOT EXISTS idx_activity_record_media_source_hash
@@ -708,6 +816,7 @@ class DatabaseService {
         'group_name': "TEXT NOT NULL DEFAULT ''",
         'person_id': 'INTEGER',
         'person_name': "TEXT NOT NULL DEFAULT ''",
+        'short_name': "TEXT NOT NULL DEFAULT ''",
         'is_hidden': 'INTEGER NOT NULL DEFAULT 0',
         'three_inch_count': 'INTEGER NOT NULL DEFAULT 0',
         'five_inch_count': 'INTEGER NOT NULL DEFAULT 0',
@@ -880,6 +989,7 @@ class DatabaseService {
       'group_name': counter.groupName,
       'person_id': counter.personId,
       'person_name': counter.personName,
+      'short_name': counter.shortName,
       'count': counter.count,
       'color': counter.color,
       'is_hidden': counter.isHidden ? 1 : 0,
@@ -969,8 +1079,9 @@ class DatabaseService {
 
   static CounterModel? resolveCounterForParticipant(
     List<CounterModel> counters,
-    ActivityParticipant participant,
-  ) {
+    ActivityParticipant participant, {
+    bool allowUniquePersonFallback = true,
+  }) {
     final personId = participant.personId;
     if (personId != null) {
       final matched = _firstCounterWhere(
@@ -1000,16 +1111,33 @@ class DatabaseService {
 
     final normalizedGroup = _normalizeLookupPart(participant.groupName);
     final normalizedMember = _normalizeLookupPart(participant.memberName);
-    if (normalizedMember.isEmpty) {
-      return null;
+    if (normalizedMember.isNotEmpty) {
+      final named = _firstCounterWhere(
+        counters,
+        (counter) =>
+            _identitiesCanMatch(counter.personId, participant.personId) &&
+            _normalizeLookupPart(counter.groupName) == normalizedGroup &&
+            _normalizeLookupPart(counter.name) == normalizedMember,
+      );
+      if (named != null) {
+        return named;
+      }
     }
-    return _firstCounterWhere(
-      counters,
-      (counter) =>
-          _identitiesCanMatch(counter.personId, participant.personId) &&
-          _normalizeLookupPart(counter.groupName) == normalizedGroup &&
-          _normalizeLookupPart(counter.name) == normalizedMember,
-    );
+
+    // 转团: the historical participant still says the old group, but the
+    // person now has a single card under the new group. Falling back only when
+    // that person has exactly one card keeps 兼任 (two cards) unambiguous while
+    // letting deletions/replays hit the moved card. The historical group name
+    // on the record itself is never rewritten for this case.
+    if (allowUniquePersonFallback && personId != null) {
+      final personCards = counters
+          .where((counter) => counter.personId == personId)
+          .toList(growable: false);
+      if (personCards.length == 1) {
+        return personCards.single;
+      }
+    }
+    return null;
   }
 
   static bool _groupsCanMatch(String counterGroup, String candidateGroup) {
@@ -1049,7 +1177,11 @@ class DatabaseService {
       return _PreparedActivityRecord(record: record);
     }
 
-    final existingCounter = resolveCounterForActivityRecord(counters, record);
+    final existingCounter = resolveCounterForActivityRecord(
+      counters,
+      record,
+      allowUniquePersonFallback: false,
+    );
     if (existingCounter != null) {
       return _PreparedActivityRecord(
         record: _recordLinkedToCounter(record, existingCounter),
@@ -1139,7 +1271,11 @@ class DatabaseService {
       for (final record in reverse ? removed : added) {
         final targets = <CounterModel>[];
         if (record.isCounter) {
-          final existing = resolveCounterForActivityRecord(counters, record);
+          final existing = resolveCounterForActivityRecord(
+            counters,
+            record,
+            allowUniquePersonFallback: reverse,
+          );
           if (existing != null) {
             targets.add(existing);
           } else if (!reverse) {
@@ -1157,7 +1293,11 @@ class DatabaseService {
           }
         } else if (record.isMulti && record.multiCountField != null) {
           for (final participant in record.effectiveParticipants) {
-            var target = resolveCounterForParticipant(counters, participant);
+            var target = resolveCounterForParticipant(
+              counters,
+              participant,
+              allowUniquePersonFallback: reverse,
+            );
             if (target == null && !reverse) {
               target = await _persistCounter(
                   db,
@@ -1204,6 +1344,74 @@ class DatabaseService {
       await _persistCounter(db, counters, counter);
     }
     return insertedNewCounter;
+  }
+
+  /// Latest linked counter record per card. Used only for the cross-group
+  /// card manager: multi cuts have no counter_id, so this is a "最近活动"
+  /// hint, not a full history query.
+  static Future<Map<int, DateTime>> getLastCounterActivityDays({
+    List<CounterModel>? counters,
+  }) async {
+    final db = await database;
+    final result = <int, DateTime>{};
+    void remember(int? id, String? raw) {
+      final value = raw?.trim() ?? '';
+      final day = value.isEmpty ? null : DateTime.tryParse(value);
+      if (id == null || day == null) return;
+      final previous = result[id];
+      if (previous == null || day.isAfter(previous)) result[id] = day;
+    }
+
+    final linked = await db.rawQuery('''
+      SELECT counter_id, MAX(occurred_at) AS last_at
+      FROM $activityRecordTableName
+      WHERE record_type = ? AND counter_id IS NOT NULL
+      GROUP BY counter_id
+      ''', [ActivityRecordType.counter.dbValue]);
+    for (final row in linked) {
+      remember((row['counter_id'] as num?)?.toInt(), row['last_at'] as String?);
+    }
+
+    // Old imports often have no counter_id. Match those rows by the same
+    // person/group/name resolution used for display, so the card manager does
+    // not say "还没有流水" for a card that visibly has history.
+    final unlinked = await db.rawQuery('''
+      SELECT person_id, person_name, group_name, subject_name,
+             MAX(occurred_at) AS last_at
+      FROM $activityRecordTableName
+      WHERE record_type = ? AND counter_id IS NULL
+      GROUP BY person_id, person_name, group_name, subject_name
+      ''', [ActivityRecordType.counter.dbValue]);
+    if (unlinked.isEmpty) return result;
+    final allCounters = counters ?? await getCounters();
+    for (final row in unlinked) {
+      final personId = (row['person_id'] as num?)?.toInt();
+      final personName =
+          _normalizeLookupPart((row['person_name'] ?? '') as String);
+      final group = _normalizeLookupPart((row['group_name'] ?? '') as String);
+      final subject =
+          _normalizeLookupPart((row['subject_name'] ?? '') as String);
+      int? matchedId;
+      for (final counter in allCounters) {
+        if (personId != null && counter.personId != null) {
+          if (counter.personId != personId ||
+              _normalizeLookupPart(counter.groupName) != group) {
+            continue;
+          }
+        } else if (_normalizeLookupPart(counter.groupName) != group) {
+          continue;
+        }
+        final counterName = _normalizeLookupPart(counter.name);
+        final counterPerson = _normalizeLookupPart(counter.personName);
+        final nameMatches = counterName == subject ||
+            (personName.isNotEmpty && counterPerson == personName);
+        if (!nameMatches) continue;
+        matchedId = counter.id;
+        break;
+      }
+      remember(matchedId, row['last_at'] as String?);
+    }
+    return result;
   }
 
   static Future<List<CounterModel>> getCounters() async {
@@ -1298,8 +1506,7 @@ class DatabaseService {
         continue;
       }
       if (record.isCounter) {
-        if (resolveCounterForActivityRecord(countersBefore, record)?.id ==
-                id &&
+        if (resolveCounterForActivityRecord(countersBefore, record)?.id == id &&
             resolveCounterForActivityRecord(countersAfter, record)?.id != id) {
           await db.update(
             activityRecordTableName,
@@ -1815,9 +2022,19 @@ class DatabaseService {
     final pendingFileDeletes = <String>[];
     final db = await database;
     await db.transaction((txn) async {
+      final merchPhotos = await txn.query(
+        merchPurchaseTableName,
+        columns: ['photo_path'],
+      );
+      for (final row in merchPhotos) {
+        final path = (row['photo_path'] ?? '').toString().trim();
+        if (path.isNotEmpty) pendingFileDeletes.add(path);
+      }
       await _deleteActivityRecordMediaRows(txn,
           pendingFileDeletes: pendingFileDeletes);
       await txn.delete(activityRecordMediaTableName);
+      await txn.delete(merchPurchaseTableName);
+      await txn.delete(merchKindTableName);
       // Member face samples point at the media / counters being wiped; "我"
       // is not part of the ledger and survives a restore.
       await txn.delete(faceSamplesTableName, where: 'is_self = 0');
@@ -1868,6 +2085,7 @@ class DatabaseService {
     ActivityRecordMediaProcessingMode processingMode =
         ActivityRecordMediaProcessingMode.none,
     ActivityRecordMediaOwnerScope? owner,
+    DateTime? capturedAt,
   }) async {
     final originalExtension = extension(imageFile.path).trim();
     final fileExtension =
@@ -1879,6 +2097,7 @@ class DatabaseService {
       mediaType: mediaType,
       processingMode: processingMode,
       owner: owner,
+      capturedAt: capturedAt,
     );
   }
 
@@ -1890,6 +2109,7 @@ class DatabaseService {
     ActivityRecordMediaProcessingMode processingMode =
         ActivityRecordMediaProcessingMode.none,
     ActivityRecordMediaOwnerScope? owner,
+    DateTime? capturedAt,
   }) async {
     return _saveActivityRecordMediaBytes(
       recordId: recordId,
@@ -1898,6 +2118,7 @@ class DatabaseService {
       mediaType: mediaType,
       processingMode: processingMode,
       owner: owner,
+      capturedAt: capturedAt,
     );
   }
 
@@ -1908,6 +2129,7 @@ class DatabaseService {
     required ActivityRecordMediaType mediaType,
     required ActivityRecordMediaProcessingMode processingMode,
     ActivityRecordMediaOwnerScope? owner,
+    required DateTime? capturedAt,
   }) async {
     final directory = await getApplicationDocumentsDirectory();
     final mediaDirectory = Directory(
@@ -1934,6 +2156,7 @@ class DatabaseService {
       ownerPersonId: owner?.personId,
       ownerPersonName: owner?.personName ?? '',
       ownerGroupName: owner?.groupName ?? '',
+      capturedAt: capturedAt,
     );
     final db = await database;
     final values = media.toMap()..remove('id');
@@ -1942,18 +2165,34 @@ class DatabaseService {
       values,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
-    return ActivityRecordMediaModel(
-      id: id,
-      recordId: media.recordId,
-      path: media.path,
-      createdAt: media.createdAt,
-      mediaType: media.mediaType,
-      processingMode: media.processingMode,
-      isReversed: media.isReversed,
-      ownerPersonId: media.ownerPersonId,
-      ownerPersonName: media.ownerPersonName,
-      ownerGroupName: media.ownerGroupName,
+    await AlbumPhotoFiles.prepare(
+      savedPath,
+      rectifyCut: media.isScan && !media.processingMode.isProcessed,
+      isScan: media.isScan,
     );
+    final saved = media.copyWith(id: id);
+    if (media.isScan) unawaited(_recoverNewScans(db, [saved]));
+    return saved;
+  }
+
+  static Future<void> _recoverNewScans(
+      Database db, List<ActivityRecordMediaModel> media) async {
+    if (!Platform.isAndroid || media.isEmpty) return;
+    try {
+      final recordIds = {
+        for (final m in media)
+          if (m.capturedAt == null) m.recordId
+      };
+      final records = <ActivityRecordModel>[];
+      for (final id in recordIds) {
+        final record = await _getActivityRecordFrom(db, id);
+        if (record != null) records.add(record);
+      }
+      AlbumCameraRecovery.schedule(media, records);
+    } catch (error) {
+      // The files are already committed. Opening the album schedules them again.
+      debugPrint('切册稍后检查新切图的原拍：$error');
+    }
   }
 
   /// Records whose occurred_at lies in [from, to).
@@ -2019,10 +2258,12 @@ class DatabaseService {
       await mediaDirectory.create(recursive: true);
     }
     final writtenFiles = <String>[];
+    final savedMedia = <ActivityRecordMediaModel>[];
     final db = await database;
     var insertedNewCounter = false;
+    late final BatchSaveResult result;
     try {
-      final result = await db.transaction<BatchSaveResult>((txn) async {
+      result = await db.transaction<BatchSaveResult>((txn) async {
         final counters = await _getCountersFrom(txn);
         final recordIds = <int>[];
         for (final record in newRecords) {
@@ -2083,17 +2324,26 @@ class DatabaseService {
             activityRecordMediaTableName,
             model.toMap()..remove('id'),
           ));
+          savedMedia.add(model.copyWith(id: mediaIds.last));
         }
         return BatchSaveResult(recordIds: recordIds, mediaIds: mediaIds);
       });
-      if (insertedNewCounter) {
-        await autoAssignCounterThemeColors();
-      }
-      return result;
     } catch (_) {
       await _deleteMediaFilesAfterCommit(writtenFiles);
       rethrow;
     }
+    if (insertedNewCounter) {
+      await autoAssignCounterThemeColors();
+    }
+    for (var i = 0; i < writtenFiles.length; i++) {
+      await AlbumPhotoFiles.prepare(
+        writtenFiles[i],
+        rectifyCut: !media[i].processingMode.isProcessed,
+        isScan: true,
+      );
+    }
+    unawaited(_recoverNewScans(db, savedMedia));
+    return result;
   }
 
   static Future<void> updateActivityRecordMediaReversed(
@@ -2164,6 +2414,7 @@ class DatabaseService {
       try {
         final file = File(path);
         if (await file.exists()) await file.delete();
+        await AlbumPhotoFiles.deleteFor(path);
       } on FileSystemException {
         // Keep an orphan file if cleanup fails; the committed deletion is valid.
       }
@@ -2942,19 +3193,15 @@ class DatabaseService {
     if (personId != null) {
       final canonicalName = lookup.personNamesById[personId];
       if (canonicalName != null) {
-        final normalizedCanonical = _normalizeLookupPart(canonicalName);
-        final nameAgrees = normalizedCanonical.isEmpty ||
-            normalizedPersonName.isEmpty ||
-            normalizedPersonName == normalizedCanonical ||
-            normalizedCounterName == normalizedCanonical;
-        if (nameAgrees) {
-          return _ResolvedIdentity(
-            personId: personId,
-            personName: trimmedPersonName.isNotEmpty
-                ? trimmedPersonName
-                : canonicalName,
-          );
-        }
+        // A live person id is authoritative. The same real person can use a
+        // different stage name in each group, and a same-name member of another
+        // person must not steal the card during a full identity scan.
+        // Missing ids (after an idol refresh) fall through to name matching.
+        return _ResolvedIdentity(
+          personId: personId,
+          personName:
+              trimmedPersonName.isNotEmpty ? trimmedPersonName : canonicalName,
+        );
       }
     }
 

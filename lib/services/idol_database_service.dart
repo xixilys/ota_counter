@@ -777,6 +777,22 @@ class IdolDatabaseService {
     };
   }
 
+  /// Memberships currently linked to one real person. Used by the cross-group
+  /// card manager; a counter may have no library membership, which is fine.
+  static Future<List<IdolMember>> getMembersForPerson(int personId) async {
+    final db = await database;
+    final maps = await db.rawQuery('''
+      SELECT idol_members.*, idol_groups.name AS group_name,
+             idol_people.name AS person_name
+      FROM idol_members
+      LEFT JOIN idol_groups ON idol_groups.id = idol_members.group_id
+      LEFT JOIN idol_people ON idol_people.id = idol_members.person_id
+      WHERE idol_members.person_id = ?
+      ORDER BY idol_groups.name COLLATE NOCASE ASC
+      ''', [personId]);
+    return maps.map(IdolMember.fromMap).toList(growable: false);
+  }
+
   static Future<int> upsertPerson(IdolPerson person) async {
     final db = await database;
     return db.transaction((txn) async {

@@ -9,8 +9,14 @@ import '../models/activity_record_media_model.dart';
 import '../models/activity_record_media_scope.dart';
 import '../models/activity_record_model.dart';
 import '../models/counter_model.dart';
+import 'album/album_grouping.dart';
+import 'album/album_models.dart';
+import 'album/album_viewer_page.dart';
+import 'album/album_widgets.dart';
 import 'batch_capture_page.dart';
 import 'manual_scan_crop_page.dart';
+import '../services/album_orientation_service.dart';
+import '../services/batch_import_service.dart';
 import '../services/database_service.dart';
 import '../services/record_scan_service.dart';
 
@@ -55,6 +61,7 @@ class _RecordMemoryPageState extends State<RecordMemoryPage> {
     ),
   );
   List<ActivityRecordMediaModel> _media = [];
+  Map<String, AlbumPhoto> _scanPhotos = const {};
   bool _loading = true;
   bool _saving = false;
 
@@ -97,6 +104,7 @@ class _RecordMemoryPageState extends State<RecordMemoryPage> {
       }
       setState(() {
         _media = [];
+        _scanPhotos = const {};
         _loading = false;
       });
       return;
@@ -123,6 +131,14 @@ class _RecordMemoryPageState extends State<RecordMemoryPage> {
     }
     setState(() {
       _media = media;
+      _scanPhotos = {
+        for (final photo in buildAlbumData(
+          counters: widget.ownerCounters,
+          records: _records,
+          media: media.where((item) => item.isScan).toList(),
+        ).photos)
+          photo.path: photo,
+      };
       _loading = false;
     });
   }
@@ -278,19 +294,28 @@ class _RecordMemoryPageState extends State<RecordMemoryPage> {
     await _savePickedFiles([file], successLabel: '张纪念照');
   }
 
-  Future<void> _saveScanOutput(RecordScanOutput output) async {
+  Future<void> _saveScanOutput(
+    RecordScanOutput output, {
+    required DateTime? capturedAt,
+    bool autoOrient = false,
+  }) async {
     final recordId = _targetRecordId;
     if (recordId == null) {
       return;
     }
 
+    final bytes = output.bytes;
     await DatabaseService.saveActivityRecordMediaBytes(
       recordId: recordId,
-      bytes: output.bytes,
+      bytes: autoOrient
+          ? await AlbumOrientationService.orientScanBytes(
+              bytes is Uint8List ? bytes : Uint8List.fromList(bytes))
+          : bytes,
       fileExtension: output.fileExtension,
       mediaType: ActivityRecordMediaType.scan,
       processingMode: output.processingMode,
       owner: _mediaOwner,
+      capturedAt: capturedAt,
     );
   }
 
@@ -317,6 +342,8 @@ class _RecordMemoryPageState extends State<RecordMemoryPage> {
         if (!await file.exists()) {
           continue;
         }
+        // Keep the system scanner's file as the archive original. Media
+        // saving generates the album rendition before returning.
         await DatabaseService.saveActivityRecordMediaFile(
           recordId: recordId,
           imageFile: file,
@@ -370,11 +397,12 @@ class _RecordMemoryPageState extends State<RecordMemoryPage> {
     try {
       final source = await _pickScanSource();
       if (!mounted || source == null) return;
-      final sourceFile = await _pickSingleScanFile(source);
-      if (!mounted || sourceFile == null) return;
+      final shot = await _pickSingleScanSource(source);
+      if (!mounted || shot == null) return;
       final output =
-          await RecordScanService.createBasicScan(sourceFile: sourceFile);
-      await _saveScanOutput(output);
+          await RecordScanService.createBasicScan(sourceFile: shot.file);
+      await _saveScanOutput(output,
+          capturedAt: shot.capturedAt, autoOrient: true);
       await _loadMedia();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -398,10 +426,10 @@ class _RecordMemoryPageState extends State<RecordMemoryPage> {
     try {
       final source = await _pickManualScanSource();
       if (!mounted || source == null) return;
-      final file = await _pickSingleScanFile(source);
-      if (!mounted || file == null) return;
+      final shot = await _pickSingleScanSource(source);
+      if (!mounted || shot == null) return;
       final draft =
-          await RecordScanService.prepareManualDraft(sourceFile: file);
+          await RecordScanService.prepareManualDraft(sourceFile: shot.file);
       if (!mounted) return;
       final quad = await Navigator.of(context).push<RecordScanQuad>(
         MaterialPageRoute(
@@ -412,7 +440,7 @@ class _RecordMemoryPageState extends State<RecordMemoryPage> {
         sourceBytes: draft.sourceBytes,
         quad: quad,
       );
-      await _saveScanOutput(output);
+      await _saveScanOutput(output, capturedAt: shot.capturedAt);
       await _loadMedia();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -488,24 +516,23 @@ class _RecordMemoryPageState extends State<RecordMemoryPage> {
     );
   }
 
-  Future<File?> _pickSingleScanFile(_ScanSource source) async {
-    final file = source == _ScanSource.camera
-        ? await _picker.pickImage(
-            source: ImageSource.camera,
-            maxWidth: 2400,
-            maxHeight: 2400,
-            imageQuality: 95,
-          )
-        : await _picker.pickImage(
-            source: ImageSource.gallery,
-            maxWidth: 2400,
-            maxHeight: 2400,
-            imageQuality: 95,
-          );
+  Future<({File file, DateTime? capturedAt})?> _pickSingleScanSource(
+      _ScanSource source) async {
+    // Retain original EXIF before processing. The external picker does not
+    // report the shutter event; use the camera file's EXIF there as well.
+    final file = await _picker.pickImage(
+      source: source == _ScanSource.camera
+          ? ImageSource.camera
+          : ImageSource.gallery,
+    );
     if (file == null) {
       return null;
     }
-    return File(file.path);
+    return (
+      file: File(file.path),
+      capturedAt:
+          await BatchImportService.readExifCaptureTimeFromFile(file.path),
+    );
   }
 
   Future<void> _showScanModes() async {
@@ -643,6 +670,19 @@ class _RecordMemoryPageState extends State<RecordMemoryPage> {
   }
 
   Future<void> _previewMedia(ActivityRecordMediaModel media) async {
+    final scan = _scanPhotos[media.path];
+    if (scan != null) {
+      final photos = _scanPhotos.values.toList();
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) => AlbumViewerPage(
+            photos: photos,
+            initialIndex: photos.indexOf(scan),
+          ),
+        ),
+      );
+      return;
+    }
     await showDialog<void>(
       context: context,
       builder: (context) => Dialog.fullscreen(
@@ -869,16 +909,20 @@ class _RecordMemoryPageState extends State<RecordMemoryPage> {
                             child: Stack(
                               fit: StackFit.expand,
                               children: [
-                                Image.file(
-                                  File(media.path),
-                                  fit: BoxFit.cover,
-                                  cacheWidth: 640,
-                                  errorBuilder: (context, error, stackTrace) {
-                                    return const Center(
-                                      child: Icon(Icons.broken_image_outlined),
-                                    );
-                                  },
-                                ),
+                                if (_scanPhotos[media.path] case final scan?)
+                                  AlbumPhotoThumb(photo: scan, cacheWidth: 640)
+                                else
+                                  Image.file(
+                                    File(media.path),
+                                    fit: BoxFit.cover,
+                                    cacheWidth: 640,
+                                    errorBuilder: (context, error, stackTrace) {
+                                      return const Center(
+                                        child:
+                                            Icon(Icons.broken_image_outlined),
+                                      );
+                                    },
+                                  ),
                                 Positioned(
                                   top: 8,
                                   left: 8,

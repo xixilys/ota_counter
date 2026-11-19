@@ -3,8 +3,9 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../models/counter_model.dart';
+import '../models/member_short_name.dart';
 import '../services/settings_service.dart';
-import '../theme/app_theme.dart';
+import 'dream/dream_kit.dart';
 
 class CounterCountBadgeData {
   final String label;
@@ -16,11 +17,14 @@ class CounterCountBadgeData {
   });
 }
 
-/// A member summary tile.
+/// A member summary printed as a collectible cheki trading card.
 ///
-/// The card is a light wash of the member's chosen color with a slim accent
-/// rail, so the name, group and count keep strong contrast in both themes.
-/// Compact grids (3-5 columns) drop the breakdown and use a shorter layout.
+/// The card is a polaroid print in the member's 応援色: a small tinted "stage"
+/// photo with the member's initial, washi tape, the name and group on the white
+/// bottom margin and the total as a die-cut sticker. In 3-5 column grids the
+/// photo shrinks so cards stay scannable; in 1-2 column grids the full
+/// breakdown is printed underneath. The member's own colour, not a generic
+/// grey surface, carries the card identity.
 class CounterCard extends StatelessWidget {
   final CounterModel counter;
   final int totalCount;
@@ -55,131 +59,131 @@ class CounterCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
-    final accent =
-        AppTheme.readableAccent(counter.colorValue, theme.brightness);
-    final background = AppTheme.wash(accent, scheme.surface, theme.brightness);
-    final borderColor = Color.alphaBlend(
-      accent.withValues(alpha: isDark ? 0.34 : 0.20),
-      scheme.surface,
-    );
+    final brightness = theme.brightness;
+    final rawColor = counter.colorValue;
+    final accent = DreamPalette.accent(rawColor, brightness);
+    final photoColor = DreamPalette.photo(rawColor, brightness);
+    final tapeColor = DreamPalette.tape(rawColor, brightness);
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
         final compact = gridColumns >= 3;
         final ultraCompact = gridColumns >= 5 || width < 88;
-        final extraCompact = gridColumns >= 4 || width < 104;
+        final dense = gridColumns >= 4 || width < 104;
         final showBreakdown = gridColumns <= 2;
         final cardScale = textScale ?? SettingsService.fontScale.value;
         final safeCardScale = cardScale > 0 ? cardScale : 1.0;
         final systemTextScale = MediaQuery.textScalerOf(context).scale(1.0);
         final effectiveTextScale = systemTextScale * safeCardScale;
-        final horizontalPadding = ultraCompact ? 7.0 : (compact ? 9.0 : 14.0);
-        final verticalPadding = ultraCompact ? 7.0 : (compact ? 9.0 : 13.0);
-        final radius = compact ? 18.0 : 22.0;
+
+        final photoHeight = compact
+            ? (ultraCompact
+                ? 25.0
+                : dense
+                    ? 31.0
+                    : 48.0)
+            : (width < 190 ? 96.0 : (width < 280 ? 124.0 : 140.0));
         final nameFontSize = ultraCompact
             ? 9.5
             : compact
-                ? (extraCompact ? 10.5 : 11.5)
+                ? (dense ? 10.5 : 11.5)
                 : (width < 190 ? 15.0 : 17.0);
-        final countFontSize = ultraCompact
-            ? 23.0
+        final groupFontSize = ultraCompact
+            ? 8.0
             : compact
-                ? (extraCompact ? 27.0 : 30.0)
-                : (width < 190 ? 38.0 : 44.0);
+                ? (dense ? 8.5 : 9.5)
+                : (width < 190 ? 11.0 : 12.0);
+        final countFontSize = ultraCompact
+            ? 16.0
+            : compact
+                ? (dense ? 19.0 : 21.0)
+                : (width < 190 ? 30.0 : 36.0);
+        final framePadding = compact
+            ? const EdgeInsets.fromLTRB(3, 3, 3, 3)
+            : const EdgeInsets.fromLTRB(5, 5, 5, 5);
+        final tapeSize = compact
+            ? (ultraCompact ? const Size(24, 8) : const Size(30, 10))
+            : const Size(46, 14);
 
-        final card = DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(radius),
-            boxShadow: compact
-                ? null
-                : [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: isDark ? 0 : 0.05),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-          ),
-          child: Material(
-            color: Colors.transparent,
-            borderRadius: BorderRadius.circular(radius),
-            clipBehavior: Clip.antiAlias,
-            child: Ink(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    background,
-                    Color.alphaBlend(
-                      accent.withValues(alpha: isDark ? 0.045 : 0.025),
-                      scheme.surface,
-                    ),
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(radius),
-                border: Border.all(color: borderColor),
-              ),
-              child: InkWell(
-                onTap: isLocked ? null : onTap,
-                onLongPress: isLocked ? null : onLongPress,
-                child: Stack(
-                  children: [
-                    Positioned(
-                      left: 0,
-                      top: 0,
-                      bottom: 0,
-                      width: compact ? 3 : 4,
-                      // The member's 应援色 as a solid penlight stripe.
-                      child: ColoredBox(color: accent),
-                    ),
-                    Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        horizontalPadding + 3,
-                        verticalPadding,
-                        horizontalPadding,
-                        verticalPadding,
-                      ),
-                      child: compact
-                          ? _CompactCardBody(
-                              counter: counter,
-                              totalCount: totalCount,
-                              accent: accent,
-                              nameFontSize: nameFontSize,
-                              countFontSize: countFontSize,
-                              isLocked: isLocked,
-                              isHidden: counter.isHidden,
-                              showAvatar: gridColumns <= 4,
-                              onEdit: onEdit,
-                              onDelete: onDelete,
-                              onLongPress: onLongPress,
-                            )
-                          : _RegularCardBody(
-                              counter: counter,
-                              totalCount: totalCount,
-                              breakdownEntries: breakdownEntries,
-                              percentage: percentage,
-                              accent: accent,
-                              nameFontSize: nameFontSize,
-                              countFontSize: countFontSize,
-                              isLocked: isLocked,
-                              showBreakdown: showBreakdown,
-                              onEdit: onEdit,
-                              onDelete: onDelete,
-                              onLongPress: onLongPress,
-                            ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+        final stage = _ChekiStage(
+          name: counter.name,
+          shortName: counter.displayShortName,
+          photoColor: photoColor,
+          accent: accent,
+          photoHeight: photoHeight,
+          compact: compact,
+          ultraCompact: ultraCompact,
+          isLocked: isLocked,
+          isHidden: counter.isHidden,
+          menu: _CardMenu(
+            onEdit: onEdit,
+            onDelete: onDelete,
+            onLongPress: onLongPress,
+            color: DreamPalette.onColor(photoColor).withValues(alpha: 0.86),
+            iconSize: ultraCompact ? 16 : (compact ? 17 : 20),
+            compact: compact,
           ),
         );
 
-        // Scale only this card's text, on top of the phone's own font size.
-        // The rest of the app keeps the normal MaterialApp text scaling.
+        final Widget cardContent;
+        if (gridColumns == 1) {
+          cardContent = _WideMemberCard(
+            stage: stage,
+            name: counter.name,
+            groupName: counter.groupName,
+            totalCount: totalCount,
+            percentage: percentage,
+            breakdownEntries: breakdownEntries,
+            accent: accent,
+            scheme: scheme,
+            rawColor: rawColor,
+            brightness: brightness,
+            countFontSize: countFontSize,
+          );
+        } else {
+          cardContent = PolaroidFrame(
+            frameColor: DreamPalette.frame(brightness),
+            framePadding: framePadding,
+            photoRadius: compact ? 2 : 3,
+            tapeColor: tapeColor,
+            tapeWidth: tapeSize.width,
+            tapeHeight: tapeSize.height,
+            tapeAngle: -0.16,
+            tapeTop: compact ? -3 : -5,
+            tapeLeft: compact ? -5 : -8,
+            expandPhoto: compact,
+            captionTop: compact ? 4 : 6,
+            captionBottom: compact ? 1 : 4,
+            photo: stage,
+            caption: _CardCaption(
+              name: counter.name,
+              groupName: counter.groupName,
+              totalCount: totalCount,
+              percentage: percentage,
+              nameFontSize: nameFontSize,
+              groupFontSize: groupFontSize,
+              countFontSize: countFontSize,
+              accent: accent,
+              scheme: scheme,
+              compact: compact,
+              ultraCompact: ultraCompact,
+              showBreakdown: showBreakdown,
+              breakdownEntries: breakdownEntries,
+            ),
+          );
+        }
+
+        final card = Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            onTap: isLocked ? null : onTap,
+            onLongPress: isLocked ? null : onLongPress,
+            borderRadius: BorderRadius.circular(8),
+            child: cardContent,
+          ),
+        );
+
         final scaledCard = safeCardScale == 1.0
             ? card
             : MediaQuery(
@@ -199,346 +203,477 @@ class CounterCard extends StatelessWidget {
   }
 }
 
-class _RegularCardBody extends StatelessWidget {
-  final CounterModel counter;
+/// One-column member "album page": a portrait print on the left, the same
+/// caption stack on the right. Keeps a wide phone row from turning into a
+/// full-width card with a large empty middle.
+class _WideMemberCard extends StatelessWidget {
+  final Widget stage;
+  final String name;
+  final String groupName;
   final int totalCount;
-  final List<CounterCountBadgeData> breakdownEntries;
   final double percentage;
+  final List<CounterCountBadgeData> breakdownEntries;
   final Color accent;
-  final double nameFontSize;
+  final ColorScheme scheme;
+  final Color rawColor;
+  final Brightness brightness;
   final double countFontSize;
-  final bool isLocked;
-  final bool showBreakdown;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
-  final VoidCallback? onLongPress;
 
-  const _RegularCardBody({
-    required this.counter,
+  const _WideMemberCard({
+    required this.stage,
+    required this.name,
+    required this.groupName,
     required this.totalCount,
-    required this.breakdownEntries,
     required this.percentage,
+    required this.breakdownEntries,
     required this.accent,
-    required this.nameFontSize,
+    required this.scheme,
+    required this.rawColor,
+    required this.brightness,
     required this.countFontSize,
-    required this.isLocked,
-    required this.showBreakdown,
-    required this.onEdit,
-    required this.onDelete,
-    required this.onLongPress,
   });
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final visibleBreakdown = breakdownEntries
-        .where((entry) => entry.value > 0)
-        .toList(growable: false);
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Stack(
+      clipBehavior: Clip.none,
       children: [
-        // Avatar, status icons and the menu share the top row; the name and
-        // group get the full width underneath.
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _Avatar(
-              label: _initial(counter.name),
-              accent: accent,
-              size: 38,
-            ),
-            const Spacer(),
-            if (isLocked || counter.isHidden)
-              Padding(
-                padding: const EdgeInsets.only(left: 4, top: 2, right: 2),
-                child: _StatusIcons(
-                  isLocked: isLocked,
-                  isHidden: counter.isHidden,
-                  color: scheme.onSurfaceVariant,
-                  size: 13,
+        Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: DreamPalette.frame(brightness),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: DreamPalette.hairline(brightness)),
+            boxShadow: DreamPalette.pageShadow(brightness),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(3),
+                child: SizedBox(
+                  width: 150,
+                  height: 170,
+                  child: stage,
                 ),
               ),
-            _CardMenu(
-              onEdit: onEdit,
-              onDelete: onDelete,
-              onLongPress: onLongPress,
-              color: scheme.onSurfaceVariant,
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Text(
-          counter.name,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontSize: nameFontSize,
-            fontWeight: FontWeight.w800,
-            height: 1.18,
-            color: scheme.onSurface,
-          ),
-        ),
-        if (counter.groupName.trim().isNotEmpty) ...[
-          const SizedBox(height: 3),
-          Text(
-            counter.groupName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.labelMedium?.copyWith(
-              fontSize: 11,
-              color: scheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-        const SizedBox(height: 10),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Expanded(
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      '$totalCount',
-                      style: TextStyle(
-                        fontSize: countFontSize,
-                        fontWeight: FontWeight.w900,
-                        height: 0.95,
-                        letterSpacing: -1.2,
-                        color: scheme.onSurface,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.only(left: 4, bottom: 5),
-                      child: Text(
-                        '张',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ],
+              const SizedBox(width: 14),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(0, 6, 4, 6),
+                  child: _CardCaption(
+                    name: name,
+                    groupName: groupName,
+                    totalCount: totalCount,
+                    percentage: percentage,
+                    nameFontSize: 17,
+                    groupFontSize: 12,
+                    countFontSize: countFontSize,
+                    accent: accent,
+                    scheme: scheme,
+                    compact: false,
+                    ultraCompact: false,
+                    showBreakdown: true,
+                    breakdownEntries: breakdownEntries,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(width: 8),
-            _PercentBadge(
-              percentage: percentage,
-              accent: accent,
-            ),
-          ],
+            ],
+          ),
         ),
-        if (showBreakdown) ...[
-          if (visibleBreakdown.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            _CountChips(
-              entries: visibleBreakdown,
-              accent: accent,
-            ),
-          ],
-        ],
+        Positioned(
+          top: -6,
+          left: 24,
+          child: WashiTape(
+            color: DreamPalette.tape(rawColor, brightness),
+            width: 50,
+            height: 15,
+            angle: -0.12,
+          ),
+        ),
       ],
     );
   }
-
-  static String _initial(String name) {
-    final trimmed = name.trim();
-    return trimmed.isEmpty ? '?' : trimmed.substring(0, 1).toUpperCase();
-  }
 }
 
-class _CompactCardBody extends StatelessWidget {
-  final CounterModel counter;
-  final int totalCount;
+/// The tinted "photo" area of the print: member colour, the member's short
+/// text as a watermark and a tiny penlight bar. No circles, no generic avatar.
+class _ChekiStage extends StatelessWidget {
+  final String name;
+
+  /// 1-4 characters printed in the photo. Defaults to a name-derived short
+  /// name (see [resolveMemberShortName]).
+  final String? shortName;
+  final Color photoColor;
   final Color accent;
-  final double nameFontSize;
-  final double countFontSize;
+  final double photoHeight;
+  final bool compact;
+  final bool ultraCompact;
   final bool isLocked;
   final bool isHidden;
-  final bool showAvatar;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
-  final VoidCallback? onLongPress;
+  final Widget menu;
 
-  const _CompactCardBody({
-    required this.counter,
-    required this.totalCount,
+  const _ChekiStage({
+    required this.name,
+    this.shortName,
+    required this.photoColor,
     required this.accent,
-    required this.nameFontSize,
-    required this.countFontSize,
+    required this.photoHeight,
+    required this.compact,
+    required this.ultraCompact,
     required this.isLocked,
     required this.isHidden,
-    required this.showAvatar,
-    required this.onEdit,
-    required this.onDelete,
-    required this.onLongPress,
+    required this.menu,
   });
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
+    final ink = DreamPalette.onColor(photoColor);
+    final glyph = resolveMemberShortName(name: name, configured: shortName);
+    final glyphLength = memberShortNameLength(glyph);
+    // One character stays a giant watermark; 2-4 characters shrink just
+    // enough to stay inside the photo at 2-5 columns.
+    final glyphScale = switch (glyphLength) {
+      1 => 1.0,
+      2 => 0.66,
+      3 => 0.5,
+      _ => 0.4,
+    };
+    final deep = HSLColor.fromColor(photoColor)
+        .withLightness(
+          (HSLColor.fromColor(photoColor).lightness - 0.06).clamp(0.0, 1.0),
+        )
+        .toColor();
 
-    final name = Text(
-      counter.name,
+    return SizedBox(
+      height: photoHeight,
+      width: double.infinity,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(compact ? 2 : 3),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final stageHeight = constraints.maxHeight.isFinite
+                ? constraints.maxHeight
+                : photoHeight;
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [photoColor, deep],
+                    ),
+                  ),
+                ),
+                CustomPaint(
+                  painter: _StagePainter(ink: ink, accent: accent),
+                ),
+                if (!compact)
+                  Positioned(
+                    left: -8,
+                    bottom: -photoHeight * 0.24,
+                    child: Text(
+                      glyph,
+                      textScaler: TextScaler.noScaling,
+                      maxLines: 1,
+                      softWrap: false,
+                      style: TextStyle(
+                        fontSize: _fitGlyphFontSize(
+                          desired: photoHeight * 0.92 * glyphScale,
+                          maxWidth: constraints.maxWidth,
+                          glyph: glyph,
+                        ),
+                        height: 1,
+                        fontWeight: FontWeight.w900,
+                        color: ink.withValues(alpha: 0.16),
+                      ),
+                    ),
+                  )
+                else
+                  Positioned(
+                    left: 6,
+                    bottom: math.max(2.0, stageHeight * 0.04),
+                    child: Text(
+                      glyph,
+                      textScaler: TextScaler.noScaling,
+                      maxLines: 1,
+                      softWrap: false,
+                      style: TextStyle(
+                        fontSize: _fitGlyphFontSize(
+                          desired: math.max(
+                            9,
+                            stageHeight *
+                                (ultraCompact ? 0.46 : 0.52) *
+                                glyphScale,
+                          ),
+                          maxWidth: constraints.maxWidth - 12,
+                          glyph: glyph,
+                        ),
+                        height: 1,
+                        fontWeight: FontWeight.w900,
+                        color: ink.withValues(alpha: 0.92),
+                      ),
+                    ),
+                  ),
+                if (!compact)
+                  Positioned(
+                    right: 9,
+                    bottom: 8,
+                    child: SparkleMark(
+                      size: 18,
+                      color: ink.withValues(alpha: 0.66),
+                      variant: SparkleVariant.sparkle,
+                      dot: true,
+                    ),
+                  ),
+                if (!compact)
+                  Positioned(
+                    right: 9,
+                    bottom: 9,
+                    child: Row(
+                      children: [
+                        for (var i = 0; i < 3; i++)
+                          Container(
+                            width: 3.5,
+                            height: 18,
+                            margin: const EdgeInsets.only(left: 3),
+                            decoration: BoxDecoration(
+                              color: ink.withValues(alpha: 0.72),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                if (compact && stageHeight > 34)
+                  Positioned(
+                    right: 25,
+                    top: 5,
+                    child: SparkleMark(
+                      size: math.min(11.0, stageHeight * 0.22),
+                      color: ink.withValues(alpha: 0.52),
+                      variant: SparkleVariant.sparkle,
+                    ),
+                  ),
+                Positioned(
+                  top: 1,
+                  right: 0,
+                  child: Row(
+                    children: [
+                      if (isLocked || isHidden)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 1),
+                          child: _StatusIcons(
+                            isLocked: isLocked,
+                            isHidden: isHidden,
+                            color: ink.withValues(alpha: 0.8),
+                            size: compact ? 10 : 12,
+                          ),
+                        ),
+                      menu,
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+/// Approximate width of one glyph relative to its font size.
+double _glyphAspect(String glyph) =>
+    RegExp(r'^[A-Za-z0-9]+$').hasMatch(glyph) ? 0.62 : 1.0;
+
+/// Caps a desired font size so 1-4 characters stay inside [maxWidth].
+double _fitGlyphFontSize({
+  required double desired,
+  required double maxWidth,
+  required String glyph,
+}) {
+  final length = math.max(1, memberShortNameLength(glyph));
+  final cap = maxWidth * 0.88 / (length * _glyphAspect(glyph));
+  return math.min(desired, cap);
+}
+
+class _StagePainter extends CustomPainter {
+  final Color ink;
+  final Color accent;
+
+  const _StagePainter({required this.ink, required this.accent});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Two soft light beams, like a small stage spotlight on the print.
+    final beam = Path()
+      ..moveTo(size.width * 0.18, size.height)
+      ..lineTo(size.width * 0.44, 0)
+      ..lineTo(size.width * 0.62, 0)
+      ..lineTo(size.width * 0.36, size.height)
+      ..close();
+    canvas.drawPath(
+      beam,
+      Paint()..color = ink.withValues(alpha: 0.06),
+    );
+    // A fine diagonal "photo grain" line.
+    canvas.drawLine(
+      Offset(size.width * 0.08, size.height * 0.14),
+      Offset(size.width * 0.92, size.height * 0.14),
+      Paint()
+        ..color = ink.withValues(alpha: 0.12)
+        ..strokeWidth = 0.8,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_StagePainter oldDelegate) =>
+      oldDelegate.ink != ink || oldDelegate.accent != accent;
+}
+
+class _CardCaption extends StatelessWidget {
+  final String name;
+  final String groupName;
+  final int totalCount;
+  final double percentage;
+  final double nameFontSize;
+  final double groupFontSize;
+  final double countFontSize;
+  final Color accent;
+  final ColorScheme scheme;
+  final bool compact;
+  final bool ultraCompact;
+  final bool showBreakdown;
+  final List<CounterCountBadgeData> breakdownEntries;
+
+  const _CardCaption({
+    required this.name,
+    required this.groupName,
+    required this.totalCount,
+    required this.percentage,
+    required this.nameFontSize,
+    required this.groupFontSize,
+    required this.countFontSize,
+    required this.accent,
+    required this.scheme,
+    required this.compact,
+    required this.ultraCompact,
+    required this.showBreakdown,
+    required this.breakdownEntries,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final visibleBreakdown = breakdownEntries
+        .where((entry) => entry.value > 0)
+        .toList(growable: false);
+    final hasGroup = groupName.trim().isNotEmpty;
+    final nameText = Text(
+      name,
       maxLines: 2,
       overflow: TextOverflow.ellipsis,
-      style: theme.textTheme.titleSmall?.copyWith(
+      style: TextStyle(
         fontSize: nameFontSize,
         fontWeight: FontWeight.w800,
-        height: 1.12,
+        height: compact ? 1.14 : 1.18,
         color: scheme.onSurface,
       ),
     );
+    final groupText = hasGroup
+        ? Text(
+            groupName,
+            maxLines: compact ? 2 : 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: groupFontSize,
+              fontWeight: FontWeight.w600,
+              height: compact ? 1.12 : 1.2,
+              color: scheme.onSurfaceVariant,
+            ),
+          )
+        : null;
 
-    // The top row holds only the avatar, status icons and menu. The name and
-    // group then use the full card width, which keeps 3-character names on one
-    // line even in a 5-column grid.
+    final sticker = StickerBadge(
+      value: '$totalCount',
+      label: '张',
+      color: accent,
+      outlineWidth: compact ? 1.5 : 2.5,
+      padding: EdgeInsets.symmetric(
+        horizontal: ultraCompact ? 5 : (compact ? 7 : 10),
+        vertical: ultraCompact ? 1.5 : (compact ? 2 : 3),
+      ),
+      valueFontSize: countFontSize,
+      labelFontSize: ultraCompact ? 7.5 : (compact ? 8 : 9),
+      minWidth: ultraCompact ? 27 : (compact ? 32 : 52),
+      semanticLabel: '$name 共 $totalCount 张',
+    );
+
+    if (compact) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          nameText,
+          if (groupText != null) ...[
+            const SizedBox(height: 1),
+            groupText,
+          ],
+          const SizedBox(height: 3),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerRight,
+                  child: sticker,
+                ),
+              ),
+            ],
+          ),
+        ],
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (showAvatar)
-              _Avatar(
-                label: counter.name.trim().isEmpty
-                    ? '?'
-                    : counter.name.trim().substring(0, 1).toUpperCase(),
-                accent: accent,
-                size: 24,
-              ),
-            const Spacer(),
-            if (isLocked || isHidden)
-              Padding(
-                padding: const EdgeInsets.only(left: 2, right: 1),
-                child: _StatusIcons(
-                  isLocked: isLocked,
-                  isHidden: isHidden,
-                  color: scheme.onSurfaceVariant,
-                  size: 11,
-                ),
-              ),
-            _CardMenu(
-              onEdit: onEdit,
-              onDelete: onDelete,
-              onLongPress: onLongPress,
-              color: scheme.onSurfaceVariant,
-              iconSize: 18,
-              compact: true,
-            ),
-          ],
-        ),
-        SizedBox(height: showAvatar ? 5 : 4),
-        name,
-        if (counter.groupName.trim().isNotEmpty) ...[
+        nameText,
+        if (groupText != null) ...[
           const SizedBox(height: 2),
-          Text(
-            counter.groupName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.labelSmall?.copyWith(
-              fontSize: 9,
-              color: scheme.onSurfaceVariant,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+          groupText,
         ],
-        const Spacer(),
+        const SizedBox(height: 8),
         Align(
           alignment: Alignment.bottomRight,
           child: FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerRight,
+            child: sticker,
+          ),
+        ),
+        if (percentage >= 0)
+          Align(
+            alignment: Alignment.centerRight,
             child: Text(
-              '$totalCount',
+              '占 ${(percentage * 100).toStringAsFixed(1)}%',
               maxLines: 1,
               style: TextStyle(
-                fontSize: countFontSize,
-                fontWeight: FontWeight.w900,
-                height: 1,
-                letterSpacing: -0.8,
-                color: scheme.onSurface,
+                fontSize: 9.5,
+                fontWeight: FontWeight.w600,
+                color: scheme.onSurfaceVariant,
                 fontFeatures: const [FontFeature.tabularFigures()],
               ),
             ),
           ),
-        ),
+        if (showBreakdown && visibleBreakdown.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          _CountChips(entries: visibleBreakdown, accent: accent),
+        ],
       ],
-    );
-  }
-}
-
-class _Avatar extends StatelessWidget {
-  final String label;
-  final Color accent;
-  final double size;
-
-  const _Avatar({
-    required this.label,
-    required this.accent,
-    required this.size,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: accent.withValues(alpha: 0.14),
-        border: Border.all(color: accent.withValues(alpha: 0.22)),
-      ),
-      child: Text(
-        label,
-        textScaler: TextScaler.noScaling,
-        style: TextStyle(
-          fontSize: size * 0.42,
-          fontWeight: FontWeight.w800,
-          color: accent,
-        ),
-      ),
-    );
-  }
-}
-
-class _PercentBadge extends StatelessWidget {
-  final double percentage;
-  final Color accent;
-
-  const _PercentBadge({
-    required this.percentage,
-    required this.accent,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: accent.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: accent.withValues(alpha: 0.14)),
-      ),
-      child: Text(
-        '${(percentage * 100).toStringAsFixed(1)}%',
-        style: TextStyle(
-          fontSize: 10.5,
-          fontWeight: FontWeight.w800,
-          color: accent,
-          fontFeatures: const [FontFeature.tabularFigures()],
-        ),
-      ),
     );
   }
 }
@@ -565,14 +700,14 @@ class _StatusIcons extends StatelessWidget {
           Icon(
             Icons.visibility_off_rounded,
             size: size,
-            color: color.withValues(alpha: 0.75),
+            color: color,
           ),
-        if (isHidden && isLocked) const SizedBox(width: 3),
+        if (isHidden && isLocked) const SizedBox(width: 2),
         if (isLocked)
           Icon(
             Icons.lock_rounded,
             size: size,
-            color: color.withValues(alpha: 0.75),
+            color: color,
           ),
       ],
     );
@@ -613,8 +748,8 @@ class _CardMenu extends StatelessWidget {
         }
       },
       child: SizedBox(
-        width: compact ? 22 : 28,
-        height: compact ? 24 : 28,
+        width: compact ? 22 : 34,
+        height: compact ? 24 : 34,
         child: Icon(
           Icons.more_horiz_rounded,
           size: iconSize,
@@ -687,8 +822,8 @@ class _CountChips extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Wrap(
-      spacing: 6,
-      runSpacing: 6,
+      spacing: 5,
+      runSpacing: 5,
       children: [
         for (final entry in entries)
           _SpecChip(
@@ -718,11 +853,11 @@ class _SpecChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(
-        color: accent.withValues(alpha: 0.075),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: accent.withValues(alpha: 0.14)),
+        color: accent.withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: accent.withValues(alpha: 0.20)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -732,18 +867,18 @@ class _SpecChip extends StatelessWidget {
             maxLines: 1,
             softWrap: false,
             style: TextStyle(
-              fontSize: 11,
+              fontSize: 10,
               fontWeight: FontWeight.w600,
               color: scheme.onSurfaceVariant,
             ),
           ),
-          const SizedBox(width: 5),
+          const SizedBox(width: 4),
           Text(
             '$value',
             maxLines: 1,
             softWrap: false,
             style: TextStyle(
-              fontSize: 13,
+              fontSize: 12,
               fontWeight: FontWeight.w900,
               height: 1,
               color: scheme.onSurface,
@@ -758,9 +893,9 @@ class _SpecChip extends StatelessWidget {
 
 /// Height the home grid should give a member card.
 ///
-/// Reserves two name lines, a full-width group line, the total row and enough
-/// breakdown rows for [breakdownEntryCount]. Scaling this with the 卡片字号
-/// setting keeps the fixed grid extent from clipping card content.
+/// Reserves the photo, two name lines, two group lines, the count sticker and
+/// enough breakdown rows for [breakdownEntryCount]. Scaling this with the
+/// 卡片字号 setting keeps the fixed grid extent from clipping card content.
 double counterCardHeight({
   required int gridColumns,
   required double availableWidth,
@@ -776,61 +911,70 @@ double counterCardHeight({
 
   if (gridColumns <= 2) {
     final nameFontSize = itemWidth < 190 ? 15.0 : 17.0;
-    final countFontSize = itemWidth < 190 ? 38.0 : 44.0;
-    final innerWidth = math.max(0.0, itemWidth - 31.0);
+    final groupFontSize = itemWidth < 190 ? 11.0 : 12.0;
+    final countFontSize = itemWidth < 190 ? 30.0 : 36.0;
+    final photoHeight = itemWidth < 190 ? 96.0 : 128.0;
+    final innerWidth = math.max(0.0, itemWidth - 24.0);
 
-    // Compact count chips sit in a Wrap. Estimate their width from the label
-    // plus a two-digit value; the estimate is intentionally a little wide so
-    // scaled-up text never makes the last chip spill out of the card.
-    final chipWidth = 80.0 * scale;
-    final chipHeight = 24.0 + 6.0 * math.max(1.0, scale);
+    // The breakdown chips use a Wrap; approximate their footprint a little
+    // wide so scaled-up text never spills out of the polaroid.
+    final chipWidth = 72.0 * scale;
+    final chipHeight = 22.0 + 4.0 * math.max(1.0, scale);
     final chipColumns = breakdownEntryCount <= 0
         ? 0
         : math
             .max(
               1,
-              ((innerWidth + 6.0) / (chipWidth + 6.0)).floor(),
+              ((innerWidth + 5.0) / (chipWidth + 5.0)).floor(),
             )
             .clamp(1, 5);
     final chipRows = chipColumns == 0
         ? 0
         : (breakdownEntryCount + chipColumns - 1) ~/ chipColumns;
-    final chipBlockHeight = chipRows == 0
-        ? 0.0
-        : 10.0 + chipRows * chipHeight + (chipRows - 1) * 6.0;
 
-    final contentHeight = 2 * 13.0 +
-        38.0 +
-        8.0 +
+    final contentHeight = 2 * 5.0 +
+        photoHeight +
+        6.0 +
         2 * nameFontSize * 1.18 * scale +
-        3.0 +
-        11.0 * 1.2 * scale +
-        10.0 +
-        countFontSize * 0.95 * scale +
-        chipBlockHeight;
+        2.0 +
+        2 * groupFontSize * 1.2 * scale +
+        8.0 +
+        (countFontSize + 18.0) * scale +
+        8.0 +
+        (chipRows == 0 ? 0.0 : chipRows * chipHeight + (chipRows - 1) * 5.0);
     return math.max(0.0, contentHeight);
   }
 
-  final verticalPadding = gridColumns >= 5 ? 7.0 : 9.0;
+  final photoHeight = gridColumns >= 5
+      ? 25.0
+      : gridColumns >= 4
+          ? 31.0
+          : 48.0;
   final nameFontSize =
       gridColumns >= 5 ? 9.5 : (gridColumns >= 4 ? 10.5 : 11.5);
+  final groupFontSize = gridColumns >= 5 ? 8.0 : (gridColumns >= 4 ? 8.5 : 9.5);
   final countFontSize =
-      gridColumns >= 5 ? 23.0 : (gridColumns >= 4 ? 27.0 : 30.0);
-  final contentHeight = 2 * verticalPadding +
-      24.0 +
-      (gridColumns <= 4 ? 5.0 : 4.0) +
-      2 * nameFontSize * 1.12 * scale +
-      2.0 +
-      9.0 * 1.2 * scale +
-      6.0 +
-      countFontSize * scale +
-      8.0;
-  final baseHeight = switch (gridColumns) {
-    3 => 140.0,
-    4 => 108.0,
-    _ => 94.0,
-  };
-  return math.max(baseHeight, contentHeight);
+      gridColumns >= 5 ? 16.0 : (gridColumns >= 4 ? 19.0 : 21.0);
+  const padding = 3.0;
+  const compactCaptionTop = 4.0;
+  const compactCaptionBottom = 2.0;
+  // The compact card now sizes its caption to its content and the grid gives
+  // it exactly this extent, so reserve only what is actually printed: the
+  // photo, name, group, the count sticker and the frame padding.
+  final stickerHeight = countFontSize * 1.05 * scale +
+      2 * (gridColumns >= 5 ? 1.5 : 2.0) +
+      (gridColumns >= 5 ? 7.5 : 8.0) * 1.05 +
+      2.0;
+  final contentHeight = 2 * padding +
+      photoHeight +
+      compactCaptionTop +
+      2 * nameFontSize * 1.14 * scale +
+      1.0 +
+      2 * groupFontSize * 1.12 * scale +
+      3.0 +
+      stickerHeight +
+      compactCaptionBottom;
+  return contentHeight;
 }
 
 /// Builds the count tiles shown on a home card.
@@ -860,9 +1004,6 @@ List<CounterCountBadgeData> buildHomeBreakdownEntries(
       label: CounterCountField.fiveInchShukudai.shortLabel,
       value: counter.fiveInchShukudaiCount,
     ),
-    // Group cuts are part of the counter total, so keep them visible in the
-    // breakdown too; otherwise a card can show 301 while its tiles add up to
-    // 297 and the missing count looks lost.
     if (counter.groupCutCount > 0)
       CounterCountBadgeData(
         label: CounterCountField.groupCut.shortLabel,

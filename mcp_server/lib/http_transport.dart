@@ -5,6 +5,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'mcp_protocol.dart';
+import 'member_catalog.dart';
 import 'face_images.dart';
 import 'face_upload_page.dart';
 import 'store.dart';
@@ -17,12 +18,14 @@ class SyncHttpServer {
     required this.token,
     this.host = '127.0.0.1',
     this.port = 8787,
-  }) : protocol = McpProtocol(store);
+    this.catalog = MemberCatalog.empty,
+  }) : protocol = McpProtocol(store, catalog: catalog);
 
   final SyncStore store;
   final String token;
   final String host;
   final int port;
+  final MemberCatalog catalog;
   final McpProtocol protocol;
 
   HttpServer? _server;
@@ -175,12 +178,15 @@ class SyncHttpServer {
         final status = request.uri.queryParameters['status'] ?? 'pending';
         final limit =
             int.tryParse(request.uri.queryParameters['limit'] ?? '') ?? 50;
-        final supportsFaceEnrollment = _supportsFaceEnrollment(request);
+        final excluded = <String>{
+          if (!_supportsFaceEnrollment(request)) kFaceEnrollmentActionKind,
+          if (!_hasCapability(request, kChekiPhotoCapability))
+            kChekiPhotoActionKind,
+        };
         final actions = await store.actions(
           status: status.isEmpty ? null : status,
           limit: limit.clamp(1, 200),
-          excludeKinds:
-              supportsFaceEnrollment ? null : const {kFaceEnrollmentActionKind},
+          excludeKinds: excluded.isEmpty ? null : excluded,
         );
         await _writeJson(request.response, {
           'actions': actions,
@@ -251,9 +257,9 @@ class SyncHttpServer {
               request.response, HttpStatus.badRequest, 'Invalid JSON body');
           return;
         }
-        final response =
-            await McpProtocol(store, requestBaseUrl: _requestBaseUrl(request))
-                .handle(decoded);
+        final response = await McpProtocol(store,
+                requestBaseUrl: _requestBaseUrl(request), catalog: catalog)
+            .handle(decoded);
         final sessionId =
             request.headers.value('mcp-session-id') ?? _newSessionId('mcp');
         request.response.headers.set('mcp-session-id', sessionId);
@@ -349,12 +355,15 @@ class SyncHttpServer {
     return '$scheme://$authority$prefix';
   }
 
-  bool _supportsFaceEnrollment(HttpRequest request) {
+  bool _supportsFaceEnrollment(HttpRequest request) =>
+      _hasCapability(request, kFaceEnrollmentCapability);
+
+  bool _hasCapability(HttpRequest request, String capability) {
     final header = request.headers.value(kCapabilitiesHeader) ?? '';
     return header
         .split(',')
         .map((value) => value.trim().toLowerCase())
-        .contains(kFaceEnrollmentCapability);
+        .contains(capability);
   }
 
   Future<void> _handleSse(HttpRequest request) async {
@@ -424,9 +433,9 @@ class SyncHttpServer {
       );
       return;
     }
-    final response =
-        await McpProtocol(store, requestBaseUrl: _requestBaseUrl(request))
-            .handle(decoded);
+    final response = await McpProtocol(store,
+            requestBaseUrl: _requestBaseUrl(request), catalog: catalog)
+        .handle(decoded);
     if (response != null) {
       session.controller.add(
         'event: message\ndata: ${jsonEncode(response)}\n\n',

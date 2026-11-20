@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ota_counter/models/activity_record_media_model.dart';
 import 'package:ota_counter/models/activity_record_model.dart';
 import 'package:ota_counter/models/counter_model.dart';
+import 'package:ota_counter/pages/album/album_widgets.dart';
 import 'package:ota_counter/pages/chart_page.dart';
 import 'package:ota_counter/theme/app_theme.dart';
 import 'package:ota_counter/services/database_service.dart';
@@ -99,16 +100,13 @@ void main() {
     }
     expect(find.descendant(of: detail, matching: find.text('当天清晨归昨日')),
         findsNothing);
-    final images = tester
-        .widgetList<Image>(
-            find.descendant(of: detail, matching: find.byType(Image)))
+    // Scans show the album's corrected rendition (AlbumPhotoThumb).
+    final thumbs = tester
+        .widgetList<AlbumPhotoThumb>(
+            find.descendant(of: detail, matching: find.byType(AlbumPhotoThumb)))
         .toList();
-    expect(images, hasLength(3));
-    expect(
-        images
-            .map((image) => (image.image as ResizeImage).imageProvider)
-            .whereType<FileImage>()
-            .map((image) => image.file.path),
+    expect(thumbs, hasLength(3));
+    expect(thumbs.map((thumb) => thumb.photo.path),
         isNot(contains('/not-a-real-image/当天清晨归昨日.jpg')));
     expectSummary('记录数', '3');
     expectSummary('拍切总数', '3');

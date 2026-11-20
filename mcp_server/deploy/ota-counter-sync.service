@@ -12,6 +12,7 @@ StateDirectory=ota-counter-sync
 Environment=OTA_SYNC_DATA_DIR=/var/lib/ota-counter-sync
 Environment=OTA_SYNC_HOST=127.0.0.1
 Environment=OTA_SYNC_PORT=8787
+Environment=OTA_SYNC_SEED_PATH=/opt/ota-counter-sync/china_idols_seed.json
 # Optional local settings, e.g. OTA_SYNC_PUBLIC_BASE_URL for face links.
 EnvironmentFile=-/etc/ota-counter-sync.env
 ExecStart=/usr/local/bin/ota-sync serve --host 127.0.0.1 --port 8787

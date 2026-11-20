@@ -91,6 +91,51 @@ void main() {
   });
 
   group('RecordScanService.createMultiScan', () {
+    test('an already-cut card that fills the frame stays one card', () async {
+      // A mini cut lying sideways, as the app or a chat sends it: paper border
+      // to the image edge, ink on the border, a dark picture window inside.
+      final source = img.Image(width: 1360, height: 854);
+      img.fill(source, color: img.ColorRgb8(214, 210, 205));
+      img.fillRect(source,
+          x1: 180, y1: 60, x2: 1300, y2: 794, color: img.ColorRgb8(40, 26, 30));
+      img.fillRect(source,
+          x1: 560,
+          y1: 260,
+          x2: 760,
+          y2: 520,
+          color: img.ColorRgb8(170, 60, 60));
+      img.drawLine(source,
+          x1: 40,
+          y1: 120,
+          x2: 120,
+          y2: 700,
+          thickness: 14,
+          color: img.ColorRgb8(205, 60, 80));
+      final file = await writeJpg(source, 'already-cut');
+      final batch = await RecordScanService.createMultiScan(sourceFile: file);
+      expect(batch.cards, hasLength(1));
+      expect(batch.cards.single.sizeClass, RecordScanCardSize.mini);
+      expect(
+          batch.warnings,
+          isNot(anyOf(contains(RecordScanMultiWarning.noneDetected),
+              contains(RecordScanMultiWarning.unsafeGeometry))));
+    });
+
+    test('a frame-filling photo without a paper border is not a card',
+        () async {
+      final source = img.Image(width: 1360, height: 854);
+      img.fill(source, color: img.ColorRgb8(40, 26, 30));
+      img.fillRect(source,
+          x1: 560,
+          y1: 260,
+          x2: 760,
+          y2: 520,
+          color: img.ColorRgb8(170, 60, 60));
+      final file = await writeJpg(source, 'no-border');
+      final batch = await RecordScanService.createMultiScan(sourceFile: file);
+      expect(batch.cards, isEmpty);
+    });
+
     test('a cool card attached to a light hand is cut before review', () async {
       final source = img.Image(width: 680, height: 850);
       img.fill(source, color: img.ColorRgb8(32, 29, 30));

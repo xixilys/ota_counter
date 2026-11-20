@@ -12,6 +12,7 @@ import '../models/activity_record_model.dart';
 import '../models/counter_model.dart';
 import '../models/group_pricing_model.dart';
 import '../models/ticket_type_model.dart';
+import 'cheki_photo_sync_service.dart';
 import 'database_service.dart';
 import 'merch_service.dart';
 import 'ticket_pricing_service.dart';
@@ -118,6 +119,12 @@ class SyncService {
   /// Server gate: v1.6.0 apps never receive `enroll_face` pending actions.
   static const String capabilitiesHeader = 'x-ota-capabilities';
   static const String faceEnrollmentCapability = 'face-enroll-v1';
+
+  /// Server gate: apps without it never receive `attach_cheki_photos`.
+  static const String chekiPhotoCapability = 'cheki-photo-v1';
+  static const String chekiPhotoActionKind = 'attach_cheki_photos';
+  static const String capabilities =
+      '$faceEnrollmentCapability,$chekiPhotoCapability';
 
   static Future<SyncSettings> loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
@@ -234,6 +241,13 @@ class SyncService {
     final actionFailures = <String, String>{};
     final enrollmentResults = <String, Map<String, dynamic>>{};
     var skipped = 0;
+    // Pulled actions that have not been applied: a photo action can wait for
+    // its record_cheki of the same pull instead of failing.
+    Set<String> unsettled() => {
+          for (final action in actions)
+            if (!appliedIds.contains((action['id'] ?? '').toString().trim()))
+              (action['id'] ?? '').toString().trim(),
+        };
 
     for (final action in actions) {
       final actionId = (action['id'] ?? '').toString().trim();
@@ -257,7 +271,7 @@ class SyncService {
             actionId: actionId,
             payload: payload,
             counters: counters,
-            fetchImage: (imageId) => _fetchFaceImage(settings, imageId),
+            fetchImage: (imageId) => _fetchStagedImage(settings, imageId),
           );
           if (result.failure != null) {
             if (!result.retryable) {
@@ -272,6 +286,23 @@ class SyncService {
             enrollmentResults[actionId] = result.summary!;
             appliedIds.add(actionId);
             if (result.replayed) skipped++;
+          }
+        } else if (kind == chekiPhotoActionKind) {
+          final result = await ChekiPhotoSyncService.apply(
+            actionId: actionId,
+            payload: payload,
+            counters: counters,
+            counter: _resolveCounter(counters, payload),
+            unsettledActionIds: unsettled()..remove(actionId),
+            fetchImage: (imageId) => _fetchStagedImage(settings, imageId),
+          );
+          if (result.failure != null) {
+            if (!result.retryable) actionFailures[actionId] = result.failure!;
+            failures.add(SyncActionFailure(
+                actionId: actionId, message: result.failure!));
+          } else {
+            enrollmentResults[actionId] = result.summary!;
+            appliedIds.add(actionId);
           }
         } else if (kind == 'member_create') {
           final name = (payload['name'] ?? payload['member_name'] ?? '')
@@ -411,9 +442,11 @@ class SyncService {
       } catch (error) {
         final message = kind == 'enroll_face'
             ? '人脸登记未保存，请稍后重试'
-            : error is SyncException
-                ? error.message
-                : '$error';
+            : kind == chekiPhotoActionKind
+                ? '切奇照片未保存，下次同步重试：$error'
+                : error is SyncException
+                    ? error.message
+                    : '$error';
         if (kind == 'member_create' && error is SyncException) {
           actionFailures[actionId] = message;
         }
@@ -769,7 +802,9 @@ class SyncService {
     return group.isEmpty ? byId : null;
   }
 
-  static Future<Uint8List> _fetchFaceImage(
+  /// Downloads an image staged on the server (face enrollment or cheki
+  /// photo). Missing/expired images throw [FaceEnrollmentImageNotFound].
+  static Future<Uint8List> _fetchStagedImage(
     SyncSettings settings,
     String imageId,
   ) async {
@@ -783,7 +818,7 @@ class SyncService {
       request.followRedirects = false;
       request.headers.set(
           HttpHeaders.authorizationHeader, 'Bearer ${settings.token.trim()}');
-      request.headers.set(capabilitiesHeader, faceEnrollmentCapability);
+      request.headers.set(capabilitiesHeader, capabilities);
       final response =
           await request.close().timeout(const Duration(seconds: 25));
       if (response.statusCode == HttpStatus.notFound ||
@@ -791,7 +826,7 @@ class SyncService {
         throw const FaceEnrollmentImageNotFound();
       }
       if (response.statusCode != HttpStatus.ok) {
-        throw SyncException('登记照片下载失败 (HTTP ${response.statusCode})');
+        throw SyncException('照片下载失败 (HTTP ${response.statusCode})');
       }
       final bytes = await response
           .fold<BytesBuilder>(
@@ -830,7 +865,7 @@ class SyncService {
         'Bearer ${settings.token.trim()}',
       );
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      request.headers.set(capabilitiesHeader, faceEnrollmentCapability);
+      request.headers.set(capabilitiesHeader, capabilities);
       if (body != null) {
         request.headers.contentType = ContentType.json;
         request.write(jsonEncode(body));

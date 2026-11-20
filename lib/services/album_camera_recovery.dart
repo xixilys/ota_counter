@@ -29,7 +29,9 @@ class AlbumCameraRecovery {
       ActivityRecordMediaModel media, DateTime? recordDay) {
     if (!media.isScan ||
         media.path.isEmpty ||
-        media.cropQuadJson.contains('"_checked_card_id"')) return null;
+        media.cropQuadJson.contains('"_checked_card_id"')) {
+      return null;
+    }
     return media.capturedAt == null
         ? recordDay
         : activityDayOf(media.capturedAt!);

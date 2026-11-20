@@ -7,7 +7,7 @@ import 'face_images.dart';
 import 'snapshot.dart' show normalizePart;
 
 const String kSyncServerName = 'ota-counter-sync';
-const String kSyncServerVersion = '1.0.0';
+const String kSyncServerVersion = '1.2.0';
 const String kStateSchema = 'ota_counter_sync_state';
 
 /// App → server capability header for chat face enrollment. Clients that do
@@ -16,6 +16,32 @@ const String kStateSchema = 'ota_counter_sync_state';
 const String kCapabilitiesHeader = 'x-ota-capabilities';
 const String kFaceEnrollmentCapability = 'face-enroll-v1';
 const String kFaceEnrollmentActionKind = 'enroll_face';
+
+/// Chat → app cheki photos. Apps that do not advertise this capability never
+/// receive the action, so older builds keep syncing counts normally.
+const String kChekiPhotoCapability = 'cheki-photo-v1';
+const String kChekiPhotoActionKind = 'attach_cheki_photos';
+const int kMaxChekiPhotosPerAction = 20;
+
+/// Staged image ids of an action that carries image bytes on disk.
+List<String> actionImageIds(Map<dynamic, dynamic> action) {
+  final payload = action['payload'];
+  if (payload is! Map) return const [];
+  if (action['kind'] == kFaceEnrollmentActionKind) {
+    final id = payload['imageId'];
+    return id is String ? [id] : const [];
+  }
+  if (action['kind'] == kChekiPhotoActionKind) {
+    final images = payload['images'];
+    if (images is! List) return const [];
+    return [
+      for (final image in images)
+        if (image is Map && image['imageId'] is String)
+          image['imageId'] as String,
+    ];
+  }
+  return const [];
+}
 
 String nowIso() => DateTime.now().toIso8601String();
 
@@ -68,6 +94,10 @@ class SyncStore {
   Future<Map<String, dynamic>> queueAction(Map<String, dynamic> action) {
     if (action['kind'] == 'enroll_face') {
       throw FaceImageException('脸照录入请使用 enroll_face 或上传链接工具');
+    }
+    if (action['kind'] == kChekiPhotoActionKind) {
+      throw FaceImageException(
+          '切奇照片请使用 attach_cheki_photos 或 record_cheki 的 images 参数');
     }
     return _locked((state) async {
       final actions = _ensureList(state, 'actions');
@@ -207,6 +237,126 @@ class SyncStore {
     });
   }
 
+  /// Queues [photoPayload] as one `attach_cheki_photos` action. With
+  /// [counterDelta], the counter change is queued first in the same write and
+  /// the photos are linked to it through `record_action_id`.
+  ///
+  /// Without an explicit record key, the latest pending `counter_delta` for
+  /// the same member and day becomes `record_action_hint`: the app uses it
+  /// only when it finds no record of that member on that day.
+  Future<Map<String, dynamic>> queueChekiPhotos(
+    Map<String, dynamic> photoPayload, {
+    Map<String, dynamic>? counterDelta,
+  }) {
+    return _locked((current) async {
+      final state = _deepCopy(current);
+      final actions = _ensureList(state, 'actions');
+      final pending = actions
+          .whereType<Map>()
+          .where((a) => a['status'] == 'pending')
+          .length;
+      if (pending + (counterDelta == null ? 1 : 2) > 500) {
+        throw FaceImageException('待处理队列已满，请先同步 App', status: 409);
+      }
+      final payload = _deepCopy(photoPayload);
+      Map<String, dynamic>? counterAction;
+      if (counterDelta != null) {
+        counterAction = {
+          ..._deepCopy(counterDelta),
+          'id': _newActionId(),
+          'kind': 'counter_delta',
+          'status': 'pending',
+          'created_at': nowIso(),
+          'created_by': 'mcp',
+        };
+        actions.add(counterAction);
+        payload['record_action_id'] = counterAction['id'];
+      }
+      final linkedAction = _readString(payload['record_action_id']).trim();
+      if (linkedAction.isNotEmpty && counterAction == null) {
+        final target = actions.whereType<Map>().where((a) =>
+            _readString(a['id']) == linkedAction &&
+            a['kind'] == 'counter_delta');
+        if (target.isEmpty) {
+          throw FaceImageException(
+              'record_action_id $linkedAction 不是已排队的 record_cheki 操作，请用 list_pending_actions 核对');
+        }
+        if (target.first['status'] == 'failed') {
+          throw FaceImageException(
+              'record_action_id $linkedAction 对应的计数已失败：${_readString(target.first['failure'])}');
+        }
+      }
+      if (linkedAction.isEmpty && payload['record_id'] == null) {
+        final hint = _latestPendingCounterDelta(actions, payload);
+        if (hint != null) payload['record_action_hint'] = hint;
+      }
+      final action = {
+        'id': _newActionId(),
+        'kind': kChekiPhotoActionKind,
+        'status': 'pending',
+        'payload': payload,
+        'created_at': nowIso(),
+        'created_by': 'mcp',
+      };
+      actions.add(action);
+      state['rev'] = _readInt(state['rev']) + 1;
+      state['updated_at'] = nowIso();
+      await _save(state);
+      _state = state;
+      return {
+        'action_id': action['id'],
+        'status': 'pending',
+        'kind': kChekiPhotoActionKind,
+        if (counterAction != null) 'record_action_id': counterAction['id'],
+        if (payload['record_action_hint'] != null)
+          'record_action_hint': payload['record_action_hint'],
+        'pending_actions': (_statusMap(state)['actions'] as Map)['pending'],
+      };
+    });
+  }
+
+  String? _latestPendingCounterDelta(
+      List<dynamic> actions, Map<String, dynamic> payload) {
+    final day = _dayOf(_readString(payload['occurred_at']));
+    if (day == null) return null;
+    final counterId = payload['counter_id'];
+    final personId = payload['person_id'];
+    final name = normalizePart(_readString(payload['member_name']));
+    for (final action in actions.reversed.whereType<Map>()) {
+      if (action['kind'] != 'counter_delta' || action['status'] != 'pending') {
+        continue;
+      }
+      final other = action['payload'];
+      if (other is! Map || _dayOf(_readString(other['occurred_at'])) != day) {
+        continue;
+      }
+      final sameMember =
+          (counterId != null && other['counter_id'] == counterId) ||
+              (personId != null && other['person_id'] == personId) ||
+              (name.isNotEmpty &&
+                  normalizePart(_readString(other['member_name'])) == name);
+      if (sameMember) return _readString(action['id']);
+    }
+    return null;
+  }
+
+  Future<List<Map<String, dynamic>>> chekiPhotoActions(
+      {String? status, int limit = 50}) {
+    return _locked((state) async {
+      final result = <Map<String, dynamic>>[];
+      for (final action
+          in _ensureList(state, 'actions').reversed.whereType<Map>()) {
+        if (action['kind'] != kChekiPhotoActionKind ||
+            (status != null && action['status'] != status)) {
+          continue;
+        }
+        result.add(_chekiPhotoView(action));
+        if (result.length >= limit) break;
+      }
+      return result;
+    });
+  }
+
   Future<List<Map<String, dynamic>>> faceEnrollments(
       {String? status,
       Set<int>? counterIds,
@@ -297,17 +447,22 @@ class SyncStore {
         if (!wanted.contains(id)) {
           continue;
         }
-        if (action['kind'] == 'enroll_face') {
+        if (action['kind'] == 'enroll_face' ||
+            action['kind'] == kChekiPhotoActionKind) {
           if (action['status'] != 'pending') {
             if (action['image_cleanup_pending'] == true) {
-              cleanupImages
-                  .add((action['payload'] as Map)['imageId'] as String);
+              cleanupImages.addAll(actionImageIds(action));
             }
             continue;
           }
-          action['image_cleanup_pending'] = true;
-          cleanupImages.add((action['payload'] as Map)['imageId'] as String);
           final failure = failures?[id];
+          if (action['kind'] == kChekiPhotoActionKind &&
+              failure != null &&
+              failure.trim().isEmpty) {
+            throw FaceImageException('切奇照片失败必须提供原因');
+          }
+          action['image_cleanup_pending'] = true;
+          cleanupImages.addAll(actionImageIds(action));
           action['status'] = failure == null ? 'applied' : 'failed';
           if (results?[id] != null) action['result'] = results![id];
           if (failure != null) {
@@ -330,6 +485,7 @@ class SyncStore {
           for (final action in actions) {
             if (action is Map &&
                 action['kind'] != 'enroll_face' &&
+                action['kind'] != kChekiPhotoActionKind &&
                 _readString(action['id']) == id) {
               action['status'] = 'failed';
               action['failure'] = entry.value;
@@ -353,8 +509,8 @@ class SyncStore {
         await faceImages.delete(imageId);
       }
       for (final action in actions.whereType<Map>()) {
-        if (action['kind'] == 'enroll_face' &&
-            cleanupImages.contains((action['payload'] as Map)['imageId'])) {
+        final images = actionImageIds(action);
+        if (images.isNotEmpty && images.every(cleanupImages.contains)) {
           action.remove('image_cleanup_pending');
         }
       }
@@ -614,6 +770,46 @@ class SyncConfig {
     }
     return diff == 0;
   }
+}
+
+String? _dayOf(String raw) {
+  final parsed = DateTime.tryParse(raw.trim());
+  if (parsed == null) return null;
+  return '${parsed.year.toString().padLeft(4, '0')}-'
+      '${parsed.month.toString().padLeft(2, '0')}-'
+      '${parsed.day.toString().padLeft(2, '0')}';
+}
+
+Map<String, dynamic> _chekiPhotoView(Map<dynamic, dynamic> action) {
+  final payload = action['payload'] is Map
+      ? Map<String, dynamic>.from(action['payload'] as Map)
+      : <String, dynamic>{};
+  final result = action['result'] is Map
+      ? Map<String, dynamic>.from(action['result'] as Map)
+      : null;
+  final images = payload['images'] is List ? payload['images'] as List : [];
+  return {
+    'id': _readString(action['id']),
+    'kind': kChekiPhotoActionKind,
+    'status': _readString(action['status']),
+    'created_at': _readString(action['created_at']),
+    'applied_at': action['applied_at'],
+    'failed_at': action['failed_at'],
+    'failure': action['failure'],
+    'member_id': payload['counter_id'],
+    'member_name': payload['member_name'],
+    'group_name': payload['group_name'],
+    'occurred_at': payload['occurred_at'],
+    'activity_name': payload['activity_name'],
+    'record_id': payload['record_id'],
+    'record_action_id': payload['record_action_id'],
+    'record_action_hint': payload['record_action_hint'],
+    'image_count': images.length,
+    'photos_saved': result?['photos_saved'],
+    'duplicates': result?['duplicates'],
+    'attached_record_id': result?['record_id'],
+    'image_cleanup_pending': action['image_cleanup_pending'] == true,
+  };
 }
 
 Map<String, dynamic> _faceEnrollmentView(Map<dynamic, dynamic> action) {

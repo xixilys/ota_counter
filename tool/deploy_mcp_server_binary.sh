@@ -15,6 +15,8 @@ SSH_HOST="${OTA_SYNC_SSH_HOST:-bgvps}"
 REMOTE_BIN="${OTA_SYNC_REMOTE_BIN:-/usr/local/bin/ota-sync}"
 REMOTE_APP_DIR="${OTA_SYNC_REMOTE_APP_DIR:-/opt/ota-counter-sync}"
 UNIT_FILE="$REPO_ROOT/mcp_server/deploy/ota-counter-sync.service"
+SEED_FILE="$REPO_ROOT/assets/data/china_idols_seed.json"
+ALIAS_FILE="$REPO_ROOT/mcp_server/data/member_aliases.json"
 DRY_RUN=0
 BUILD=0
 
@@ -40,10 +42,12 @@ if [[ ! -f "$BINARY" ]]; then
   echo "Missing binary: $BINARY" >&2
   exit 1
 fi
-if [[ ! -f "$UNIT_FILE" ]]; then
-  echo "Missing systemd unit: $UNIT_FILE" >&2
-  exit 1
-fi
+for required in "$UNIT_FILE" "$SEED_FILE" "$ALIAS_FILE"; do
+  if [[ ! -f "$required" ]]; then
+    echo "Missing required file: $required" >&2
+    exit 1
+  fi
+done
 
 echo "Deploy target : $target"
 echo "Binary        : $BINARY"
@@ -55,7 +59,7 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   echo
   echo "Dry run only. Planned actions:"
   echo "1. check remote x86_64 + systemd"
-  echo "2. scp binary to $target:$REMOTE_BIN"
+  echo "2. scp binary + roster/alias JSON to $target:$REMOTE_BIN and $REMOTE_APP_DIR"
   echo "3. install/refresh systemd unit, create ota-sync user"
   echo "4. systemctl daemon-reload && systemctl enable --now ota-counter-sync"
   echo "5. check that ota-counter-sync is active (token is not printed)"
@@ -77,6 +81,8 @@ echo "Uploading binary..."
 scp "$BINARY" "$target:/tmp/ota-sync-upload.$$"
 scp "$UNIT_FILE" "$target:/tmp/ota-counter-sync.service.$$"
 scp "$REPO_ROOT/mcp_server/README.md" "$target:/tmp/ota-counter-sync.README.$$"
+scp "$SEED_FILE" "$target:/tmp/ota-counter-sync.seed.$$"
+scp "$ALIAS_FILE" "$target:/tmp/ota-counter-sync.aliases.$$"
 
 echo "Installing service..."
 ssh "$target" "
@@ -86,9 +92,11 @@ ssh "$target" "
   install -d -m 0755 '$REMOTE_APP_DIR'
   install -d -m 0750 -o ota-sync -g ota-sync /var/lib/ota-counter-sync
   install -m 0644 '/tmp/ota-counter-sync.README.$$' '$REMOTE_APP_DIR/README.md'
+  install -m 0644 '/tmp/ota-counter-sync.seed.$$' '$REMOTE_APP_DIR/china_idols_seed.json'
+  install -m 0644 '/tmp/ota-counter-sync.aliases.$$' '$REMOTE_APP_DIR/member_aliases.json'
   install -m 0755 '/tmp/ota-sync-upload.$$' '$REMOTE_BIN'
   install -m 0644 '/tmp/ota-counter-sync.service.$$' /etc/systemd/system/ota-counter-sync.service
-  rm -f '/tmp/ota-sync-upload.$$' '/tmp/ota-counter-sync.service.$$' '/tmp/ota-counter-sync.README.$$'
+  rm -f '/tmp/ota-sync-upload.$$' '/tmp/ota-counter-sync.service.$$' '/tmp/ota-counter-sync.README.$$' '/tmp/ota-counter-sync.seed.$$' '/tmp/ota-counter-sync.aliases.$$'
   systemctl daemon-reload
   systemctl enable --now ota-counter-sync
   systemctl restart ota-counter-sync

@@ -1898,11 +1898,6 @@ class RecordScanService {
         }
         final sizeClass =
             _classifyCardRatio(ratio, windowAspect: planned.windowAspect);
-        final aspectRatio = switch (sizeClass) {
-          RecordScanCardSize.mini => _miniCardRatio,
-          RecordScanCardSize.wide => _wideCardRatio,
-          RecordScanCardSize.uncertain => ratio,
-        };
         if (!safeQuad(quad!)) {
           refineMs += stage.elapsedMilliseconds;
           continue;
@@ -1921,6 +1916,11 @@ class RecordScanService {
             continue;
           }
         }
+        final aspectRatio = switch (sizeClass) {
+          RecordScanCardSize.mini => _miniCardRatio,
+          RecordScanCardSize.wide => _wideCardRatio,
+          RecordScanCardSize.uncertain => ratio,
+        };
         final crop = _cropFromSource(source, quad, aspectRatio);
         refineMs += stage.elapsedMilliseconds;
         stage.reset();
@@ -1965,6 +1965,43 @@ class RecordScanService {
       }
     }
 
+    // An already-cut card (an app crop, a flatbed scan, a card sent through
+    // chat) fills the frame, so no paper edge stands against a background.
+    // Keep the frame whole when it has a cheki ratio and a paper border
+    // around a picture window; anything else stays "none detected".
+    if (cards.isEmpty) {
+      final sizeClass = _wholeFrameCardSize(edgePreview);
+      if (sizeClass != null) {
+        stage.reset();
+        final aspectRatio = sizeClass == RecordScanCardSize.mini
+            ? _miniCardRatio
+            : _wideCardRatio;
+        final framed = _resizeToTargetFrame(oriented, aspectRatio: aspectRatio);
+        final bytes = Uint8List.fromList(img.encodeJpg(framed, quality: 94));
+        encodeMs += stage.elapsedMilliseconds;
+        final w = oriented.width.toDouble(), h = oriented.height.toDouble();
+        cards.add(_multiCard(
+          bytes: bytes,
+          quad: [
+            const math.Point(0.0, 0.0),
+            math.Point(w, 0.0),
+            math.Point(w, h),
+            math.Point(0.0, h),
+          ],
+          sourceWidth: oriented.width,
+          sourceHeight: oriented.height,
+          ratio: math.min(w, h) / math.max(w, h),
+          confidence: 0.8,
+          splitFromMerged: false,
+          sizeClass: sizeClass,
+        ));
+        warnings
+          ..remove(RecordScanMultiWarning.noneDetected)
+          ..remove(RecordScanMultiWarning.possiblyMerged)
+          ..remove(RecordScanMultiWarning.unsafeGeometry);
+      }
+    }
+
     timings['refine'] = refineMs;
     timings['polish'] = polishMs;
     timings['encode'] = encodeMs;
@@ -1977,6 +2014,20 @@ class RecordScanService {
       sourceHeight: oriented.height,
       stageMilliseconds: timings,
     );
+  }
+
+  /// Size class of a frame that is itself one card, or null.
+  static RecordScanCardSize? _wholeFrameCardSize(_Rgb preview) {
+    final w = preview.width.toDouble(), h = preview.height.toDouble();
+    final sizeClass = _classifyCardRatio(math.min(w, h) / math.max(w, h));
+    if (sizeClass == RecordScanCardSize.uncertain) return null;
+    final frame = [
+      const math.Point(0.0, 0.0),
+      math.Point(w, 0.0),
+      math.Point(w, h),
+      math.Point(0.0, h),
+    ];
+    return _photoWindowInsets(preview, frame) == null ? null : sizeClass;
   }
 
   static RecordScanMultiCard _multiCard({

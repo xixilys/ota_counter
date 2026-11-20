@@ -175,13 +175,17 @@ Grok Bot / Hermes 若只支持其中一种，按客户端的 MCP 配置 schema �
 | `get_member` | 单成员详情 + 最近记录 + 各团籍卡片 |
 | `list_records` | 按日期、成员、类型查流水 |
 | `list_groups` | 团体/价格配置列表 |
-| `record_cheki` | **排队**增加切奇（3寸/5寸/宿题/团切/无签） |
+| `record_cheki` | **排队**增加切奇（3寸/5寸/宿题/团切/无签）；`allow_create` + `group_name`/`person_name`/`person_id` 可同时建卡；可带 `images`，照片挂到这次生成的流水 |
 | `add_ticket` | **排队**添加门票记录（支持 `ticket_type` / `is_free`） |
+| `create_member` | **排队**给还没有卡片的成员建卡（name 必填；group / person_id / person_name / color 可选） |
+| `search_member` | 在 App 卡片 + 仓库偶像名册里模糊查名字/别名，返回是否已有卡片 |
 | `list_pending_actions` | 查看还没被 App 执行的队列 |
 | `get_sync_status` | 快照时间、版本号、待执行数、是否过期 |
 | `create_face_upload_link` | 按 `member_id`（优先）或 `member` + 可选 `group` 生成限量上传链接 |
 | `enroll_face` | 按成员身份 + `image_url` / `image_base64`（二选一）+ 可选 `face` 排队 |
 | `list_face_enrollments` | 按可选 `member_id` / `member` / `group`、`status`、`limit` 查处理结果 |
+| `attach_cheki_photos` | **排队**把拍立得照片（`images` 数组，或单张 `image_base64` / `image_url`，最多 20 张）挂到切奇流水，进切册；不改计数 |
+| `list_cheki_photos` | 按 `status`、`limit` 查挂图结果：挂到哪条流水、存了几张、重复几张，失败带中文原因 |
 
 资源：`ota://overview`、`ota://members`、`ota://recent-records`、
 `ota://sync-status`、`ota://snapshot`。
@@ -221,6 +225,30 @@ Grok Bot / Hermes 若只支持其中一种，按客户端的 MCP 配置 schema �
   不能说新增。默认最新 50 条，最多 100 条。
 - 未广告 `x-ota-capabilities: face-enroll-v1` 的旧 App（含 v1.6.0）不会收到
   `enroll_face` 操作，因此旧版同步仍能正常工作；新 App 会自动带上该头。
+
+## 从聊天给切册挂照片
+
+先同步一次 App 快照，用 `list_members` 核对 `member_id`。
+
+- 只挂图、不改计数：`attach_cheki_photos`，传 `member_id`（或 `name` + `group`）、
+  `occurred_at`（拍切日期），可选 `activity_name`。照片放在 `images` 数组里，每项
+  `{"image_base64": ...}` 或 `{"image_url": ...}`；单张也可直接传
+  `image_base64` / `image_url`。格式和大小限制同脸照（JPEG/PNG，base64 ≤8 MB，
+  URL ≤15 MB），一次最多 20 张，任何一张不合格整次不排队。
+- 记数顺带挂图：`record_cheki` 加 `images`，计数和照片一起排队，照片挂到这次
+  生成的流水上。
+- 挂到哪条流水：`record_id`（`list_records` 的流水编号）> `record_action_id`
+  （`record_cheki` 返回的 `action_id`）> 该成员当天的切奇流水（给了
+  `activity_name` 时优先同名活动，否则取最新一条）> 同成员同日还在排队的
+  `record_cheki`。都没有时失败，原因写明“找不到某人在某天的切奇流水”。
+- App 入库方式与批量拍切相同：照片存为该流水的切图，切册自动拉正、校正透视、
+  减反光后显示；同一张照片重复发送不会重复入库。
+- 排队后只能回复“已排队，手机打开同步后生效”。用 `list_cheki_photos` 查结果：
+  `applied` 带 `attached_record_id`、`photos_saved`、`duplicates`；`failed`
+  带中文 `failure`。App 回执后服务端删除暂存图片；超过 7 天未同步的图片会被清理，
+  届时操作失败并提示重新发送。
+- 只有带 `x-ota-capabilities: cheki-photo-v1` 的 App（v1.7.11 起）会收到挂图
+  操作，旧 App 照常同步计数。
 
 ### 公开地址必须显式配置
 

@@ -179,7 +179,7 @@ void main() {
     expect(await File(old.path).readAsBytes(), _png);
     expect(await File(attached.path).readAsBytes(), _png);
     final optimizedDir =
-        Directory('${File(attached.path).parent.path}/.album-optimized-v3');
+        Directory('${File(attached.path).parent.path}/.album-optimized-v4');
     final savedDisplay = await optimizedDir
         .list(recursive: true)
         .where((e) => e is File)

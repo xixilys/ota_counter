@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'face_images.dart';
+import 'member_catalog.dart';
 import 'snapshot.dart';
 import 'store.dart';
 
@@ -23,11 +24,17 @@ class McpMethodException extends ToolException {
 /// [handle] accepts a decoded request object (or a JSON-RPC batch) and returns
 /// the decoded response object. Notifications return `null`.
 class McpProtocol {
-  McpProtocol(this.store, {this.requestBaseUrl});
+  McpProtocol(
+    this.store, {
+    this.requestBaseUrl,
+    this.catalog = MemberCatalog.empty,
+  });
 
   final String? requestBaseUrl;
 
   final SyncStore store;
+
+  final MemberCatalog catalog;
 
   Future<Object?> handle(Object? payload) async {
     if (payload is List) {
@@ -94,19 +101,19 @@ class McpProtocol {
             'name': kSyncServerName,
             'version': kSyncServerVersion,
           },
-          'instructions':
-              'OTA Counter bridge. Read the latest app snapshot with '
-                  'get_overview/list_members/list_records. Use record_cheki or '
-                  'add_ticket to queue changes; they are applied by the OTA '
-                  'Counter app on its next pull. Check get_sync_status for '
-                  'snapshot age and pending actions. 用户发照片并说「这是X」时：先用 '
-                  'list_members/get_member 核对 member_id（重名时补充 group），再调用 '
-                  'enroll_face；有图片字节就用 image_base64，只有公开 HTTP(S) 图片 URL 才用 '
-                  'image_url。只能回复「已排队，手机打开同步后生效」，不要说已录入。之后用 '
-                  'list_face_enrollments 查询 App 回执，诚实报告 faces_found、used_face 和 '
-                  'samples_kept（每人最多保留 30 个样本，samples_kept 可能为 0）。失败时按中文原因'
-                  '和 faces 里的 index_from_left 让用户用 face: left_N 重试。没有图片字节时用 '
-                  'create_face_upload_link 给用户手机上传链接。不要索取或显示同步 token。',
+          'instructions': 'OTA Counter bridge. Read the latest app snapshot with '
+              'get_overview/list_members/list_records. Use record_cheki or '
+              'add_ticket to queue changes; they are applied by the OTA '
+              'Counter app on its next pull. Check get_sync_status for '
+              'snapshot age and pending actions. 用户发照片并说「这是X」时：先用 '
+              'list_members/get_member 核对 member_id（重名时补充 group），再调用 '
+              'enroll_face；有图片字节就用 image_base64，只有公开 HTTP(S) 图片 URL 才用 '
+              'image_url。只能回复「已排队，手机打开同步后生效」，不要说已录入。之后用 '
+              'list_face_enrollments 查询 App 回执，诚实报告 faces_found、used_face 和 '
+              'samples_kept（每人最多保留 30 个样本，samples_kept 可能为 0）。失败时按中文原因'
+              '和 faces 里的 index_from_left 让用户用 face: left_N 重试。没有图片字节时用 '
+              'create_face_upload_link 给用户手机上传链接。没有卡片的新人先用 search_member 查名册/别名，'
+              '再 create_member 或 record_cheki(allow_create=true)。不要索取或显示同步 token。',
         };
       case 'ping':
         return <String, dynamic>{};
@@ -167,6 +174,10 @@ class McpProtocol {
         return _listGroups();
       case 'record_cheki':
         return _recordCheki(arguments);
+      case 'create_member':
+        return _createMember(arguments);
+      case 'search_member':
+        return _searchMember(arguments);
       case 'add_ticket':
         return _addTicket(arguments);
       case 'list_pending_actions':
@@ -196,6 +207,19 @@ class McpProtocol {
           await store.faceImages.delete(imageId);
           rethrow;
         }
+      case 'attach_cheki_photos':
+        return _attachChekiPhotos(arguments);
+      case 'list_cheki_photos':
+        final status = readString(arguments, ['status']);
+        if (status.isNotEmpty &&
+            !{'pending', 'applied', 'failed'}.contains(status)) {
+          throw ToolException('status 只能是 pending、applied 或 failed');
+        }
+        final actions = await store.chekiPhotoActions(
+          status: status.isEmpty ? null : status,
+          limit: readInt(arguments, ['limit'], 50).clamp(1, 100),
+        );
+        return {'count': actions.length, 'attachments': actions};
       case 'list_face_enrollments':
         final status = readString(arguments, ['status']);
         if (status.isNotEmpty &&
@@ -367,6 +391,192 @@ class McpProtocol {
     return (url: null, bytes: bytes, mime: mime, source: 'base64');
   }
 
+  /// Image arguments of `attach_cheki_photos` / `record_cheki`: an `images`
+  /// array (objects with image_base64 / image_url, or bare strings) plus an
+  /// optional single top-level image_base64 / image_url.
+  List<({String? url, List<int>? bytes, String? mime, String source})>
+      _chekiImageArguments(Map<String, dynamic> arguments,
+          {required bool required}) {
+    final items = <Map<String, dynamic>>[];
+    final list = arguments['images'];
+    if (list != null) {
+      if (list is! List) {
+        throw ToolException('images 必须是数组，每项是 {image_base64} 或 {image_url}');
+      }
+      for (final item in list) {
+        if (item is String) {
+          final text = item.trim();
+          items.add(RegExp(r'^https?://', caseSensitive: false).hasMatch(text)
+              ? {'image_url': text}
+              : {'image_base64': text});
+        } else if (item is Map) {
+          items.add({
+            if ((item['image_url'] ?? item['url']) != null)
+              'image_url': item['image_url'] ?? item['url'],
+            if ((item['image_base64'] ?? item['base64']) != null)
+              'image_base64': item['image_base64'] ?? item['base64'],
+          });
+        } else {
+          throw ToolException('images 的每一项必须是对象或字符串');
+        }
+      }
+    }
+    if (arguments['image_base64'] != null || arguments['image_url'] != null) {
+      items.add({
+        if (arguments['image_url'] != null) 'image_url': arguments['image_url'],
+        if (arguments['image_base64'] != null)
+          'image_base64': arguments['image_base64'],
+      });
+    }
+    if (items.isEmpty) {
+      if (!required) return const [];
+      throw ToolException('请至少提供一张照片：images 数组，或 image_base64 / image_url');
+    }
+    if (items.length > kMaxChekiPhotosPerAction) {
+      throw ToolException('一次最多 $kMaxChekiPhotosPerAction 张照片，请分批提交');
+    }
+    final parsed =
+        <({String? url, List<int>? bytes, String? mime, String source})>[];
+    for (var i = 0; i < items.length; i++) {
+      try {
+        parsed.add(_faceImageArgument(items[i]));
+      } on ToolException catch (error) {
+        throw ToolException('第 ${i + 1} 张照片：${error.message}');
+      }
+    }
+    return parsed;
+  }
+
+  /// Stages every image; on any failure the already staged ones are removed.
+  Future<List<Map<String, dynamic>>> _stageChekiImages(
+      List<({String? url, List<int>? bytes, String? mime, String source})>
+          images) async {
+    final staged = <Map<String, dynamic>>[];
+    try {
+      for (var i = 0; i < images.length; i++) {
+        final image = images[i];
+        final String id;
+        try {
+          id = image.url != null
+              ? await store.faceImages.fetch(image.url!)
+              : await store.faceImages.saveBytes(image.bytes!, image.mime!);
+        } on FaceImageException catch (error) {
+          throw ToolException('第 ${i + 1} 张照片：${error.message}');
+        }
+        staged.add({
+          'imageId': id,
+          'source': image.source,
+          'mime': await store.faceImages.mime(id),
+        });
+      }
+      return staged;
+    } catch (_) {
+      await _deleteStaged(staged);
+      rethrow;
+    }
+  }
+
+  Future<void> _deleteStaged(List<Map<String, dynamic>> staged) async {
+    for (final image in staged) {
+      await store.faceImages.delete(image['imageId'] as String);
+    }
+  }
+
+  Future<Map<String, dynamic>> _attachChekiPhotos(
+    Map<String, dynamic> arguments,
+  ) async {
+    final images = _chekiImageArguments(arguments, required: true);
+    final rawRecordId = arguments['record_id'];
+    int? recordId;
+    if (rawRecordId != null) {
+      recordId = _parseMemberId(rawRecordId);
+      if (recordId == null) {
+        throw ToolException('record_id 必须是正整数，请用 list_records 核对');
+      }
+    }
+    final recordActionId = readString(arguments, ['record_action_id']).trim();
+    final rawName = readString(arguments, ['name', 'member']).trim();
+    final hasMember = arguments['member_id'] != null || rawName.isNotEmpty;
+    if (!hasMember && recordId == null && recordActionId.isEmpty) {
+      throw ToolException(
+          '请提供 member_id（优先）或 name（重名时加 group）；也可以直接给 record_id');
+    }
+    final rawOccurredAt = readString(arguments, ['occurred_at', 'occurredAt']);
+    if (rawOccurredAt.trim().isEmpty &&
+        recordId == null &&
+        recordActionId.isEmpty) {
+      throw ToolException('请提供 occurred_at（拍切日期 YYYY-MM-DD），或用 record_id 指定流水');
+    }
+    final occurredAt =
+        rawOccurredAt.trim().isEmpty ? null : _parseOccurredAt(rawOccurredAt);
+
+    var target = <String, dynamic>{};
+    if (hasMember) {
+      try {
+        target = await _faceTarget({
+          ...arguments,
+          if (arguments['member'] == null && rawName.isNotEmpty)
+            'member': rawName,
+        });
+      } on ToolException {
+        // A card that a queued record_cheki(allow_create) is about to create
+        // is not in the snapshot yet; the linked action identifies it.
+        if (recordActionId.isEmpty) rethrow;
+        target = {
+          'member_name': rawName,
+          'group_name': readString(arguments, ['group']).trim(),
+        };
+      }
+    }
+    if (recordId != null) {
+      final snapshot = await store.snapshot();
+      if (snapshot != null) {
+        final record = SnapshotView(snapshot)
+            .records
+            .where((item) => readInt(item, ['id']) == recordId)
+            .firstOrNull;
+        if (record == null) {
+          throw ToolException(
+              'record_id $recordId 不在最新快照里，请先在 App 同步，或用 list_records 核对');
+        }
+        if (recordType(record) == 'ticket') {
+          throw ToolException('record_id $recordId 是门票流水，切奇照片只能挂到切奇流水');
+        }
+      }
+    }
+
+    final staged = await _stageChekiImages(images);
+    final payload = <String, dynamic>{
+      ...target,
+      'occurred_at': occurredAt?.toIso8601String() ?? '',
+      'activity_name':
+          readString(arguments, ['activity_name', 'activityName']).trim(),
+      if (recordId != null) 'record_id': recordId,
+      if (recordActionId.isNotEmpty) 'record_action_id': recordActionId,
+      'note': readString(arguments, ['note']).trim(),
+      'images': staged,
+    };
+    final Map<String, dynamic> queued;
+    try {
+      queued = await store.queueChekiPhotos(payload);
+    } on FaceImageException catch (error) {
+      await _deleteStaged(staged);
+      throw ToolException(error.message);
+    } catch (_) {
+      await _deleteStaged(staged);
+      rethrow;
+    }
+    return {
+      ...queued,
+      'image_count': staged.length,
+      'member': target,
+      if (recordId != null) 'record_id': recordId,
+      'occurred_at': payload['occurred_at'],
+      'message': '已排队 ${staged.length} 张照片，手机打开 OTA Counter 同步后才会挂到切册；'
+          '尚未完成。之后用 list_cheki_photos 查看结果。',
+    };
+  }
+
   Future<SnapshotView> _requireSnapshot() async {
     final snapshot = await store.snapshot();
     if (snapshot == null) {
@@ -479,7 +689,13 @@ class McpProtocol {
     Map<String, dynamic> arguments,
   ) async {
     final view = await _requireSnapshot();
-    final member = _findMember(view, arguments);
+    final allowCreate = arguments['allow_create'] == true;
+    MemberAggregate? member;
+    try {
+      member = _findMember(view, arguments);
+    } on ToolException {
+      if (!allowCreate) rethrow;
+    }
     final counts = <String, int>{};
     for (final entry in countKeyAliases.entries) {
       final value = arguments[entry.key] ??
@@ -499,23 +715,53 @@ class McpProtocol {
     final occurredAt = _parseOccurredAt(
       readString(arguments, ['occurred_at', 'occurredAt']),
     );
-    final requestedGroup = readString(arguments, ['group']).trim();
-    if (requestedGroup.isNotEmpty &&
-        !member.groups.any(
-          (value) => normalizePart(value) == normalizePart(requestedGroup),
-        )) {
-      throw ToolException(
-        'Group "$requestedGroup" is not one of this member\'s groups: '
-        '${member.groups.join(', ')}',
-      );
+    final images = _chekiImageArguments(arguments, required: false);
+
+    int? personId;
+    String personName;
+    String primaryGroup;
+    int? counterId;
+    String memberName;
+    final found = member;
+    if (found == null) {
+      // allow_create with a name that is not on any card yet.
+      final name = readString(arguments, ['name', 'member']).trim();
+      if (name.isEmpty) {
+        throw ToolException(
+          'allow_create=true 时需要 name：请提供要新建卡片的成员名',
+        );
+      }
+      personId = _optionalPersonId(arguments['person_id']);
+      personName = readString(arguments, ['person_name', 'personName']).trim();
+      primaryGroup = readString(arguments, ['group_name', 'group']).trim();
+      counterId = null;
+      memberName = name;
+      if (personName.isEmpty) personName = name;
+    } else {
+      final requestedGroup =
+          readString(arguments, ['group', 'group_name']).trim();
+      if (requestedGroup.isNotEmpty &&
+          !found.groups.any(
+            (value) => normalizePart(value) == normalizePart(requestedGroup),
+          )) {
+        throw ToolException(
+          'Group "$requestedGroup" is not one of this member\'s groups: '
+          '${found.groups.join(', ')}',
+        );
+      }
+      primaryGroup =
+          requestedGroup.isNotEmpty ? requestedGroup : found.primaryGroup;
+      counterId = found.primaryCounterId;
+      personId = found.personId;
+      personName = found.name;
+      memberName = found.name;
     }
-    final primaryGroup =
-        requestedGroup.isNotEmpty ? requestedGroup : member.primaryGroup;
+
     final payload = {
-      'counter_id': member.primaryCounterId,
-      'person_id': member.personId,
-      'person_name': member.name,
-      'member_name': member.name,
+      'counter_id': counterId,
+      'person_id': personId,
+      'person_name': personName,
+      'member_name': memberName,
       'group_name': primaryGroup,
       'occurred_at': occurredAt.toIso8601String(),
       'counts': counts,
@@ -523,8 +769,49 @@ class McpProtocol {
       'activity_name': readString(arguments, ['activity_name', 'activityName']),
       'venue_name': readString(arguments, ['venue_name', 'venueName']),
       'session_label': readString(arguments, ['session_label', 'sessionLabel']),
-      'allow_create': arguments['allow_create'] == true,
+      'allow_create': allowCreate,
     };
+    if (images.isNotEmpty) {
+      final staged = await _stageChekiImages(images);
+      final Map<String, dynamic> queued;
+      try {
+        queued = await store.queueChekiPhotos({
+          'counter_id': counterId,
+          'person_id': personId,
+          'person_name': personName,
+          'member_name': memberName,
+          'group_name': primaryGroup,
+          'occurred_at': payload['occurred_at'],
+          'activity_name': payload['activity_name'],
+          'note': '',
+          'images': staged,
+        }, counterDelta: {
+          'kind': 'counter_delta',
+          'payload': payload,
+          'created_by': 'mcp',
+        });
+      } catch (_) {
+        await _deleteStaged(staged);
+        rethrow;
+      }
+      return {
+        'action_id': queued['record_action_id'],
+        'status': 'pending',
+        'kind': 'counter_delta',
+        'photo_action_id': queued['action_id'],
+        'image_count': staged.length,
+        'member': {
+          'member_id': counterId,
+          'name': memberName,
+          'group': primaryGroup,
+        },
+        'counts': counts,
+        'occurred_at': payload['occurred_at'],
+        'pending_actions': _pendingCount(await store.status()),
+        'message': '已排队计数和 ${staged.length} 张照片，手机打开 OTA Counter 同步后生效；'
+            '照片挂到这次生成的流水上，用 list_cheki_photos 查看结果。',
+      };
+    }
     final queued = await store.queueAction({
       'kind': 'counter_delta',
       'payload': payload,
@@ -536,8 +823,8 @@ class McpProtocol {
       'status': action['status'],
       'kind': 'counter_delta',
       'member': {
-        'member_id': member.primaryCounterId,
-        'name': member.name,
+        'member_id': counterId,
+        'name': memberName,
         'group': primaryGroup,
       },
       'counts': counts,
@@ -545,6 +832,206 @@ class McpProtocol {
       'pending_actions': _pendingCount(await store.status()),
       'message':
           'Queued. Open OTA Counter → MCP 同步 → 一键同步 to apply it locally.',
+    };
+  }
+
+  int? _optionalPersonId(Object? value) {
+    if (value == null) return null;
+    if (value is num) {
+      final id = value.toInt();
+      return id > 0 ? id : null;
+    }
+    if (value is String) {
+      final trimmed = value.trim();
+      if (trimmed.isEmpty) return null;
+      final id = int.tryParse(trimmed);
+      if (id == null || id <= 0) {
+        throw ToolException('person_id 必须是正整数');
+      }
+      return id;
+    }
+    throw ToolException('person_id 必须是正整数');
+  }
+
+  Future<Map<String, dynamic>> _createMember(
+    Map<String, dynamic> arguments,
+  ) async {
+    final name = readString(arguments, ['name']).trim();
+    if (name.isEmpty) {
+      throw ToolException('name 不能为空：请提供要建卡的成员名');
+    }
+    if (name.length > 40) {
+      throw ToolException('name 太长（最多 40 字）');
+    }
+    final group = readString(arguments, ['group', 'group_name']).trim();
+    final personName =
+        readString(arguments, ['person_name', 'personName']).trim();
+    final personId = _optionalPersonId(arguments['person_id']);
+    final color = readString(arguments, ['color']).trim();
+    if (color.isNotEmpty && !RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(color)) {
+      throw ToolException('color 需要 #RRGGBB 格式，例如 #FF5C8A');
+    }
+
+    final view = await _requireSnapshot();
+    final normalized = MemberCatalog.normalizeName(name);
+    for (final member in view.members(includeHidden: true)) {
+      final names = <String>[
+        member.name,
+        for (final counter in member.counters) counterName(counter),
+        for (final counter in member.counters) counterPersonName(counter),
+      ].where((value) => value.trim().isNotEmpty);
+      final sameName = names.any(
+        (value) => MemberCatalog.normalizeName(value) == normalized,
+      );
+      final samePerson = personId != null && member.personId == personId;
+      if (!sameName && !samePerson) continue;
+      throw ToolException(
+        '重名：已有成员卡「${member.name}」'
+        '（${member.groupLabel.isEmpty ? '无团名' : member.groupLabel}，'
+        'member_id ${member.primaryCounterId ?? '?'}），不需要 create_member；'
+        '要计数请直接用 record_cheki。',
+      );
+    }
+
+    final payload = <String, dynamic>{
+      'name': name,
+      'group_name': group,
+      'person_id': personId,
+      'person_name': personName.isEmpty ? name : personName,
+      'color': color,
+    };
+    final queued = await store.queueAction({
+      'kind': 'member_create',
+      'payload': payload,
+      'created_by': 'mcp',
+    });
+    final action = queued['action'] as Map;
+    return {
+      'ok': true,
+      'action_id': action['id'],
+      'status': action['status'],
+      'kind': 'member_create',
+      'member': {
+        'name': name,
+        'group': group,
+        'person_id': personId,
+        'person_name': payload['person_name'],
+        'color': color,
+      },
+      'pending_actions': _pendingCount(await store.status()),
+      'message': '已排队建卡，手机打开 OTA Counter 同步后才会出现这张卡。',
+    };
+  }
+
+  Future<Map<String, dynamic>> _searchMember(
+    Map<String, dynamic> arguments,
+  ) async {
+    final query = readString(arguments, ['query', 'q', 'name']).trim();
+    if (query.isEmpty) {
+      throw ToolException('query 不能为空：请给一个名字或别名');
+    }
+    final limit = readInt(arguments, ['limit'], 10).clamp(1, 50);
+    final snapshot = await store.snapshot();
+    final view = snapshot == null ? null : SnapshotView(snapshot);
+    final appMembers =
+        view?.members(includeHidden: true) ?? const <MemberAggregate>[];
+
+    final candidates = <String, Map<String, dynamic>>{};
+    void addCandidate(String key, Map<String, dynamic> value) {
+      final existing = candidates[key];
+      if (existing == null) {
+        candidates[key] = value;
+        return;
+      }
+      if ((value['score'] as int) > (existing['score'] as int)) {
+        // Keep the card-backed row when one exists.
+        candidates[key] = {
+          ...value,
+          if ((existing['has_card'] as bool) && !(value['has_card'] as bool))
+            'has_card': true,
+          if (existing['member_id'] != null && value['member_id'] == null)
+            'member_id': existing['member_id'],
+        };
+      }
+    }
+
+    for (final member in appMembers) {
+      final names = <String>[
+        member.name,
+        for (final counter in member.counters) counterName(counter),
+        for (final counter in member.counters) counterPersonName(counter),
+      ].where((value) => value.trim().isNotEmpty).toList();
+      var bestScore = 0;
+      var bestName = member.name;
+      for (final value in names) {
+        final match = MemberCatalog.bestMatch(query, value);
+        if (match.score > bestScore) {
+          bestScore = match.score;
+          bestName = value;
+        }
+      }
+      if (bestScore <= 0) continue;
+      addCandidate(
+        MemberCatalog.normalizeName(member.name),
+        {
+          'member_id': member.primaryCounterId,
+          'person_id': member.personId,
+          'name': member.name,
+          'group': member.primaryGroup.isEmpty
+              ? member.groupLabel
+              : member.primaryGroup,
+          'groups': member.groups,
+          'has_card': true,
+          'source': 'app',
+          'status': '',
+          'match': bestName,
+          'score': bestScore,
+        },
+      );
+    }
+
+    for (final result in catalog.search(query, limit: limit)) {
+      final member = result.member;
+      final key = MemberCatalog.normalizeName(member.name);
+      final existing = candidates[key];
+      if (existing != null) {
+        existing['has_card'] = true;
+        if (existing['score'] < result.score) {
+          existing['score'] = result.score;
+        }
+        continue;
+      }
+      addCandidate(key, {
+        'member_id': null,
+        'person_id': null,
+        'name': member.name,
+        'group': member.group,
+        'groups': [member.group],
+        'has_card': false,
+        'source': 'roster',
+        'status': member.status,
+        'match': member.name,
+        'score': result.score,
+      });
+    }
+
+    final sorted = candidates.values.toList()
+      ..sort((a, b) {
+        final score = (b['score'] as int).compareTo(a['score'] as int);
+        if (score != 0) return score;
+        final card = (b['has_card'] as bool ? 1 : 0)
+            .compareTo(a['has_card'] as bool ? 1 : 0);
+        if (card != 0) return card;
+        return (a['name'] as String).compareTo(b['name'] as String);
+      });
+    final page = sorted.take(limit).toList(growable: false);
+    return {
+      'query': query,
+      'count': page.length,
+      'total_matches': sorted.length,
+      'roster_size': catalog.roster.length,
+      'candidates': page,
+      if (page.isEmpty) 'message': '没有找到匹配的成员或别名',
     };
   }
 
@@ -952,7 +1439,87 @@ class McpProtocol {
     },
   };
 
+  static const Map<String, dynamic> _chekiImageProperties = {
+    'images': {
+      'type': 'array',
+      'maxItems': 20,
+      'description': '照片数组（最多 20 张）。每项是 {"image_base64": "..."}（JPEG/PNG，可带 '
+          'data:image/...;base64, 前缀，≤8 MB 编码）或 {"image_url": "https://..."}（≤15 MB）',
+      'items': {
+        'type': 'object',
+        'properties': {
+          'image_base64': {'type': 'string'},
+          'image_url': {'type': 'string'},
+        },
+        'additionalProperties': false,
+      },
+    },
+    'image_base64': {
+      'type': 'string',
+      'description': '只有一张照片时可直接用：JPEG/PNG 的 base64',
+    },
+    'image_url': {
+      'type': 'string',
+      'description': '只有一张照片时可直接用：公开 HTTP(S) 图片地址',
+    },
+  };
+
   static const List<Map<String, dynamic>> _toolDefinitions = [
+    {
+      'name': 'attach_cheki_photos',
+      'description': '把拍立得照片（扫描或切好的卡图）挂到 App 的切奇流水上，进「切册」显示；不改计数。'
+          '先用 list_members 核对 member_id，再给 occurred_at（拍切日期）。'
+          '挂到哪条流水：record_id（list_records 里的流水编号）> record_action_id（record_cheki 返回的 action_id）'
+          '> 该成员当天的流水（有 activity_name 时优先同名活动）> 同成员同日还在排队的 record_cheki。'
+          '要同时加计数，直接在 record_cheki 里带 images。App 入库时自动拉正、校正透视和减反光。'
+          'App 同步后才会生效，只能回复「已排队」；结果用 list_cheki_photos 查。',
+      'inputSchema': {
+        'type': 'object',
+        'properties': {
+          'member_id': {
+            'type': ['integer', 'string'],
+            'description': '成员编号（list_members 的 member_id），优先使用',
+          },
+          'name': {'type': 'string', 'description': '成员名；重名时同时提供 group'},
+          'group': {'type': 'string', 'description': '团名'},
+          'occurred_at': {
+            'type': 'string',
+            'description': '拍切日期 YYYY-MM-DD（或 ISO 时间）；给了 record_id 时可省略',
+          },
+          'activity_name': {
+            'type': 'string',
+            'description': '活动名；当天有多条流水时用来挑同名活动那条',
+          },
+          'record_id': {
+            'type': ['integer', 'string'],
+            'description': '要挂的流水编号（list_records 返回的 id）',
+          },
+          'record_action_id': {
+            'type': 'string',
+            'description': '挂到某个已排队 record_cheki 生成的流水（填它返回的 action_id）',
+          },
+          'note': {'type': 'string'},
+          ..._chekiImageProperties,
+        },
+        'additionalProperties': false,
+      },
+    },
+    {
+      'name': 'list_cheki_photos',
+      'description': '查询切奇照片挂图的状态和 App 回执：pending 等待同步；applied 已入切册'
+          '（attached_record_id、photos_saved、duplicates）；failed 带中文原因（failure）。',
+      'inputSchema': {
+        'type': 'object',
+        'properties': {
+          'status': {
+            'type': 'string',
+            'enum': ['pending', 'applied', 'failed'],
+          },
+          'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100},
+        },
+        'additionalProperties': false,
+      },
+    },
     {
       'name': 'create_face_upload_link',
       'description':
@@ -1075,7 +1642,10 @@ class McpProtocol {
       'description':
           'Queue a cheki count change for a member. The app applies it on the '
               'next pull, so totals change after the app syncs. Counts are '
-              'additive and never negative.',
+              'additive and never negative. Optional images (images / '
+              'image_base64 / image_url) are attached to the record this '
+              'change creates and shown in 切册; check them with '
+              'list_cheki_photos.',
       'inputSchema': {
         'type': 'object',
         'properties': {
@@ -1084,6 +1654,11 @@ class McpProtocol {
           },
           'name': {'type': 'string'},
           'group': {'type': 'string'},
+          'group_name': {'type': 'string'},
+          'person_name': {'type': 'string'},
+          'person_id': {
+            'type': ['integer', 'string']
+          },
           'three_inch': {'type': 'integer', 'minimum': 0, 'maximum': 999},
           'five_inch': {'type': 'integer', 'minimum': 0, 'maximum': 999},
           'unsigned_three_inch': {
@@ -1113,7 +1688,42 @@ class McpProtocol {
           'venue_name': {'type': 'string'},
           'session_label': {'type': 'string'},
           'allow_create': {'type': 'boolean'},
+          ..._chekiImageProperties,
         },
+        'additionalProperties': false,
+      },
+    },
+    {
+      'name': 'create_member',
+      'description': '给还没有卡片的成员建卡。服务端只排队 member_create，App 下一次同步时插入卡片；'
+          '重名、缺 name 或 color 格式不对会直接返回中文失败原因。',
+      'inputSchema': {
+        'type': 'object',
+        'properties': {
+          'name': {'type': 'string', 'description': '成员名，必填'},
+          'group': {'type': 'string', 'description': '团名，可空'},
+          'person_id': {
+            'type': ['integer', 'string'],
+            'description': '同一真人的 person id，可空'
+          },
+          'person_name': {'type': 'string', 'description': '主档名，可空；默认用 name'},
+          'color': {'type': 'string', 'description': '#RRGGBB，可空'},
+        },
+        'required': ['name'],
+        'additionalProperties': false,
+      },
+    },
+    {
+      'name': 'search_member',
+      'description': '在 App 成员卡和仓库偶像名册（china_idols_seed.json）里模糊查名字/别名，'
+          '返回 member_id、name、group、是否已有卡片。适合「Yuina→優晴Yu1na」「猪猪包→皮皮猪」这类查询。',
+      'inputSchema': {
+        'type': 'object',
+        'properties': {
+          'query': {'type': 'string', 'description': '名字、别名或片段'},
+          'limit': {'type': 'integer', 'minimum': 1, 'maximum': 50},
+        },
+        'required': ['query'],
         'additionalProperties': false,
       },
     },

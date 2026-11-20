@@ -235,8 +235,15 @@ class SyncHttpServer {
             failures[key.toString()] = value.toString();
           });
         }
+        final deferred = <String, String>{};
+        if (body['deferred'] is Map) {
+          (body['deferred'] as Map).forEach((key, value) {
+            deferred[key.toString()] = value.toString();
+          });
+        }
         final result = await store.acknowledgeActions(
           ids,
+          deferred: deferred.isEmpty ? null : deferred,
           failures: failures.isEmpty ? null : failures,
           results: body['results'] is Map
               ? Map<String, dynamic>.from(body['results'] as Map)

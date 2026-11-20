@@ -305,6 +305,10 @@ Authorization: Bearer <token>
 
 `ids` 同时包含成功、失败的脸照操作；失败不能同时记为成功。成功摘要以 `result` 字段供查询。重复脸照 ack 不重复计数。原有非脸照操作和 ack 行为保持不变。
 
+App 试过但要下次再试的操作（照片暂时下载不了、关联的记切还没落地等）放在 `deferred: {"<action_id>": "<中文原因>"}` 里回传，不进 `ids`：操作保持 pending，服务端记下 `attempts`（尝试次数）、`last_error`（最近一次原因）和 `last_attempt_at`，`list_pending_actions` / `list_cheki_photos` 都能看到。旧服务端会忽略这个字段。
+
+App 1.7.13 起默认自动同步：打开 App、回到前台时完整同步一次；在前台时每 90 秒 `GET /api/v1/actions?status=pending` 检查一次，有待办才应用并上传快照。
+
 ## 数据、备份与安全
 
 - `state.json` 是完整快照 + 操作队列；写入前会更新 `state.json.bak`。

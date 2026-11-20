@@ -495,8 +495,8 @@ class _SettingsCard extends StatelessWidget {
               contentPadding: EdgeInsets.zero,
               value: autoSync,
               onChanged: onAutoSyncChanged,
-              title: const Text('启动时自动同步'),
-              subtitle: const Text('拉取待执行操作，并回传最新快照'),
+              title: const Text('自动同步'),
+              subtitle: const Text('打开 App、回到前台时同步；开着时每 90 秒检查一次 AI 排队的操作'),
             ),
             Align(
               alignment: Alignment.centerRight,

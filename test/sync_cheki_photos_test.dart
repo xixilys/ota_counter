@@ -308,8 +308,11 @@ void main() {
     final result = await SyncService.syncNow(settings);
     expect(result.failures, hasLength(2));
     expect(result.failures.last.message, contains('还没记上'));
-    expect((await photoStatus(queued['photo_action_id'] as String))['status'],
-        'pending');
+    final waiting = await photoStatus(queued['photo_action_id'] as String);
+    expect(waiting['status'], 'pending');
+    // The server learns why it is still waiting.
+    expect(waiting['attempts'], 1);
+    expect(waiting['last_error'], contains('还没记上'));
     expect(await stagedImages(), 1, reason: '可重试时保留暂存图');
   });
 

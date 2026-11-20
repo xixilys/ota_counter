@@ -29,6 +29,8 @@ void main() {
     expect(fields, findsNWidgets(2));
     await tester.enterText(fields.at(0), '192.168.1.20:8787');
     await tester.enterText(fields.at(1), 'test-token');
+    // 自动同步 is on unless the owner turns it off.
+    expect(tester.widget<Switch>(find.byType(Switch).first).value, isTrue);
     await tester.tap(find.byType(Switch).first);
     await tester.pump();
 
@@ -38,7 +40,7 @@ void main() {
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString('mcp_sync_base_url'), '192.168.1.20:8787');
     expect(prefs.getString('mcp_sync_token'), 'test-token');
-    expect(prefs.getBool('mcp_sync_auto'), isTrue);
+    expect(prefs.getBool('mcp_sync_auto_v2'), isFalse);
     expect(tester.takeException(), isNull);
   });
 }

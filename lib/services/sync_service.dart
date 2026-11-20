@@ -112,7 +112,11 @@ class SyncService {
   static const String _baseUrlKey = 'mcp_sync_base_url';
   static const String _tokenKey = 'mcp_sync_token';
   static const String _deviceIdKey = 'mcp_sync_device_id';
-  static const String _autoSyncKey = 'mcp_sync_auto';
+  /// 「自动同步」: on open, on return to the foreground and every
+  /// [SyncScheduler] tick while in the foreground. A new key on purpose: the
+  /// old `mcp_sync_auto` only meant "sync once at startup" and was off by
+  /// default, which left chat-queued actions waiting for a manual sync.
+  static const String _autoSyncKey = 'mcp_sync_auto_v2';
   static const String _lastSyncKey = 'mcp_sync_last_at';
   static const String mcpSource = 'mcp';
 
@@ -137,7 +141,7 @@ class SyncService {
       baseUrl: prefs.getString(_baseUrlKey) ?? '',
       token: prefs.getString(_tokenKey) ?? '',
       deviceId: deviceId,
-      autoSync: prefs.getBool(_autoSyncKey) ?? false,
+      autoSync: prefs.getBool(_autoSyncKey) ?? true,
       lastSyncAt: prefs.getString(_lastSyncKey) ?? '',
     );
   }
@@ -169,19 +173,61 @@ class SyncService {
     return _request(settings, 'GET', '/api/v1/status');
   }
 
-  static Future<SyncRunResult> syncNow(SyncSettings settings) async {
+  /// Syncs one at a time: the automatic and the manual sync must never apply
+  /// the same pulled actions concurrently.
+  static Future<void> _tail = Future<void>.value();
+  static int _running = 0;
+
+  /// Whether a sync is running or waiting for one.
+  static bool get isSyncing => _running > 0;
+
+  static Future<T> _exclusive<T>(Future<T> Function() task) {
+    final previous = _tail;
+    final done = Completer<void>();
+    _tail = done.future;
+    _running++;
+    return previous.then((_) => task()).whenComplete(() {
+      _running--;
+      done.complete();
+    });
+  }
+
+  static Future<SyncRunResult> syncNow(SyncSettings settings) {
     _requireConfigured(settings);
-    final pulled = await pullActions(settings);
-    final apply = await applyActions(settings, pulled);
-    final push = await pushSnapshot(settings);
-    await markSynced();
-    return SyncRunResult(
-      pulled: pulled.length,
-      applied: apply.applied,
-      pending: _readInt(push['pending_actions']),
-      rev: _readNullableInt(push['rev']),
-      failures: apply.failures,
-    );
+    return _exclusive(() async {
+      final pulled = await pullActions(settings);
+      final apply = await _applyActions(settings, pulled);
+      final push = await pushSnapshot(settings);
+      await markSynced();
+      return SyncRunResult(
+        pulled: pulled.length,
+        applied: apply.applied,
+        pending: _readInt(push['pending_actions']),
+        rev: _readNullableInt(push['rev']),
+        failures: apply.failures,
+      );
+    });
+  }
+
+  /// The cheap periodic check: one GET of pending actions. Only when there
+  /// are some are they applied and a fresh snapshot uploaded. Returns null
+  /// when nothing was pending.
+  static Future<SyncRunResult?> syncIfPending(SyncSettings settings) {
+    _requireConfigured(settings);
+    return _exclusive(() async {
+      final pulled = await pullActions(settings);
+      if (pulled.isEmpty) return null;
+      final apply = await _applyActions(settings, pulled);
+      final push = await pushSnapshot(settings);
+      await markSynced();
+      return SyncRunResult(
+        pulled: pulled.length,
+        applied: apply.applied,
+        pending: _readInt(push['pending_actions']),
+        rev: _readNullableInt(push['rev']),
+        failures: apply.failures,
+      );
+    });
   }
 
   static Future<Map<String, dynamic>> pushSnapshot(
@@ -224,6 +270,12 @@ class SyncService {
   static Future<SyncApplyResult> applyActions(
     SyncSettings settings,
     List<Map<String, dynamic>> actions,
+  ) =>
+      _exclusive(() => _applyActions(settings, actions));
+
+  static Future<SyncApplyResult> _applyActions(
+    SyncSettings settings,
+    List<Map<String, dynamic>> actions,
   ) async {
     if (actions.isEmpty) {
       return const SyncApplyResult(applied: 0, skipped: 0);
@@ -240,6 +292,8 @@ class SyncService {
     final failures = <SyncActionFailure>[];
     final actionFailures = <String, String>{};
     final enrollmentResults = <String, Map<String, dynamic>>{};
+    // Tried but kept pending for a later sync; the server records why.
+    final deferred = <String, String>{};
     var skipped = 0;
     // Pulled actions that have not been applied: a photo action can wait for
     // its record_cheki of the same pull instead of failing.
@@ -279,6 +333,8 @@ class SyncService {
               if (result.summary != null) {
                 enrollmentResults[actionId] = result.summary!;
               }
+            } else {
+              deferred[actionId] = result.failure!;
             }
             failures.add(SyncActionFailure(
                 actionId: actionId, message: result.failure!));
@@ -297,7 +353,11 @@ class SyncService {
             fetchImage: (imageId) => _fetchStagedImage(settings, imageId),
           );
           if (result.failure != null) {
-            if (!result.retryable) actionFailures[actionId] = result.failure!;
+            if (result.retryable) {
+              deferred[actionId] = result.failure!;
+            } else {
+              actionFailures[actionId] = result.failure!;
+            }
             failures.add(SyncActionFailure(
                 actionId: actionId, message: result.failure!));
           } else {
@@ -449,6 +509,9 @@ class SyncService {
                     : '$error';
         if (kind == 'member_create' && error is SyncException) {
           actionFailures[actionId] = message;
+        } else {
+          deferred[actionId] =
+              message.length > 300 ? '${message.substring(0, 300)}…' : message;
         }
         failures.add(
           SyncActionFailure(actionId: actionId, message: message),
@@ -456,7 +519,9 @@ class SyncService {
       }
     }
 
-    if (appliedIds.isNotEmpty || actionFailures.isNotEmpty) {
+    if (appliedIds.isNotEmpty ||
+        actionFailures.isNotEmpty ||
+        deferred.isNotEmpty) {
       try {
         await _request(
           settings,
@@ -465,6 +530,7 @@ class SyncService {
           body: {
             'ids': [...appliedIds, ...actionFailures.keys],
             if (actionFailures.isNotEmpty) 'failures': actionFailures,
+            if (deferred.isNotEmpty) 'deferred': deferred,
             if (enrollmentResults.isNotEmpty) 'results': enrollmentResults,
           },
         );
@@ -808,6 +874,28 @@ class SyncService {
     SyncSettings settings,
     String imageId,
   ) async {
+    // One more try on a dropped connection or a timeout: a phone on a
+    // mobile network loses one request now and then, and a photo action
+    // with many images would otherwise wait for the next sync.
+    try {
+      return await _fetchStagedImageOnce(settings, imageId);
+    } on FaceEnrollmentImageNotFound {
+      rethrow;
+    } on SyncException {
+      rethrow;
+    } catch (_) {
+      await Future<void>.delayed(stagedImageRetryDelay);
+      return _fetchStagedImageOnce(settings, imageId);
+    }
+  }
+
+  @visibleForTesting
+  static Duration stagedImageRetryDelay = const Duration(seconds: 1);
+
+  static Future<Uint8List> _fetchStagedImageOnce(
+    SyncSettings settings,
+    String imageId,
+  ) async {
     _requireConfigured(settings);
     final uri = Uri.parse('${settings.normalizedBaseUrl}/api/v1/face-images/'
         '${Uri.encodeComponent(imageId)}');
@@ -824,6 +912,10 @@ class SyncService {
       if (response.statusCode == HttpStatus.notFound ||
           response.statusCode == HttpStatus.gone) {
         throw const FaceEnrollmentImageNotFound();
+      }
+      if (response.statusCode >= 500) {
+        // Retried once by [_fetchStagedImage].
+        throw HttpException('照片下载失败 (HTTP ${response.statusCode})');
       }
       if (response.statusCode != HttpStatus.ok) {
         throw SyncException('照片下载失败 (HTTP ${response.statusCode})');

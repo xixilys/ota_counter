@@ -36,7 +36,7 @@ import 'services/merch_service.dart';
 import 'services/ota_admin_import_service.dart';
 import 'services/person_card_service.dart';
 import 'services/settings_service.dart';
-import 'services/sync_service.dart';
+import 'services/sync_scheduler.dart';
 import 'services/ticket_pricing_service.dart';
 import 'services/update_service.dart';
 import 'theme/app_theme.dart';
@@ -170,6 +170,20 @@ class _MyHomePageState extends State<MyHomePage> {
 
   double get _cardTextScale =>
       widget.cardTextScale ?? SettingsService.fontScale.value;
+
+  /// Pulls chat-queued actions on open, on return to the foreground and
+  /// every 90 s while the app is in front (see [SyncScheduler]).
+  late final SyncScheduler _syncScheduler = SyncScheduler(
+    onApplied: (_) async {
+      if (mounted) await _loadCounters();
+    },
+  );
+
+  @override
+  void dispose() {
+    _syncScheduler.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -359,22 +373,9 @@ class _MyHomePageState extends State<MyHomePage> {
       return;
     }
     await _loadCounters();
-    await _runAutoSyncIfEnabled();
-  }
-
-  Future<void> _runAutoSyncIfEnabled() async {
-    try {
-      final settings = await SyncService.loadSettings();
-      if (!settings.autoSync || !settings.isConfigured) {
-        return;
-      }
-      final result = await SyncService.syncNow(settings);
-      if (result.applied > 0 && mounted) {
-        await _loadCounters();
-      }
-    } catch (_) {
-      // Network failures must never block app startup.
-    }
+    if (!mounted) return;
+    // Network failures never block startup; the scheduler swallows them.
+    unawaited(_syncScheduler.start());
   }
 
   String _normalizedLookupPart(String value) {

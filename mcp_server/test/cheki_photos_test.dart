@@ -273,6 +273,26 @@ Future<void> testChekiPhotos(void Function(bool, String) check) async {
         await rest('GET', '/api/v1/face-images/${firstImage['imageId']}');
     check(imageStatus == 200, 'the app can download a staged photo');
 
+    final (deferStatus, deferAck) =
+        await rest('POST', '/api/v1/actions/ack', body: {
+      'ids': <String>[],
+      'deferred': {attached['action_id']: '第 3 张照片下载失败，下次同步重试'},
+    });
+    final deferredView =
+        ((ok(await call('list_cheki_photos', {'status': 'pending'}))[
+                    'attachments'] as List)
+                .cast<Map>())
+            .singleWhere((a) => a['id'] == attached['action_id']);
+    check(
+        deferStatus == 200 &&
+            deferAck['deferred'] == 1 &&
+            deferAck['applied'] == 0 &&
+            deferredView['status'] == 'pending' &&
+            deferredView['attempts'] == 1 &&
+            deferredView['last_error'].toString().contains('下载失败') &&
+            await stagedFiles() == 4,
+        'a deferred receipt keeps the action pending and records why');
+
     final (blankStatus, _) = await rest('POST', '/api/v1/actions/ack', body: {
       'ids': [attached['action_id']],
       'failures': {attached['action_id']: ' '},

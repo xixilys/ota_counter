@@ -7,7 +7,7 @@ import 'face_images.dart';
 import 'snapshot.dart' show normalizePart;
 
 const String kSyncServerName = 'ota-counter-sync';
-const String kSyncServerVersion = '1.2.1';
+const String kSyncServerVersion = '1.2.2';
 const String kStateSchema = 'ota_counter_sync_state';
 
 /// App → server capability header for chat face enrollment. Clients that do
@@ -390,17 +390,33 @@ class SyncStore {
     });
   }
 
+  /// [deferred]: actions the app tried but will retry on a later sync, with
+  /// the Chinese reason. They stay pending; the attempt count and the last
+  /// reason are recorded so the assistant can see why nothing happened yet.
   Future<Map<String, dynamic>> acknowledgeActions(
     Iterable<String> ids, {
     Map<String, String>? failures,
     Map<String, dynamic>? results,
+    Map<String, String>? deferred,
   }) {
     return _locked((current) async {
       final state = _deepCopy(current);
       final wanted =
           ids.map((id) => id.trim()).where((id) => id.isNotEmpty).toSet();
-      if (wanted.isEmpty) {
-        return {'applied': 0, 'failed': 0, 'rev': _readInt(state['rev'])};
+      final retrying = <String, String>{
+        for (final entry in (deferred ?? const <String, String>{}).entries)
+          if (entry.key.trim().isNotEmpty &&
+              entry.value.trim().isNotEmpty &&
+              !wanted.contains(entry.key.trim()))
+            entry.key.trim(): entry.value.trim(),
+      };
+      if (wanted.isEmpty && retrying.isEmpty) {
+        return {
+          'applied': 0,
+          'failed': 0,
+          'deferred': 0,
+          'rev': _readInt(state['rev']),
+        };
       }
       final actions = _ensureList(state, 'actions');
       // Validate the new enrollment receipt contract before mutating any batch
@@ -438,7 +454,16 @@ class SyncStore {
       final cleanupImages = <String>{};
       var applied = 0;
       var failed = 0;
+      var deferredCount = 0;
       final at = nowIso();
+      for (final action in actions.whereType<Map>()) {
+        final reason = retrying[_readString(action['id'])];
+        if (reason == null || action['status'] != 'pending') continue;
+        action['attempts'] = _readInt(action['attempts']) + 1;
+        action['last_error'] = reason;
+        action['last_attempt_at'] = at;
+        deferredCount++;
+      }
       for (final action in actions) {
         if (action is! Map) {
           continue;
@@ -495,7 +520,7 @@ class SyncStore {
           }
         }
       }
-      final nextRev = applied + failed > 0
+      final nextRev = applied + failed + deferredCount > 0
           ? _readInt(state['rev']) + 1
           : _readInt(state['rev']);
       state['rev'] = nextRev;
@@ -523,6 +548,7 @@ class SyncStore {
       return {
         'applied': applied,
         'failed': failed,
+        'deferred': deferredCount,
         'rev': nextRev,
       };
     });
@@ -811,6 +837,9 @@ Map<String, dynamic> _chekiPhotoView(Map<dynamic, dynamic> action) {
     'face_samples_added': result?['face_samples_added'],
     'face_skipped_not_single': result?['face_skipped_not_single'],
     'image_cleanup_pending': action['image_cleanup_pending'] == true,
+    'attempts': _readInt(action['attempts']),
+    'last_error': action['last_error'],
+    'last_attempt_at': action['last_attempt_at'],
   };
 }
 
@@ -845,6 +874,9 @@ Map<String, dynamic> _faceEnrollmentView(Map<dynamic, dynamic> action) {
     'image_cleanup_pending': action['image_cleanup_pending'] == true,
     'result': result,
     'payload': payload,
+    'attempts': _readInt(action['attempts']),
+    'last_error': action['last_error'],
+    'last_attempt_at': action['last_attempt_at'],
   };
 }
 

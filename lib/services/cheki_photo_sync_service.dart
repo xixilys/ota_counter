@@ -101,8 +101,9 @@ class ChekiPhotoSyncService {
       } on FaceEnrollmentImageNotFound {
         return ChekiPhotoSyncResult.failed(
             '第 ${i + 1} 张照片在服务器上已过期或被清理（超过 7 天未同步），请重新发送');
-      } catch (_) {
-        return ChekiPhotoSyncResult.retry('第 ${i + 1} 张照片下载失败，下次同步重试');
+      } catch (error) {
+        return ChekiPhotoSyncResult.retry(
+            '第 ${i + 1} 张照片下载失败，下次同步重试（$error）');
       }
       final extension = _validatedExtension(bytes);
       if (extension == null) {

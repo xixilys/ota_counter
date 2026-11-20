@@ -24,8 +24,18 @@ FaceAnalysis face(List<double> embedding,
 FaceAnalysis scored(double score, {double area = 100}) =>
     face([score, math.sqrt(1 - score * score), 0], area: area);
 
+/// A transient failure finalizes nothing: the only receipt is a deferred
+/// note (empty ids) telling the server why the action is still pending.
+void expectDeferredOnly(List<Map<String, dynamic>> acks, String id) {
+  expect(acks, hasLength(1));
+  expect(acks.single['ids'], isEmpty);
+  expect(acks.single.containsKey('failures'), isFalse);
+  expect((acks.single['deferred'] as Map)[id], isNotEmpty);
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  SyncService.stagedImageRetryDelay = Duration.zero;
   const memberFeature = [1.0, 0.0, 0.0];
   const otherFeature = [0.0, 1.0, 0.0];
   const selfFeature = [0.0, 0.0, 1.0];
@@ -173,6 +183,7 @@ void main() {
         originalImageSize;
     late List<FaceAnalysis> detected;
     late List<Map<String, dynamic>> acks;
+    var imageFailuresLeft = 0;
     late int fetches;
     late bool failAck;
     late int imageStatus;
@@ -226,6 +237,7 @@ void main() {
       failAck = false;
       imageStatus = 200;
       timeoutImage = false;
+      imageFailuresLeft = 0;
       server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       server.listen((request) async {
         // Check auth without ever printing its value in diagnostics.
@@ -238,7 +250,12 @@ void main() {
           expect(request.uri.path, '/api/v1/face-images/synthetic-image');
           // Leave headers unsent to exercise the real HTTP response timeout.
           if (timeoutImage) return;
-          request.response.statusCode = imageStatus;
+          if (imageFailuresLeft > 0) {
+            imageFailuresLeft--;
+            request.response.statusCode = 503;
+          } else {
+            request.response.statusCode = imageStatus;
+          }
           request.response.add([1, 2, 3]);
         } else if (request.uri.path == '/api/v1/actions/ack') {
           acks.add(Map<String, dynamic>.from(
@@ -358,7 +375,8 @@ void main() {
       expect(result.applied, 0);
       expect(result.failures.single.message, contains('请稍后同步重试'));
       expect(result.failures.single.message, isNot(contains('native session')));
-      expect(acks, isEmpty);
+      expectDeferredOnly(acks, 'engine-error');
+      acks.clear();
       expect(await samples(), isEmpty);
       final db = await DatabaseService.database;
       expect(await db.query(DatabaseService.faceEnrollmentActionsTableName),
@@ -418,7 +436,8 @@ void main() {
         final first = await SyncService.applyActions(settings, pending);
         expect(first.applied, 0);
         expect(first.failures.single.message, contains('下次同步将重试'));
-        expect(acks, isEmpty);
+        expectDeferredOnly(acks, 'transient-$transient');
+        acks.clear();
         expect(await samples(), isEmpty);
         final db = await DatabaseService.database;
         expect(await db.query(DatabaseService.faceEnrollmentActionsTableName),
@@ -430,13 +449,14 @@ void main() {
         expect(retry.applied, 1);
         expect(retry.failures, isEmpty);
         expect(await samples(), hasLength(1));
-        expect(fetches, 2);
+        // The first sync tried the download twice before deferring.
+        expect(fetches, 3);
         expect(acks.single['ids'], ['transient-$transient']);
         expect(
             acks.single['results']['transient-$transient']['faces_found'], 1);
         expect(await db.query(DatabaseService.faceEnrollmentActionsTableName),
             hasLength(1));
-      }, timeout: const Timeout(Duration(seconds: 60)));
+      }, timeout: const Timeout(Duration(seconds: 120)));
     }
 
     test('missing, empty, invalid imageId are rejected before network',
@@ -572,6 +592,15 @@ void main() {
       expect(results.every((r) => r.failures.isEmpty), isTrue);
       expect(await samples(), hasLength(1));
     });
+    test('one dropped download is retried within the same sync', () async {
+      imageFailuresLeft = 1;
+      final result =
+          await SyncService.applyActions(settings, [action('dropped-once')]);
+      expect(result.failures, isEmpty);
+      expect(result.applied, 1);
+      expect(fetches, 2);
+      expect(acks.single['ids'], ['dropped-once']);
+    });
     test('receipt and sample writes roll back together on database failure',
         () async {
       final db = await DatabaseService.database;
@@ -582,7 +611,7 @@ void main() {
       final first = await SyncService.applyActions(settings, pending);
       expect(first.failures, hasLength(1));
       expect(await samples(), isEmpty);
-      expect(acks, isEmpty);
+      expectDeferredOnly(acks, 'rollback');
       await db.execute('DROP TRIGGER reject_receipt');
       final second = await SyncService.applyActions(settings, pending);
       expect(second.failures, isEmpty);

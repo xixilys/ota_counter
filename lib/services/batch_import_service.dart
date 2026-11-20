@@ -14,6 +14,7 @@ import '../models/face_sample_model.dart';
 import '../models/group_pricing_model.dart';
 import '../models/idol_activity_event_model.dart';
 import 'album_orientation_service.dart';
+import 'card_orientation.dart';
 import 'database_service.dart';
 import 'face/face_models.dart';
 import 'face/face_recognition_rules.dart';
@@ -50,6 +51,12 @@ class BatchCard {
   /// Empty when recognition is off.
   final List<FaceAnalysis> faces;
 
+  /// 方向判断（白边厚的一侧 + 人脸）。null：旧数据或未判断。
+  final CardOrientation? orientation;
+
+  /// 方向证据缺失或互相矛盾，建议人工看一眼。
+  bool get orientationLowConfidence => orientation?.lowConfidence ?? false;
+
   const BatchCard({
     required this.bytes,
     required this.fileExtension,
@@ -59,6 +66,7 @@ class BatchCard {
     required this.confidence,
     required this.splitFromMerged,
     this.faces = const [],
+    this.orientation,
   });
 }
 
@@ -634,7 +642,25 @@ class BatchImportService {
       for (final card in scanCards) {
         // Orientation belongs to the cut bytes, not the thumbnail. The
         // original source hash and source-space crop quad stay unchanged.
-        final bytes = await AlbumOrientationService.orientScanBytes(card.bytes);
+        // With a settled film format, the thick border and the faces decide
+        // together; otherwise only faces can turn the card, and the result
+        // is marked low-confidence (no border evidence).
+        final Uint8List bytes;
+        final CardOrientation orientation;
+        if (card.layoutTurns != null) {
+          (bytes, orientation) = await AlbumOrientationService.orientCardBytes(
+            card.bytes,
+            layoutTurns: card.layoutTurns!,
+          );
+        } else {
+          final (oriented, angle) =
+              await AlbumOrientationService.orientScanBytesWithAngle(
+                  card.bytes);
+          bytes = oriented;
+          orientation = CardOrientation(
+              (-angle ~/ 90) % 4, CardOrientationBasis.face,
+              lowConfidence: true);
+        }
         var faces = const <FaceAnalysis>[];
         if (analyzer != null) {
           try {
@@ -652,6 +678,7 @@ class BatchImportService {
           confidence: card.confidence,
           splitFromMerged: card.splitFromMerged,
           faces: faces,
+          orientation: orientation,
         ));
       }
       return BatchSourceResult(

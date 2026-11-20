@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:image/image.dart' as img;
 
 import '../models/activity_record_media_model.dart';
+import 'card_edge_fit.dart';
 import 'card_format_meter.dart';
 
 class RecordScanOutput {
@@ -244,7 +245,16 @@ class RecordScanMultiCard {
   /// 是从「贴在一起」的一大块里按比例拆出来的。
   final bool splitFromMerged;
 
+  /// 相纸规格确定时：把 [bytes] 逆时针转几个 90° 能让厚白边落到下方
+  /// （相纸的出厂摆放）。规格不确定时为 null。只是证据，不代表要转。
+  final int? layoutTurns;
+
+  /// 相纸规格确定时，画面窗口在 [bytes] 里的上、右、下、左边距（占边长的比例）。
+  final List<double>? windowMargins;
+
   const RecordScanMultiCard({
+    this.layoutTurns,
+    this.windowMargins,
     required this.bytes,
     required this.fileExtension,
     required this.processingMode,
@@ -1941,17 +1951,39 @@ class RecordScanService {
         ));
         refineMs += stage.elapsedMilliseconds;
       }
-      // Settle every card's film format from its own pixels, the cards of
+      // Fit every side to the white paper edge on the source pixels, then
+      // settle each card's film format from its own pixels, the cards of
       // this photo together (see [CardFormatMeter]).
       stage.reset();
+      final signal = located.isEmpty
+          ? null
+          : PaperSignalImage.fromRgb(source.data, source.width, source.height);
+      for (var i = 0; i < located.length; i++) {
+        final card = located[i];
+        // A card split out of a touching block has an inferred side with
+        // paper on both sides of it; the fit could slide onto the neighbour.
+        if (card.planned.splitFromMerged) continue;
+        final fitted = CardEdgeFit.refineQuad(signal!, card.quad);
+        if (!identical(fitted, card.quad) && safeQuad(fitted)) {
+          located[i] = (
+            quad: fitted,
+            ratio: card.ratio,
+            sizeClass: card.sizeClass,
+            planned: card.planned,
+          );
+        }
+      }
       final decisions = CardFormatMeter.decide([
         for (final card in located) _measureCard(source, card.quad),
       ]);
       refineMs += stage.elapsedMilliseconds;
       for (var i = 0; i < located.length; i++) {
         stage.reset();
-        final (:quad, :ratio, sizeClass: _, :planned) = located[i];
-        final decision = decisions[i];
+        var (:quad, :ratio, sizeClass: _, :planned) = located[i];
+        var decision = decisions[i];
+        if (decision.format != null) {
+          (quad, decision) = _tightenToPaper(source, signal!, quad, decision);
+        }
         final sizeClass = switch (decision.format) {
           FilmFormat.mini => RecordScanCardSize.mini,
           FilmFormat.wide => RecordScanCardSize.wide,
@@ -2000,6 +2032,7 @@ class RecordScanService {
           confidence: planned.confidence,
           splitFromMerged: planned.splitFromMerged,
           sizeClass: sizeClass,
+          layout: decision,
         ));
       }
     }
@@ -2009,30 +2042,41 @@ class RecordScanService {
     // Keep the frame whole when it has a cheki ratio and a paper border
     // around a picture window; anything else stays "none detected".
     if (cards.isEmpty) {
-      final sizeClass = _wholeFrameCardSize(edgePreview);
+      var sizeClass = _wholeFrameCardSize(edgePreview);
       if (sizeClass != null) {
         stage.reset();
+        // The film layout (which side holds the thick border) is measured
+        // like any other card; it settles the orientation later.
+        final w = oriented.width.toDouble(), h = oriented.height.toDouble();
+        final frame = [
+          const math.Point(0.0, 0.0),
+          math.Point(w, 0.0),
+          math.Point(w, h),
+          math.Point(0.0, h),
+        ];
+        final measured =
+            CardFormatMeter.decide([_measureCard(source, frame)]).single;
+        final layout = switch (measured.format) {
+          FilmFormat.mini when sizeClass == RecordScanCardSize.mini => measured,
+          FilmFormat.wide when sizeClass == RecordScanCardSize.wide => measured,
+          _ => null,
+        };
         final aspectRatio = sizeClass == RecordScanCardSize.mini
             ? _miniCardRatio
             : _wideCardRatio;
         final framed = _resizeToTargetFrame(oriented, aspectRatio: aspectRatio);
         final bytes = Uint8List.fromList(img.encodeJpg(framed, quality: 94));
         encodeMs += stage.elapsedMilliseconds;
-        final w = oriented.width.toDouble(), h = oriented.height.toDouble();
         cards.add(_multiCard(
           bytes: bytes,
-          quad: [
-            const math.Point(0.0, 0.0),
-            math.Point(w, 0.0),
-            math.Point(w, h),
-            math.Point(0.0, h),
-          ],
+          quad: frame,
           sourceWidth: oriented.width,
           sourceHeight: oriented.height,
           ratio: math.min(w, h) / math.max(w, h),
           confidence: 0.8,
           splitFromMerged: false,
           sizeClass: sizeClass,
+          layout: layout,
         ));
         warnings
           ..remove(RecordScanMultiWarning.noneDetected)
@@ -2078,8 +2122,11 @@ class RecordScanService {
     required double confidence,
     required bool splitFromMerged,
     RecordScanCardSize? sizeClass,
+    CardFormatDecision? layout,
   }) {
     return RecordScanMultiCard(
+      layoutTurns: layout?.layoutTurns,
+      windowMargins: layout?.layoutTurns == null ? null : layout!.best.margins,
       bytes: bytes,
       fileExtension: '.jpg',
       processingMode: ActivityRecordMediaProcessingMode.antiGlareBasic,
@@ -2206,8 +2253,49 @@ class RecordScanService {
     return cards;
   }
 
-  /// Rectifies [quad] from the full-resolution source at its natural size
-  /// (long side capped at [_targetLongSide]), with the card's aspect ratio.
+  /// Pulls in sides that still carry a sliver of background (see
+  /// [CardEdgeFit.tightenPaperEdges]). The tighter cut is kept only if the
+  /// card still reads as the same format in the same layout, with window
+  /// evidence no weaker than before.
+  static (List<math.Point<double>>, CardFormatDecision) _tightenToPaper(
+    _Rgb source,
+    PaperSignalImage signal,
+    List<math.Point<double>> quad,
+    CardFormatDecision decision,
+  ) {
+    final tight = CardEdgeFit.tightenPaperEdges(signal, quad);
+    if (identical(tight, quad) ||
+        !RecordScanQuad._fromPoints(tight).isSafeForAutomaticCrop(
+          imageWidth: source.width,
+          imageHeight: source.height,
+        )) {
+      return (quad, decision);
+    }
+    final best = decision.best;
+    final fit = _measureCard(source, tight)
+        .candidates
+        .reduce((a, b) => b.score > a.score ? b : a);
+    final minStrength = best.strengths.reduce(math.min);
+    if (fit.format != decision.format ||
+        fit.turns != best.turns ||
+        fit.strengths.reduce(math.min) < minStrength - 0.08 ||
+        fit.error > math.min(0.24, best.error + 0.04)) {
+      return (quad, decision);
+    }
+    return (
+      tight,
+      CardFormatDecision(
+        format: decision.format,
+        width: decision.width,
+        height: decision.height,
+        confidence: decision.confidence,
+        outerRatio: decision.outerRatio,
+        windowRatio: fit.windowRatio,
+        best: fit,
+      ),
+    );
+  }
+
   /// Rectifies [quad] to a small square and measures its format.
   static CardMeasurement _measureCard(
       _Rgb source, List<math.Point<double>> quad) {

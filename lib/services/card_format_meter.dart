@@ -87,6 +87,7 @@ class CardFormatDecision {
     required this.confidence,
     required this.outerRatio,
     required this.windowRatio,
+    required this.best,
   });
 
   /// Null when the evidence does not settle a film format: the card is then
@@ -101,6 +102,14 @@ class CardFormatDecision {
   /// Measured outer and window long/short ratios (for diagnostics).
   final double outerRatio;
   final double windowRatio;
+
+  /// The winning fit (after the peer-scale vote), matched or not.
+  final FilmFormatCandidate best;
+
+  /// Quarter turns counter-clockwise that bring the card, as it lies in the
+  /// quad, into the manufacturer's upright layout (thick border at the
+  /// bottom); null without a settled format.
+  int? get layoutTurns => format == null ? null : best.turns;
 
   /// Short over long side of the output.
   double get aspectRatio => math.min(width, height) / math.max(width, height);
@@ -178,8 +187,9 @@ class CardFormatMeter {
   /// Paper evidence per pixel: CIE L* (0–255 scale) minus 1.6 × chroma,
   /// Gaussian-smoothed (5×5). White paper scores high, print and coloured
   /// ink low.
-  static Float32List paperSignal(Uint8List rgb, int size) {
-    final raw = Float32List(size * size);
+  static Float32List paperSignal(Uint8List rgb, int width, [int? height]) {
+    final rows = height ?? width;
+    final raw = Float32List(width * rows);
     double linear(int c) {
       final v = c / 255.0;
       return v <= 0.04045
@@ -200,12 +210,16 @@ class CardFormatMeter {
       final l = y > 0.008856 ? 116 * fy - 16 : 903.3 * y;
       final a = 500 * (f(x) - fy);
       final bb = 200 * (fy - f(z));
-      raw[i] = (l * 255 / 100 - 1.6 * math.sqrt(a * a + bb * bb)).toDouble();
+      // OpenCV's 8-bit Lab: each channel rounded to an integer first.
+      final l8 = (l * 255 / 100).round().clamp(0, 255);
+      final a8 = (a.round() + 128).clamp(0, 255) - 128;
+      final b8 = (bb.round() + 128).clamp(0, 255) - 128;
+      raw[i] = l8 - 1.6 * math.sqrt(a8 * a8 + b8 * b8);
     }
-    return _gaussian5(raw, size);
+    return _gaussian5(raw, width, rows);
   }
 
-  static Float32List _gaussian5(Float32List src, int size) {
+  static Float32List _gaussian5(Float32List src, int width, int height) {
     // OpenCV's kernel for ksize 5 and sigma 0 (σ = 1.1), reflect-101 border.
     const sigma = 1.1;
     final k = [
@@ -215,25 +229,36 @@ class CardFormatMeter {
     for (var i = 0; i < 5; i++) {
       k[i] /= sum;
     }
-    int reflect(int i) => i < 0 ? -i : (i >= size ? 2 * size - 2 - i : i);
-    final tmp = Float32List(size * size);
-    for (var y = 0; y < size; y++) {
-      for (var x = 0; x < size; x++) {
+    int reflect(int i, int size) =>
+        i < 0 ? -i : (i >= size ? 2 * size - 2 - i : i);
+    final tmp = Float32List(width * height);
+    for (var y = 0; y < height; y++) {
+      final row = y * width;
+      for (var x = 0; x < width; x++) {
         var acc = 0.0;
-        for (var t = -2; t <= 2; t++) {
-          acc += k[t + 2] * src[y * size + reflect(x + t)];
+        if (x >= 2 && x < width - 2) {
+          for (var t = -2; t <= 2; t++) {
+            acc += k[t + 2] * src[row + x + t];
+          }
+        } else {
+          for (var t = -2; t <= 2; t++) {
+            acc += k[t + 2] * src[row + reflect(x + t, width)];
+          }
         }
-        tmp[y * size + x] = acc;
+        tmp[row + x] = acc;
       }
     }
-    final out = Float32List(size * size);
-    for (var y = 0; y < size; y++) {
-      for (var x = 0; x < size; x++) {
+    final out = Float32List(width * height);
+    for (var y = 0; y < height; y++) {
+      final rows = [
+        for (var t = -2; t <= 2; t++) reflect(y + t, height) * width
+      ];
+      for (var x = 0; x < width; x++) {
         var acc = 0.0;
-        for (var t = -2; t <= 2; t++) {
-          acc += k[t + 2] * tmp[reflect(y + t) * size + x];
+        for (var t = 0; t < 5; t++) {
+          acc += k[t] * tmp[rows[t] + x];
         }
-        out[y * size + x] = acc;
+        out[y * width + x] = acc;
       }
     }
     return out;
@@ -393,6 +418,7 @@ class CardFormatMeter {
       outerRatio: math.max(card.axisWidth, card.axisHeight) /
           math.min(card.axisWidth, card.axisHeight),
       windowRatio: best.windowRatio,
+      best: best,
     );
   }
 }

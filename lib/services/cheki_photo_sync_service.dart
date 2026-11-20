@@ -105,7 +105,7 @@ class ChekiPhotoSyncService {
         return ChekiPhotoSyncResult.retry(
             '第 ${i + 1} 张照片下载失败，下次同步重试（$error）');
       }
-      final extension = _validatedExtension(bytes);
+      final extension = validatedExtension(bytes);
       if (extension == null) {
         return ChekiPhotoSyncResult.failed(
             '第 ${i + 1} 张不是可读取的 JPEG 或 PNG 图片（或超过 2400 万像素）');
@@ -125,10 +125,12 @@ class ChekiPhotoSyncService {
       ));
     }
     Map<String, dynamic> faces = const {};
+    var mediaIds = const <int>[];
     if (inputs.isNotEmpty) {
       final saved = await DatabaseService.saveBatchImport(
           newRecords: const [], media: inputs);
-      faces = await _learnFaces(
+      mediaIds = saved.mediaIds;
+      faces = await learnFaces(
         record: record,
         counter: counter ?? resolveCounterForActivityRecord(counters, record),
         photos: [
@@ -144,6 +146,8 @@ class ChekiPhotoSyncService {
       'record_id': record.id,
       'photos_saved': inputs.length,
       'duplicates': duplicates,
+      // Lets the assistant later delete or replace exactly these photos.
+      'media_ids': mediaIds,
       'member_name': record.subjectName,
       'occurred_at': _date(record.occurredAt),
       ...faces,
@@ -153,7 +157,7 @@ class ChekiPhotoSyncService {
   /// The photos are already saved; face learning only adds samples and never
   /// fails the action. A 团切, or a 多切 without a named member, has no single
   /// owner, so it teaches nothing.
-  static Future<Map<String, dynamic>> _learnFaces({
+  static Future<Map<String, dynamic>> learnFaces({
     required ActivityRecordModel record,
     required CounterModel? counter,
     required List<({int mediaId, Uint8List bytes})> photos,
@@ -307,7 +311,8 @@ class ChekiPhotoSyncService {
     );
   }
 
-  static String? _validatedExtension(Uint8List bytes) {
+  /// '.jpg' / '.png' for a readable image of at most 24 MP, else null.
+  static String? validatedExtension(Uint8List bytes) {
     final img.Decoder decoder;
     final String extension;
     if (bytes.length >= 2 && bytes[0] == 0xff && bytes[1] == 0xd8) {

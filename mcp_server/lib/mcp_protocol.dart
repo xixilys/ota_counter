@@ -220,6 +220,31 @@ class McpProtocol {
           limit: readInt(arguments, ['limit'], 50).clamp(1, 100),
         );
         return {'count': actions.length, 'attachments': actions};
+      case 'list_record_photos':
+        return _listRecordPhotos(arguments);
+      case 'delete_cheki_photo':
+        return _deleteChekiPhoto(arguments);
+      case 'replace_cheki_photo':
+        return _replaceChekiPhoto(arguments);
+      case 'edit_record':
+        return _editRecord(arguments);
+      case 'list_cheki_edits':
+        final status = readString(arguments, ['status']);
+        if (status.isNotEmpty &&
+            !{'pending', 'applied', 'failed'}.contains(status)) {
+          throw ToolException('status 只能是 pending、applied 或 failed');
+        }
+        final edits = await store.chekiEditActions(
+          status: status.isEmpty ? null : status,
+          recordId: arguments['record_id'] == null
+              ? null
+              : _requireId(arguments['record_id'], 'record_id'),
+          mediaId: arguments['media_id'] == null
+              ? null
+              : _requireId(arguments['media_id'], 'media_id'),
+          limit: readInt(arguments, ['limit'], 50).clamp(1, 100),
+        );
+        return {'count': edits.length, 'edits': edits};
       case 'list_face_enrollments':
         final status = readString(arguments, ['status']);
         if (status.isNotEmpty &&
@@ -574,6 +599,268 @@ class McpProtocol {
       'occurred_at': payload['occurred_at'],
       'message': '已排队 ${staged.length} 张照片，手机打开 OTA Counter 同步后才会挂到切册；'
           '尚未完成。之后用 list_cheki_photos 查看结果。',
+    };
+  }
+
+  int _requireId(Object? value, String name) {
+    final id = _parseMemberId(value);
+    if (id == null) throw ToolException('$name 必须是正整数');
+    return id;
+  }
+
+  /// The snapshot's 切册 photo list (App 1.7.13+).
+  List<Map<dynamic, dynamic>> _snapshotPhotos(SnapshotView view) {
+    final photos = view.raw['photos'];
+    if (photos is! List) {
+      throw ToolException(
+          '快照里没有照片清单：请把手机上的 OTA Counter 升级到 1.7.13 或以上，并同步一次');
+    }
+    return photos.whereType<Map>().toList();
+  }
+
+  Map<String, dynamic> _photoTarget(SnapshotView view, int mediaId) {
+    final photo = _snapshotPhotos(view)
+        .where((p) => readInt(p, ['media_id']) == mediaId)
+        .firstOrNull;
+    if (photo == null) {
+      throw ToolException(
+          '照片 #$mediaId 不在最新快照里（可能已删除，或 App 还没同步），请用 list_record_photos 核对');
+    }
+    final recordId = readInt(photo, ['record_id']);
+    final record =
+        view.records.where((r) => readInt(r, ['id']) == recordId).firstOrNull;
+    return {
+      'media_id': mediaId,
+      'record_id': recordId,
+      'position': readInt(photo, ['position']),
+      'sha1': readString(photo, ['sha1']),
+      if (record != null) 'record': _recordBrief(record),
+    };
+  }
+
+  Map<String, dynamic> _recordBrief(Map<dynamic, dynamic> record) => {
+        'id': readInt(record, ['id'], -1),
+        'type': recordType(record),
+        'date': recordDate(record),
+        'subject': recordDisplayName(record),
+        'group': readString(record, ['group_name', 'groupName']),
+        'activity_name': readString(record, ['activity_name', 'activityName']),
+      };
+
+  Future<Map<String, dynamic>> _listRecordPhotos(
+      Map<String, dynamic> arguments) async {
+    final view = await _requireSnapshot();
+    final photos = _snapshotPhotos(view);
+    final limit = readInt(arguments, ['limit'], 50).clamp(1, 200);
+    final Map<int, Map<dynamic, dynamic>> records;
+    if (arguments['record_id'] != null) {
+      final recordId = _requireId(arguments['record_id'], 'record_id');
+      final record = view.records
+          .where((r) => readInt(r, ['id']) == recordId)
+          .firstOrNull;
+      if (record == null) {
+        throw ToolException('record_id $recordId 不在最新快照里，请用 list_records 核对');
+      }
+      records = {recordId: record};
+    } else {
+      final member = readString(arguments, ['member']).trim();
+      final from = readString(arguments, ['from']).trim();
+      final to = readString(arguments, ['to']).trim();
+      if (member.isEmpty && from.isEmpty && to.isEmpty) {
+        throw ToolException('请给 record_id，或 member / from / to 之一来缩小范围');
+      }
+      records = {
+        for (final r in view.searchRecords(
+            from: from, to: to, member: member, limit: 100000))
+          readInt(r, ['id']): r,
+      };
+    }
+    final pending = {
+      for (final edit in await store.chekiEditActions(status: 'pending'))
+        if (edit['media_id'] != null) edit['media_id']: edit['id'],
+    };
+    final matched = [
+      for (final photo in photos)
+        if (records.containsKey(readInt(photo, ['record_id']))) photo,
+    ];
+    return {
+      'count': matched.length,
+      'returned': matched.length < limit ? matched.length : limit,
+      'photos': [
+        for (final photo in matched.take(limit))
+          {
+            'media_id': readInt(photo, ['media_id']),
+            'record_id': readInt(photo, ['record_id']),
+            'position': readInt(photo, ['position']),
+            'sha1': readString(photo, ['sha1']),
+            'media_type': readString(photo, ['media_type']),
+            'created_at': readString(photo, ['created_at']),
+            if (readString(photo, ['owner_person_name']).isNotEmpty)
+              'owner_person_name': readString(photo, ['owner_person_name']),
+            'record':
+                _recordBrief(records[readInt(photo, ['record_id'])]!),
+            if (pending[readInt(photo, ['media_id'])] != null)
+              'pending_action_id': pending[readInt(photo, ['media_id'])],
+          },
+      ],
+    };
+  }
+
+  Future<Map<String, dynamic>> _queueEdit(
+      String kind, Map<String, dynamic> payload) async {
+    try {
+      return await store.queueChekiEdit(kind, payload);
+    } on FaceImageException catch (error) {
+      throw ToolException(error.message);
+    }
+  }
+
+  void _checkSha1(Map<String, dynamic> arguments, Map<String, dynamic> target) {
+    final given = readString(arguments, ['sha1']).trim().toLowerCase();
+    if (given.isNotEmpty && given != target['sha1']) {
+      throw ToolException(
+          '照片 #${target['media_id']} 的 sha1 是 ${target['sha1']}，和给的 $given 不一致；'
+          '请用 list_record_photos 重新核对是哪一张');
+    }
+  }
+
+  Future<Map<String, dynamic>> _deleteChekiPhoto(
+      Map<String, dynamic> arguments) async {
+    final mediaId = _requireId(arguments['media_id'], 'media_id');
+    final target = _photoTarget(await _requireSnapshot(), mediaId);
+    _checkSha1(arguments, target);
+    final queued = await _queueEdit(kDeletePhotoActionKind, {
+      'media_id': mediaId,
+      'record_id': target['record_id'],
+      'sha1': target['sha1'],
+    });
+    return {
+      ...queued,
+      'photo': target,
+      'message': '已排队删除照片 #$mediaId（流水 #${target['record_id']} 第 '
+          '${target['position']} 张），手机打开 OTA Counter 同步后才会删；尚未完成。'
+          '结果用 list_cheki_edits 查。',
+    };
+  }
+
+  Future<Map<String, dynamic>> _replaceChekiPhoto(
+      Map<String, dynamic> arguments) async {
+    final mediaId = _requireId(arguments['media_id'], 'media_id');
+    final images = _chekiImageArguments(arguments, required: true);
+    if (images.length != 1) {
+      throw ToolException('替换一次只能给一张新照片');
+    }
+    final target = _photoTarget(await _requireSnapshot(), mediaId);
+    _checkSha1(arguments, target);
+    final staged = await _stageChekiImages(images);
+    final Map<String, dynamic> queued;
+    try {
+      queued = await _queueEdit(kReplacePhotoActionKind, {
+        'media_id': mediaId,
+        'record_id': target['record_id'],
+        'sha1': target['sha1'],
+        'images': staged,
+      });
+    } catch (_) {
+      await _deleteStaged(staged);
+      rethrow;
+    }
+    return {
+      ...queued,
+      'photo': target,
+      'message': '已排队把照片 #$mediaId 换成新图（位置和所属流水不变），'
+          '手机打开 OTA Counter 同步后才会换；尚未完成。结果用 list_cheki_edits 查。',
+    };
+  }
+
+  /// Tool argument → ledger field `edit_record` may change.
+  static const Map<String, String> _editCountFields = {
+    'three_inch': 'three_inch_count',
+    'five_inch': 'five_inch_count',
+    'unsigned_three_inch': 'unsigned_three_inch_count',
+    'unsigned_five_inch': 'unsigned_five_inch_count',
+    'group_cut': 'group_cut_count',
+    'three_inch_shukudai': 'three_inch_shukudai_count',
+    'five_inch_shukudai': 'five_inch_shukudai_count',
+  };
+  static const List<String> _editTextFields = [
+    'note',
+    'activity_name',
+    'venue_name',
+    'session_label',
+  ];
+
+  Future<Map<String, dynamic>> _editRecord(
+      Map<String, dynamic> arguments) async {
+    final recordId = _requireId(arguments['record_id'], 'record_id');
+    final view = await _requireSnapshot();
+    final record =
+        view.records.where((r) => readInt(r, ['id']) == recordId).firstOrNull;
+    if (record == null) {
+      throw ToolException(
+          'record_id $recordId 不在最新快照里（可能已删除，或 App 还没同步），请用 list_records 核对');
+    }
+    final requested = <String, Object>{};
+    for (final entry in _editCountFields.entries) {
+      final value = arguments[entry.key] ?? arguments[entry.value];
+      if (value == null) continue;
+      final number = value is num
+          ? value
+          : (value is String ? num.tryParse(value.trim()) : null);
+      if (number == null || number != number.roundToDouble() || number < 0) {
+        throw ToolException('${entry.key} 必须是不小于 0 的整数');
+      }
+      if (number > 999) throw ToolException('${entry.key} 不能超过 999');
+      requested[entry.value] = number.toInt();
+    }
+    for (final field in _editTextFields) {
+      final value = arguments[field];
+      if (value == null) continue;
+      if (value is! String) throw ToolException('$field 必须是字符串');
+      if (value.length > 500) throw ToolException('$field 太长（最多 500 字）');
+      requested[field] = value.trim();
+    }
+    if (requested.isEmpty) {
+      throw ToolException('没有要改的内容：给出要改的张数（three_inch 等）或 note / '
+          'activity_name / venue_name / session_label');
+    }
+    final type = recordType(record);
+    if (type != 'counter' &&
+        requested.keys.any(_editCountFields.containsValue)) {
+      throw ToolException('流水 #$recordId 是${type == 'ticket' ? '门票' : '多人切'}，'
+          '只能改单人切奇流水的张数；备注和活动信息可以改');
+    }
+    Object current(String field) => _editCountFields.containsValue(field)
+        ? readInt(record, [field])
+        : readString(record, [field]);
+    final before = {for (final key in requested.keys) key: current(key)};
+    final changes = {
+      for (final entry in requested.entries)
+        if (entry.value != before[entry.key]) entry.key: entry.value,
+    };
+    if (changes.isEmpty) {
+      return {
+        'status': 'unchanged',
+        'record': _recordJson(record),
+        'before': before,
+        'message': '流水 #$recordId 已经是这些值，没有排队。',
+      };
+    }
+    final expected = {for (final key in changes.keys) key: before[key]};
+    final queued = await _queueEdit(kEditRecordActionKind, {
+      'record_id': recordId,
+      'changes': changes,
+      'expected': expected,
+    });
+    return {
+      ...queued,
+      'record': _recordJson(record),
+      'before': expected,
+      'after': changes,
+      'message': '已排队修改流水 #$recordId（${recordDisplayName(record)}，'
+          '${recordDate(record)}），手机打开 OTA Counter 同步后才会改；尚未完成。'
+          'before 是快照里的旧值，请核对；若手机上已被改过，App 不会覆盖并回报原因。'
+          '结果用 list_cheki_edits 查。',
     };
   }
 
@@ -1507,7 +1794,7 @@ class McpProtocol {
     {
       'name': 'list_cheki_photos',
       'description': '查询切奇照片挂图的状态和 App 回执：pending 等待同步；applied 已入切册'
-          '（attached_record_id、photos_saved、duplicates；'
+          '（attached_record_id、photos_saved、duplicates、media_ids 新照片编号；'
           'face_samples_added 是从照片里学到的该成员人脸样本数，排除主人后不是恰好一张脸的照片不学）；'
           'failed 带中文原因（failure）。',
       'inputSchema': {
@@ -1517,6 +1804,113 @@ class McpProtocol {
             'type': 'string',
             'enum': ['pending', 'applied', 'failed'],
           },
+          'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100},
+        },
+        'additionalProperties': false,
+      },
+    },
+    {
+      'name': 'list_record_photos',
+      'description': '列出切册里已挂的照片，供删图、换图前确认是哪一张。'
+          '每张有 media_id（照片编号）、record_id（所属流水）、position（在该流水里第几张，从 1 起）、'
+          'sha1（照片字节的 SHA-1；通过 MCP 发的照片就是当时所发图片的 SHA-1）、created_at 和所属流水摘要。'
+          '按 record_id，或 member / from / to 缩小范围。数据来自 App 最近一次同步的快照。'
+          'attach_cheki_photos 成功后，list_cheki_photos 的 media_ids 也给出新照片的编号。',
+      'inputSchema': {
+        'type': 'object',
+        'properties': {
+          'record_id': {
+            'type': ['integer', 'string'],
+            'description': '流水编号（list_records 的 id）',
+          },
+          'member': {'type': 'string', 'description': '成员名、团名或活动名（模糊匹配）'},
+          'from': {'type': 'string', 'description': '起始日期 YYYY-MM-DD'},
+          'to': {'type': 'string', 'description': '截止日期 YYYY-MM-DD'},
+          'limit': {'type': 'integer', 'minimum': 1, 'maximum': 200},
+        },
+        'additionalProperties': false,
+      },
+    },
+    {
+      'name': 'delete_cheki_photo',
+      'description': '从切册里删除一张照片（不改计数）。先用 list_record_photos 确认 media_id；'
+          '可带 sha1 防止删错。手机上该照片若已被换过，App 不删并回报原因。'
+          'App 同步后才会生效，只能回复「已排队」；结果用 list_cheki_edits 查。',
+      'inputSchema': {
+        'type': 'object',
+        'properties': {
+          'media_id': {
+            'type': ['integer', 'string'],
+            'description': '照片编号（list_record_photos 的 media_id）',
+          },
+          'sha1': {'type': 'string', 'description': '可选：期望的照片 SHA-1，不一致就不排队'},
+        },
+        'required': ['media_id'],
+        'additionalProperties': false,
+      },
+    },
+    {
+      'name': 'replace_cheki_photo',
+      'description': '把切册里的一张照片换成新图，原位替换：所属流水和在切册里的顺序不变。'
+          '旧照片从这张图学到的人脸样本会一并撤掉，再从新图重新学。'
+          '新图用 image_base64 或 image_url（也可 images 数组里只放一张）。'
+          'App 同步后才会生效，只能回复「已排队」；结果用 list_cheki_edits 查。',
+      'inputSchema': {
+        'type': 'object',
+        'properties': {
+          'media_id': {
+            'type': ['integer', 'string'],
+            'description': '要被替换的照片编号（list_record_photos 的 media_id）',
+          },
+          'sha1': {'type': 'string', 'description': '可选：旧照片期望的 SHA-1，不一致就不排队'},
+          ..._chekiImageProperties,
+        },
+        'required': ['media_id'],
+        'additionalProperties': false,
+      },
+    },
+    {
+      'name': 'edit_record',
+      'description': '修改一条流水：张数、备注、活动信息。只传要改的字段；张数是改后的新值（不是增量）。'
+          '张数只能改单人切奇流水（门票、多人切只能改备注和活动信息）；改张数会同步调整成员的累计数。'
+          '返回 before（快照里的旧值）和 after，请核对。手机上这些字段若已被改过，App 不覆盖并回报原因。'
+          'App 同步后才会生效，只能回复「已排队」；结果用 list_cheki_edits 查。',
+      'inputSchema': {
+        'type': 'object',
+        'properties': {
+          'record_id': {
+            'type': ['integer', 'string'],
+            'description': '流水编号（list_records 的 id）',
+          },
+          'three_inch': {'type': 'integer', 'minimum': 0, 'description': '三寸（签名）'},
+          'five_inch': {'type': 'integer', 'minimum': 0, 'description': '五寸（签名）'},
+          'unsigned_three_inch': {'type': 'integer', 'minimum': 0, 'description': '三寸未签'},
+          'unsigned_five_inch': {'type': 'integer', 'minimum': 0, 'description': '五寸未签'},
+          'group_cut': {'type': 'integer', 'minimum': 0, 'description': '团切'},
+          'three_inch_shukudai': {'type': 'integer', 'minimum': 0, 'description': '三寸宿题'},
+          'five_inch_shukudai': {'type': 'integer', 'minimum': 0, 'description': '五寸宿题'},
+          'note': {'type': 'string', 'description': '备注（整段替换；空字符串清空）'},
+          'activity_name': {'type': 'string', 'description': '活动名'},
+          'venue_name': {'type': 'string', 'description': '场地'},
+          'session_label': {'type': 'string', 'description': '场次'},
+        },
+        'required': ['record_id'],
+        'additionalProperties': false,
+      },
+    },
+    {
+      'name': 'list_cheki_edits',
+      'description': '查询删图、换图、改流水的状态和 App 回执：pending 等待同步（attempts / last_error 是重试情况）；'
+          'applied 已完成（result 里有 before / after 或 deleted / replaced）；failed 带中文原因（failure）。',
+      'inputSchema': {
+        'type': 'object',
+        'properties': {
+          'status': {
+            'type': 'string',
+            'enum': ['pending', 'applied', 'failed'],
+          },
+          'record_id': {'type': ['integer', 'string']},
+          'media_id': {'type': ['integer', 'string']},
           'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100},
         },
         'additionalProperties': false,

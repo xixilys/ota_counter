@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:image/image.dart' as img;
 
 import '../models/activity_record_media_model.dart';
+import 'card_format_meter.dart';
 
 class RecordScanOutput {
   final List<int> bytes;
@@ -197,12 +198,16 @@ enum RecordScanCardSize {
   /// 五寸（instax WIDE）。
   wide,
 
-  /// 长宽比不在上面两类附近。
+  /// instax SQUARE（方形）：计数时不归三寸或五寸，需要人工确认。
+  square,
+
+  /// 长宽比不在上面几类附近。
   uncertain;
 
   String get label => switch (this) {
         RecordScanCardSize.mini => '三寸',
         RecordScanCardSize.wide => '五寸',
+        RecordScanCardSize.square => '方形',
         RecordScanCardSize.uncertain => '不确定',
       };
 }
@@ -1521,7 +1526,7 @@ class RecordScanService {
       RecordScanCardSize.mini => _miniCardRatio,
       RecordScanCardSize.wide => _wideCardRatio,
       // Don't stretch an unfamiliar or strongly foreshortened print.
-      RecordScanCardSize.uncertain => ratio,
+      RecordScanCardSize.square || RecordScanCardSize.uncertain => ratio,
     };
   }
 
@@ -1872,6 +1877,12 @@ class RecordScanService {
       }
     } else {
       refineMs += stage.elapsedMilliseconds;
+      final located = <({
+        List<math.Point<double>> quad,
+        double ratio,
+        RecordScanCardSize sizeClass,
+        _PlannedCard planned,
+      })>[];
       for (final planned in plan.cards) {
         stage.reset();
         var quad = planned.sourceQuad;
@@ -1883,7 +1894,9 @@ class RecordScanService {
           final aspectRatio = switch (sizeClass) {
             RecordScanCardSize.mini => _miniCardRatio,
             RecordScanCardSize.wide => _wideCardRatio,
-            RecordScanCardSize.uncertain => ratio,
+            RecordScanCardSize.square ||
+            RecordScanCardSize.uncertain =>
+              ratio,
           };
           final refined = (candidate.splitFromMerged
                   ? null
@@ -1920,12 +1933,34 @@ class RecordScanService {
             continue;
           }
         }
-        final aspectRatio = switch (sizeClass) {
-          RecordScanCardSize.mini => _miniCardRatio,
-          RecordScanCardSize.wide => _wideCardRatio,
-          RecordScanCardSize.uncertain => ratio,
+        located.add((
+          quad: quad,
+          ratio: ratio,
+          sizeClass: sizeClass,
+          planned: planned,
+        ));
+        refineMs += stage.elapsedMilliseconds;
+      }
+      // Settle every card's film format from its own pixels, the cards of
+      // this photo together (see [CardFormatMeter]).
+      stage.reset();
+      final decisions = CardFormatMeter.decide([
+        for (final card in located) _measureCard(source, card.quad),
+      ]);
+      refineMs += stage.elapsedMilliseconds;
+      for (var i = 0; i < located.length; i++) {
+        stage.reset();
+        final (:quad, :ratio, sizeClass: _, :planned) = located[i];
+        final decision = decisions[i];
+        final sizeClass = switch (decision.format) {
+          FilmFormat.mini => RecordScanCardSize.mini,
+          FilmFormat.wide => RecordScanCardSize.wide,
+          FilmFormat.square => RecordScanCardSize.square,
+          null => RecordScanCardSize.uncertain,
         };
-        final crop = _cropFromSource(source, quad, aspectRatio);
+        final aspectRatio = decision.aspectRatio;
+        final crop = _cropOriented(source, quad, aspectRatio,
+            portrait: decision.portrait);
         refineMs += stage.elapsedMilliseconds;
         stage.reset();
 
@@ -2173,6 +2208,37 @@ class RecordScanService {
 
   /// Rectifies [quad] from the full-resolution source at its natural size
   /// (long side capped at [_targetLongSide]), with the card's aspect ratio.
+  /// Rectifies [quad] to a small square and measures its format.
+  static CardMeasurement _measureCard(
+      _Rgb source, List<math.Point<double>> quad) {
+    const size = CardFormatMeter.previewSize;
+    return CardFormatMeter.measure(
+      homography: _Rgb._homographyUnitSquareTo(quad),
+      imageWidth: source.width,
+      imageHeight: source.height,
+      preview: source.rectify(quad, size, size).data,
+    );
+  }
+
+  /// Like [_cropFromSource], with the orientation settled by the format
+  /// decision instead of the outline's longer side.
+  static _Rgb _cropOriented(
+    _Rgb source,
+    List<math.Point<double>> quad,
+    double aspectRatio, {
+    required bool portrait,
+  }) {
+    final w = (quad[0].distanceTo(quad[1]) + quad[2].distanceTo(quad[3])) / 2;
+    final h = (quad[1].distanceTo(quad[2]) + quad[3].distanceTo(quad[0])) / 2;
+    final long = math.min(_targetLongSide.toDouble(), math.max(w, h));
+    final short = math.max(2, (long * aspectRatio).round());
+    return source.rectify(
+      quad,
+      portrait ? short : math.max(2, long.round()),
+      portrait ? math.max(2, long.round()) : short,
+    );
+  }
+
   static _Rgb _cropFromSource(
     _Rgb source,
     List<math.Point<double>> quad,

@@ -2359,6 +2359,56 @@ class DatabaseService {
     );
   }
 
+  /// Swaps the picture of an archived photo in place: same row (id, record,
+  /// owner, position in the 切册), new bytes. Samples learned from the old
+  /// picture go; the old file and its album renditions are removed after
+  /// the commit. Returns false when the photo no longer exists.
+  static Future<bool> replaceActivityRecordMedia(
+    int id, {
+    required List<int> bytes,
+    required String fileExtension,
+    required String sourceHash,
+  }) async {
+    final db = await database;
+    final rows = await db.query(activityRecordMediaTableName,
+        where: 'id = ?', whereArgs: [id], limit: 1);
+    if (rows.isEmpty) return false;
+    final old = ActivityRecordMediaModel.fromMap(rows.single);
+    final directory = File(old.path).parent;
+    if (!await directory.exists()) await directory.create(recursive: true);
+    final ext = fileExtension.startsWith('.') ? fileExtension : '.$fileExtension';
+    final path = join(directory.path,
+        '${DateTime.now().microsecondsSinceEpoch}_${old.recordId}$ext');
+    await File(path).writeAsBytes(bytes, flush: true);
+    try {
+      await db.transaction((txn) async {
+        await txn.update(
+          activityRecordMediaTableName,
+          {
+            'path': path,
+            'source_hash': sourceHash,
+            'processing_mode': ActivityRecordMediaProcessingMode.none.dbValue,
+            'crop_quad_json': '',
+            'is_reversed': 0,
+          },
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+        await txn.delete(
+          faceSamplesTableName,
+          where: "source = 'attached' AND media_id = ?",
+          whereArgs: [id],
+        );
+      });
+    } catch (_) {
+      await _deleteMediaFilesAfterCommit([path]);
+      rethrow;
+    }
+    await _deleteMediaFilesAfterCommit([old.path]);
+    await AlbumPhotoFiles.prepare(path, rectifyCut: true, isScan: true);
+    return true;
+  }
+
   static Future<void> deleteActivityRecordMedia(int id) async {
     final pendingFileDeletes = <String>[];
     final db = await database;

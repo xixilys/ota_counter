@@ -470,7 +470,6 @@ void main() {
     test('3×2 grid with 五寸 and 三寸 rows, timing printed', () async {
       const wideWidth = 360.0;
       const wideHeight = 450.0;
-      const miniWidth = 54 / 86 * 450;
       final cards = [
         for (var i = 0; i < 3; i++)
           _Card(
@@ -481,10 +480,9 @@ void main() {
             angle: [-4.0, 0.0, 6.0][i],
           ),
         for (var i = 0; i < 3; i++)
-          _Card(
+          _Card.mini(
             cx: 330 + i * 570,
             cy: 990,
-            width: miniWidth,
             height: 450,
             angle: [3.0, -7.0, 0.0][i],
             photoTint: 1,
@@ -1084,9 +1082,21 @@ void _paintCard(img.Image image, _Card card) {
   final s = math.sin(rad);
   final hw = card.width / 2;
   final hh = card.height / 2;
-  final side = card.width * (card.miniBorders ? 4 / 54 : 0.073);
-  final top = card.height * (card.miniBorders ? 7 / 86 : 0.06);
-  final bottom = card.height * (card.miniBorders ? 17 / 86 : 0.17);
+  // Real instax layouts. A WIDE (108 × 86 mm, window 99 × 62) has its thick
+  // border along a long side: below the picture when it lies landscape, at
+  // the right when it stands upright.
+  late final double left, right, top, bottom;
+  if (card.miniBorders) {
+    left = right = card.width * 4 / 54;
+    top = card.height * 7 / 86;
+    bottom = card.height * 17 / 86;
+  } else if (card.width >= card.height) {
+    left = right = top = card.width * 4.5 / 108;
+    bottom = card.height - card.height * 62 / 86 - top;
+  } else {
+    top = bottom = left = card.height * 4.5 / 108;
+    right = card.width - card.width * 62 / 86 - left;
+  }
   // Seen through a sleeve everything is a little greyer.
   int veil(double value, int grey) =>
       card.sleeve ? (value * 0.86 + grey * 0.14).round() : value.round();
@@ -1104,8 +1114,10 @@ void _paintCard(img.Image image, _Card card) {
       if (u < -hw || u >= hw || v < -hh || v >= hh) {
         continue;
       }
-      final inPhoto =
-          u >= -hw + side && u < hw - side && v >= -hh + top && v < hh - bottom;
+      final inPhoto = u >= -hw + left &&
+          u < hw - right &&
+          v >= -hh + top &&
+          v < hh - bottom;
       if (!inPhoto) {
         final inkColor = card.ink ? _inkAt(u + hw, v + hh, card) : null;
         final (r, g, b) = inkColor ?? (240, 238, 236);

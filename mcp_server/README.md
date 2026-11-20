@@ -186,6 +186,11 @@ Grok Bot / Hermes 若只支持其中一种，按客户端的 MCP 配置 schema �
 | `list_face_enrollments` | 按可选 `member_id` / `member` / `group`、`status`、`limit` 查处理结果 |
 | `attach_cheki_photos` | **排队**把拍立得照片（`images` 数组，或单张 `image_base64` / `image_url`，最多 20 张）挂到切奇流水，进切册；不改计数 |
 | `list_cheki_photos` | 按 `status`、`limit` 查挂图结果：挂到哪条流水、存了几张、重复几张，失败带中文原因 |
+| `list_record_photos` | 列出切册里已挂的照片：`media_id`、所属 `record_id`、`position`（该流水第几张）、`sha1`，按 `record_id` 或 `member` / `from` / `to` 筛选 |
+| `delete_cheki_photo` | **排队**按 `media_id` 删除一张切册照片（可带 `sha1` 防删错）；不改计数 |
+| `replace_cheki_photo` | **排队**把 `media_id` 那张换成新图（`image_base64` / `image_url`，一张），位置和所属流水不变 |
+| `edit_record` | **排队**改一条流水的张数（新值，不是增量）、`note`、`activity_name`、`venue_name`、`session_label`；返回 `before` / `after` |
+| `list_cheki_edits` | 查删图 / 换图 / 改流水的状态和 App 回执，可按 `status`、`record_id`、`media_id` 筛选 |
 
 资源：`ota://overview`、`ota://members`、`ota://recent-records`、
 `ota://sync-status`、`ota://snapshot`。
@@ -249,6 +254,29 @@ Grok Bot / Hermes 若只支持其中一种，按客户端的 MCP 配置 schema �
   届时操作失败并提示重新发送。
 - 只有带 `x-ota-capabilities: cheki-photo-v1` 的 App（v1.7.11 起）会收到挂图
   操作，旧 App 照常同步计数。
+
+## 从聊天修正切册和流水
+
+需要 App 1.7.13 起（快照带 `photos` 照片清单，请求头带 `cheki-edit-v1`）；旧 App 不会收到这些操作。
+
+- 先 `list_record_photos` 确认是哪一张。通过 MCP 发的照片，`sha1` 就是当时所发
+  图片字节的 SHA-1；`list_cheki_photos` 的回执也带 `media_ids`（新照片编号）。
+- `delete_cheki_photo {media_id, sha1?}`：删照片和文件；从这张照片学到的人脸样本一起删。
+- `replace_cheki_photo {media_id, sha1?, image_base64 | image_url}`：原位换图，
+  `media_id`、所属流水、切册里的顺序都不变；旧图学到的人脸样本撤掉，再从新图学。
+- `edit_record {record_id, three_inch?, five_inch?, unsigned_three_inch?,
+  unsigned_five_inch?, group_cut?, three_inch_shukudai?, five_inch_shukudai?,
+  note?, activity_name?, venue_name?, session_label?}`：只传要改的字段，张数为
+  改后的新值（0–999 的整数），只能改单人切奇流水的张数，门票和多人切只能改备注和
+  活动信息。改张数时 App 同步调整成员累计。返回快照里的旧值 `before` 和 `after`；
+  值已经相同时不排队。
+- 防覆盖：动作里带着 AI 看到的旧值（照片的 `sha1`、流水的 `expected`）。手机上
+  若已改过，App 不覆盖，回 `failed` 并写明现在的值。同一张照片、或同一流水的同一
+  字段已有待同步的操作时，服务端拒绝再排。
+- 重放安全：回执丢失后同一动作再执行一次不会重复改（已删 → `already_gone`，
+  值已相同 → `changed: false`）。
+- 结果用 `list_cheki_edits` 查：`applied` 带 `result`（`deleted` / `replaced` /
+  `before` + `after`），`failed` 带中文 `failure`，pending 带重试次数和原因。
 
 ### 公开地址必须显式配置
 

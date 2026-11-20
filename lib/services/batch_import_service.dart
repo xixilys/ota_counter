@@ -1003,7 +1003,9 @@ class BatchImportService {
           for (final c in assignments[i].topCandidates) candidates[c],
         ],
         size: sizeOf(flat[i].card.sizeClass),
-        sizeUncertain: flat[i].card.sizeClass == RecordScanCardSize.uncertain,
+        // A square print counts as neither 三寸 nor 五寸: ask.
+        sizeUncertain: flat[i].card.sizeClass == RecordScanCardSize.uncertain ||
+            flat[i].card.sizeClass == RecordScanCardSize.square,
         faceMatches: [
           for (var f = 0; f < faceLists[i].length; f++)
             (

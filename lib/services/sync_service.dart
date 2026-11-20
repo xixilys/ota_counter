@@ -12,6 +12,7 @@ import '../models/activity_record_model.dart';
 import '../models/counter_model.dart';
 import '../models/group_pricing_model.dart';
 import '../models/ticket_type_model.dart';
+import 'cheki_edit_sync_service.dart';
 import 'cheki_photo_sync_service.dart';
 import 'database_service.dart';
 import 'merch_service.dart';
@@ -127,8 +128,13 @@ class SyncService {
   /// Server gate: apps without it never receive `attach_cheki_photos`.
   static const String chekiPhotoCapability = 'cheki-photo-v1';
   static const String chekiPhotoActionKind = 'attach_cheki_photos';
+  /// Server gate for the 切册 / ledger corrections below.
+  static const String chekiEditCapability = 'cheki-edit-v1';
+  static const String deletePhotoActionKind = 'delete_cheki_photo';
+  static const String replacePhotoActionKind = 'replace_cheki_photo';
+  static const String editRecordActionKind = 'edit_record';
   static const String capabilities =
-      '$faceEnrollmentCapability,$chekiPhotoCapability';
+      '$faceEnrollmentCapability,$chekiPhotoCapability,$chekiEditCapability';
 
   static Future<SyncSettings> loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
@@ -343,6 +349,31 @@ class SyncService {
             appliedIds.add(actionId);
             if (result.replayed) skipped++;
           }
+        } else if (kind == deletePhotoActionKind ||
+            kind == replacePhotoActionKind ||
+            kind == editRecordActionKind) {
+          final result = switch (kind) {
+            deletePhotoActionKind =>
+              await ChekiEditSyncService.deletePhoto(payload),
+            replacePhotoActionKind => await ChekiEditSyncService.replacePhoto(
+                payload,
+                counters: counters,
+                fetchImage: (imageId) => _fetchStagedImage(settings, imageId),
+              ),
+            _ => await ChekiEditSyncService.editRecord(payload),
+          };
+          if (result.failure != null) {
+            if (result.retryable) {
+              deferred[actionId] = result.failure!;
+            } else {
+              actionFailures[actionId] = result.failure!;
+            }
+            failures.add(SyncActionFailure(
+                actionId: actionId, message: result.failure!));
+          } else {
+            enrollmentResults[actionId] = result.summary!;
+            appliedIds.add(actionId);
+          }
         } else if (kind == chekiPhotoActionKind) {
           final result = await ChekiPhotoSyncService.apply(
             actionId: actionId,
@@ -552,6 +583,24 @@ class SyncService {
   ) async {
     final counters = await DatabaseService.getCounters();
     final records = await DatabaseService.getActivityRecords();
+    // Archived photos in 切册 order (per record), so an assistant can name
+    // the one to delete or replace. sha1 is of the bytes as archived; for a
+    // photo sent through MCP it is the sha1 of the image that was sent.
+    final positions = <int, int>{};
+    final photos = [
+      for (final media in await DatabaseService.getActivityRecordMedia())
+        {
+          'media_id': media.id,
+          'record_id': media.recordId,
+          'position': positions.update(media.recordId, (n) => n + 1,
+              ifAbsent: () => 1),
+          'sha1': media.sourceHash,
+          'media_type': media.mediaType.name,
+          'created_at': media.createdAt.toIso8601String(),
+          if (media.ownerPersonName.isNotEmpty)
+            'owner_person_name': media.ownerPersonName,
+        },
+    ];
     final pricings = await DatabaseService.getGroupPricings();
     final merchStats = await MerchService.getStats();
     var appVersion = '';
@@ -741,6 +790,7 @@ class SyncService {
       'app_version': appVersion,
       'counters': counterMaps,
       'records': records.map((record) => record.toMap()).toList(),
+      'photos': photos,
       'pricings': pricings.map((pricing) => pricing.toMap()).toList(),
       // 周边 has its own ledger and is not part of the activity-record stream,
       // so the MCP snapshot gets a small summary object instead of fake

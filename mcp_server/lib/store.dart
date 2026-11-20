@@ -7,7 +7,7 @@ import 'face_images.dart';
 import 'snapshot.dart' show normalizePart;
 
 const String kSyncServerName = 'ota-counter-sync';
-const String kSyncServerVersion = '1.2.2';
+const String kSyncServerVersion = '1.3.0';
 const String kStateSchema = 'ota_counter_sync_state';
 
 /// App → server capability header for chat face enrollment. Clients that do
@@ -23,6 +23,24 @@ const String kChekiPhotoCapability = 'cheki-photo-v1';
 const String kChekiPhotoActionKind = 'attach_cheki_photos';
 const int kMaxChekiPhotosPerAction = 20;
 
+/// Chat → app corrections to the 切册 and the ledger. Apps without this
+/// capability never receive them.
+const String kChekiEditCapability = 'cheki-edit-v1';
+const String kDeletePhotoActionKind = 'delete_cheki_photo';
+const String kReplacePhotoActionKind = 'replace_cheki_photo';
+const String kEditRecordActionKind = 'edit_record';
+const Set<String> kChekiEditActionKinds = {
+  kDeletePhotoActionKind,
+  kReplacePhotoActionKind,
+  kEditRecordActionKind,
+};
+
+/// Actions whose receipt carries a result, and whose failure needs a reason.
+bool _hasReceipt(Object? kind) =>
+    kind == kFaceEnrollmentActionKind ||
+    kind == kChekiPhotoActionKind ||
+    kChekiEditActionKinds.contains(kind);
+
 /// Staged image ids of an action that carries image bytes on disk.
 List<String> actionImageIds(Map<dynamic, dynamic> action) {
   final payload = action['payload'];
@@ -31,7 +49,8 @@ List<String> actionImageIds(Map<dynamic, dynamic> action) {
     final id = payload['imageId'];
     return id is String ? [id] : const [];
   }
-  if (action['kind'] == kChekiPhotoActionKind) {
+  if (action['kind'] == kChekiPhotoActionKind ||
+      action['kind'] == kReplacePhotoActionKind) {
     final images = payload['images'];
     if (images is! List) return const [];
     return [
@@ -98,6 +117,10 @@ class SyncStore {
     if (action['kind'] == kChekiPhotoActionKind) {
       throw FaceImageException(
           '切奇照片请使用 attach_cheki_photos 或 record_cheki 的 images 参数');
+    }
+    if (kChekiEditActionKinds.contains(action['kind'])) {
+      throw FaceImageException(
+          '删图、换图、改流水请使用 delete_cheki_photo / replace_cheki_photo / edit_record');
     }
     return _locked((state) async {
       final actions = _ensureList(state, 'actions');
@@ -357,6 +380,95 @@ class SyncStore {
     });
   }
 
+  /// Queues one 切册 / ledger correction ([kChekiEditActionKinds]).
+  ///
+  /// A second pending action on the same photo, or on the same fields of the
+  /// same record, is refused: the app would only fail it, because the first
+  /// one changes what the second one expects to find.
+  Future<Map<String, dynamic>> queueChekiEdit(
+      String kind, Map<String, dynamic> payload) {
+    if (!kChekiEditActionKinds.contains(kind)) {
+      throw ArgumentError.value(kind, 'kind');
+    }
+    return _locked((current) async {
+      final state = _deepCopy(current);
+      final actions = _ensureList(state, 'actions');
+      final pending =
+          actions.whereType<Map>().where((a) => a['status'] == 'pending');
+      if (pending.length >= 500) {
+        throw FaceImageException('待处理队列已满，请先同步 App', status: 409);
+      }
+      for (final other in pending) {
+        final otherPayload = other['payload'];
+        if (otherPayload is! Map) continue;
+        if (kind == kEditRecordActionKind) {
+          if (other['kind'] != kEditRecordActionKind ||
+              otherPayload['record_id'] != payload['record_id']) {
+            continue;
+          }
+          final mine = (payload['changes'] as Map).keys.toSet();
+          final theirs = otherPayload['changes'] is Map
+              ? (otherPayload['changes'] as Map).keys.toSet()
+              : const <Object?>{};
+          final overlap = mine.intersection(theirs);
+          if (overlap.isNotEmpty) {
+            throw FaceImageException(
+                '流水 #${payload['record_id']} 的 ${overlap.join('、')} 已有待同步的修改 '
+                '${other['id']}，等 App 同步后再改',
+                status: 409);
+          }
+        } else if ((other['kind'] == kDeletePhotoActionKind ||
+                other['kind'] == kReplacePhotoActionKind) &&
+            otherPayload['media_id'] == payload['media_id']) {
+          throw FaceImageException(
+              '照片 #${payload['media_id']} 已有待同步的操作 ${other['id']}'
+              '（${other['kind']}），等 App 同步后再操作',
+              status: 409);
+        }
+      }
+      final action = {
+        'id': _newActionId(),
+        'kind': kind,
+        'status': 'pending',
+        'payload': _deepCopy(payload),
+        'created_at': nowIso(),
+        'created_by': 'mcp',
+      };
+      actions.add(action);
+      state['rev'] = _readInt(state['rev']) + 1;
+      state['updated_at'] = nowIso();
+      await _save(state);
+      _state = state;
+      return {
+        'action_id': action['id'],
+        'status': 'pending',
+        'kind': kind,
+        'pending_actions': (_statusMap(state)['actions'] as Map)['pending'],
+      };
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> chekiEditActions(
+      {String? status, int? recordId, int? mediaId, int limit = 50}) {
+    return _locked((state) async {
+      final result = <Map<String, dynamic>>[];
+      for (final action
+          in _ensureList(state, 'actions').reversed.whereType<Map>()) {
+        if (!kChekiEditActionKinds.contains(action['kind']) ||
+            (status != null && action['status'] != status)) {
+          continue;
+        }
+        final payload = action['payload'];
+        if (payload is! Map) continue;
+        if (recordId != null && payload['record_id'] != recordId) continue;
+        if (mediaId != null && payload['media_id'] != mediaId) continue;
+        result.add(_chekiEditView(action));
+        if (result.length >= limit) break;
+      }
+      return result;
+    });
+  }
+
   Future<List<Map<String, dynamic>>> faceEnrollments(
       {String? status,
       Set<int>? counterIds,
@@ -472,8 +584,7 @@ class SyncStore {
         if (!wanted.contains(id)) {
           continue;
         }
-        if (action['kind'] == 'enroll_face' ||
-            action['kind'] == kChekiPhotoActionKind) {
+        if (_hasReceipt(action['kind'])) {
           if (action['status'] != 'pending') {
             if (action['image_cleanup_pending'] == true) {
               cleanupImages.addAll(actionImageIds(action));
@@ -481,10 +592,12 @@ class SyncStore {
             continue;
           }
           final failure = failures?[id];
-          if (action['kind'] == kChekiPhotoActionKind &&
+          if (action['kind'] != kFaceEnrollmentActionKind &&
               failure != null &&
               failure.trim().isEmpty) {
-            throw FaceImageException('切奇照片失败必须提供原因');
+            throw FaceImageException(action['kind'] == kChekiPhotoActionKind
+                ? '切奇照片失败必须提供原因'
+                : '操作失败必须提供原因');
           }
           action['image_cleanup_pending'] = true;
           cleanupImages.addAll(actionImageIds(action));
@@ -509,8 +622,7 @@ class SyncStore {
           final id = entry.key.trim();
           for (final action in actions) {
             if (action is Map &&
-                action['kind'] != 'enroll_face' &&
-                action['kind'] != kChekiPhotoActionKind &&
+                !_hasReceipt(action['kind']) &&
                 _readString(action['id']) == id) {
               action['status'] = 'failed';
               action['failure'] = entry.value;
@@ -834,9 +946,35 @@ Map<String, dynamic> _chekiPhotoView(Map<dynamic, dynamic> action) {
     'photos_saved': result?['photos_saved'],
     'duplicates': result?['duplicates'],
     'attached_record_id': result?['record_id'],
+    'media_ids': result?['media_ids'],
     'face_samples_added': result?['face_samples_added'],
     'face_skipped_not_single': result?['face_skipped_not_single'],
     'image_cleanup_pending': action['image_cleanup_pending'] == true,
+    'attempts': _readInt(action['attempts']),
+    'last_error': action['last_error'],
+    'last_attempt_at': action['last_attempt_at'],
+  };
+}
+
+Map<String, dynamic> _chekiEditView(Map<dynamic, dynamic> action) {
+  final payload = action['payload'] is Map
+      ? Map<String, dynamic>.from(action['payload'] as Map)
+      : <String, dynamic>{};
+  return {
+    'id': _readString(action['id']),
+    'kind': _readString(action['kind']),
+    'status': _readString(action['status']),
+    'created_at': _readString(action['created_at']),
+    'applied_at': action['applied_at'],
+    'failed_at': action['failed_at'],
+    'failure': action['failure'],
+    'record_id': payload['record_id'],
+    if (payload['media_id'] != null) 'media_id': payload['media_id'],
+    if (payload['changes'] != null) 'changes': payload['changes'],
+    if (payload['expected'] != null) 'expected': payload['expected'],
+    'result': action['result'],
+    if (action['kind'] == kReplacePhotoActionKind)
+      'image_cleanup_pending': action['image_cleanup_pending'] == true,
     'attempts': _readInt(action['attempts']),
     'last_error': action['last_error'],
     'last_attempt_at': action['last_attempt_at'],

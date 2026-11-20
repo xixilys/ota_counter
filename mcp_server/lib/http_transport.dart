@@ -182,6 +182,8 @@ class SyncHttpServer {
           if (!_supportsFaceEnrollment(request)) kFaceEnrollmentActionKind,
           if (!_hasCapability(request, kChekiPhotoCapability))
             kChekiPhotoActionKind,
+          if (!_hasCapability(request, kChekiEditCapability))
+            ...kChekiEditActionKinds,
         };
         final actions = await store.actions(
           status: status.isEmpty ? null : status,

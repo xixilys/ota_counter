@@ -46,6 +46,30 @@ class ArchiveLearnResult {
   });
 }
 
+/// Outcome of learning from chat-attached photos.
+class AttachedLearnResult {
+  /// New member samples kept.
+  final int added;
+
+  /// Photos without exactly one face left after dropping "我".
+  final int notSingleFace;
+
+  /// Photos the face engine could not read.
+  final int failed;
+
+  const AttachedLearnResult({
+    required this.added,
+    required this.notSingleFace,
+    required this.failed,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'face_samples_added': added,
+        'face_skipped_not_single': notSingleFace,
+        'face_failed': failed,
+      };
+}
+
 /// Face samples (table `face_samples`): "我" plus per-member embeddings.
 class FaceSampleService {
   FaceSampleService._();
@@ -465,6 +489,78 @@ class FaceSampleService {
       notSingleFace: notSingle,
       alreadyLearned: already,
       failed: failed,
+    );
+  }
+
+  /// Learns [owner] from photos a chat assistant attached to their record:
+  /// faces within [FaceMatchThresholds.attachedSelfExclusion] of any "我"
+  /// sample are dropped, and a photo must then show exactly one face.
+  /// Samples are stored with source = attached and the photo's media id, so
+  /// [revokeAttached] or deleting the photo removes them again.
+  static Future<AttachedLearnResult> learnFromAttached(
+    List<({int mediaId, Uint8List bytes})> photos, {
+    required FaceMember owner,
+  }) async {
+    final selfSamples = [
+      for (final s in await getSamples(isSelf: true)) s.embedding,
+    ];
+    var notSingle = 0, failed = 0;
+    final pending = <FaceSampleModel>[];
+    for (final photo in photos) {
+      List<FaceAnalysis> faces;
+      try {
+        faces = await analyzer(photo.bytes);
+      } catch (_) {
+        failed++;
+        continue;
+      }
+      final others = faces
+          .where((face) =>
+              maxSimilarity(face.embedding, selfSamples) <=
+              FaceMatchThresholds.attachedSelfExclusion)
+          .toList();
+      if (others.length != 1) {
+        notSingle++;
+        continue;
+      }
+      pending.add(sampleFromAnalysis(
+        others.single,
+        source: FaceSampleSource.attached,
+        owner: owner,
+        mediaId: photo.mediaId,
+      ));
+    }
+    final added = await addSamples(pending);
+    return AttachedLearnResult(
+      added: added,
+      notSingleFace: notSingle,
+      failed: failed,
+    );
+  }
+
+  /// Number of samples learned from chat-attached photos.
+  static Future<int> countAttached() async {
+    final db = await DatabaseService.database;
+    final rows = await db.rawQuery(
+      'SELECT COUNT(*) AS n FROM ${DatabaseService.faceSamplesTableName} '
+      "WHERE source = 'attached'",
+    );
+    return (rows.first['n'] as num?)?.toInt() ?? 0;
+  }
+
+  /// Removes samples learned from chat-attached photos (all of them, or only
+  /// those of [mediaIds]). Returns how many were removed.
+  static Future<int> revokeAttached({Iterable<int>? mediaIds}) async {
+    final db = await DatabaseService.database;
+    final ids = mediaIds?.toSet().toList(growable: false);
+    if (ids != null && ids.isEmpty) return 0;
+    return db.delete(
+      DatabaseService.faceSamplesTableName,
+      where: ids == null
+          ? "source = 'attached'"
+          : "source = 'attached' AND media_id IN "
+              "(${List.filled(ids.length, '?').join(', ')})",
+      whereArgs: ids,
     );
   }
 

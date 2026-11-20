@@ -1,24 +1,24 @@
 {
   "appName": "OTA Counter",
-  "versionName": "1.7.11",
-  "versionCode": 40,
-  "versionLabel": "v1.7.11",
-  "title": "OTA Counter v1.7.11",
+  "versionName": "1.7.12",
+  "versionCode": 41,
+  "versionLabel": "v1.7.12",
+  "title": "OTA Counter v1.7.12",
   "notes": [
     "更新前建议先在菜单里做一次完整备份。",
-    "AI 助手可以通过 MCP 把拍立得照片挂到切奇流水上，同步后进「切册」，入库后同样自动拉正、校正透视、减反光；记切数时也能顺带附照片。找不到对应流水等失败会在助手那边看到中文原因。",
-    "批量拍切：已经切好的单张卡图（铺满整张照片）现在会识别成一张卡，不再提示「没有找到」。"
+    "AI 助手挂到切奇流水上的拍立得照片，现在会顺带学这位成员的脸：先排除「我」，照片里只剩一张脸时才学，多人或认不出脸的照片只挂图不学。学到的样本可以在「人脸识别」设置里一键撤销，删掉照片时对应样本也会一起删除。",
+    "批量拍切：几张卡挨着摆、边框上写满字时，个别卡会被切成连着桌面的宽幅卡，现在能切准成原本的小卡。"
   ],
   "publishedAt": null,
   "force": false,
-  "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.7.11.apk",
+  "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.7.12.apk",
   "downloadPageUrl": "https://ota-counter.huangxuanqi.top/ota-counter/",
-  "backupUrl": "https://github.com/xixilys/ota_counter/releases/download/v1.7.11/OTA-Counter-v1.7.11.apk",
+  "backupUrl": "https://github.com/xixilys/ota_counter/releases/download/v1.7.12/OTA-Counter-v1.7.12.apk",
   "platforms": {
     "android": {
-      "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.7.11.apk",
+      "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.7.12.apk",
       "downloadPageUrl": "https://ota-counter.huangxuanqi.top/ota-counter/",
-      "backupUrl": "https://github.com/xixilys/ota_counter/releases/download/v1.7.11/OTA-Counter-v1.7.11.apk"
+      "backupUrl": "https://github.com/xixilys/ota_counter/releases/download/v1.7.12/OTA-Counter-v1.7.12.apk"
     },
     "ios": {
       "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/#ios",

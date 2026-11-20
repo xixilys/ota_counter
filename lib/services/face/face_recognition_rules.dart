@@ -15,6 +15,10 @@ class FaceMatchThresholds {
   /// dropped before matching members.
   static const double self = 0.50;
 
+  /// Automatic samples from chat-attached photos must not risk learning "我":
+  /// any face this similar to a "我" sample is dropped (stricter than [self]).
+  static const double attachedSelfExclusion = 0.25;
+
   /// Auto-accept: best member >= [autoMin] and ahead of the runner-up by
   /// at least [autoMargin].
   static const double autoMin = 0.60;

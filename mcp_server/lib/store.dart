@@ -7,7 +7,7 @@ import 'face_images.dart';
 import 'snapshot.dart' show normalizePart;
 
 const String kSyncServerName = 'ota-counter-sync';
-const String kSyncServerVersion = '1.2.0';
+const String kSyncServerVersion = '1.2.1';
 const String kStateSchema = 'ota_counter_sync_state';
 
 /// App → server capability header for chat face enrollment. Clients that do
@@ -808,6 +808,8 @@ Map<String, dynamic> _chekiPhotoView(Map<dynamic, dynamic> action) {
     'photos_saved': result?['photos_saved'],
     'duplicates': result?['duplicates'],
     'attached_record_id': result?['record_id'],
+    'face_samples_added': result?['face_samples_added'],
+    'face_skipped_not_single': result?['face_skipped_not_single'],
     'image_cleanup_pending': action['image_cleanup_pending'] == true,
   };
 }

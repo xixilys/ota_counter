@@ -1507,7 +1507,9 @@ class McpProtocol {
     {
       'name': 'list_cheki_photos',
       'description': '查询切奇照片挂图的状态和 App 回执：pending 等待同步；applied 已入切册'
-          '（attached_record_id、photos_saved、duplicates）；failed 带中文原因（failure）。',
+          '（attached_record_id、photos_saved、duplicates；'
+          'face_samples_added 是从照片里学到的该成员人脸样本数，排除主人后不是恰好一张脸的照片不学）；'
+          'failed 带中文原因（failure）。',
       'inputSchema': {
         'type': 'object',
         'properties': {

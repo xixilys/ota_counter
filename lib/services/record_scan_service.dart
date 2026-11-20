@@ -1324,6 +1324,10 @@ class RecordScanService {
   static const double _miniRatioPerspectiveTolerance = 0.13;
   static const double _miniWindowAspectMax = 0.9;
 
+  /// instax WIDE windows are 99 × 62 mm (1.6 along the thick border); even
+  /// a slanted shot keeps them well above a mini's 0.74.
+  static const double _wideWindowAspectMin = 1.15;
+
   /// Above this, the crop is pre-rotated before the single-card flow (which
   /// itself only deskews between 1.5° and 28°).
   static const double _steepTiltDegrees = 20;
@@ -2148,11 +2152,16 @@ class RecordScanService {
           final old = cards[i];
           // A partly reconstructed window must not beat four observed paper
           // edges. Keep already complete detailed frames at the finer scale.
+          final oldSize = _classifyCardRatio(_quadRatio(old.outer),
+              windowAspect: old.windowAspect);
+          // A WIDE outline around a window about as tall as it is wide is
+          // neither film: one window side grew across an inked border into
+          // the gap, and the outline followed it (a mini read as WIDE).
+          final contradicts = oldSize == RecordScanCardSize.wide &&
+              old.windowAspect < _wideWindowAspectMin;
           if (old.seenSides < 4 &&
               old.confidence < card.confidence &&
-              _classifyCardRatio(_quadRatio(old.outer),
-                      windowAspect: old.windowAspect) ==
-                  RecordScanCardSize.uncertain &&
+              (oldSize == RecordScanCardSize.uncertain || contradicts) &&
               _polygonIoU(old.outer, card.outer) > 0.65) {
             cards[i] = card;
           }

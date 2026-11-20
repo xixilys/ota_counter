@@ -3,6 +3,8 @@
 // photo archived on the record (切册) → applied / failed receipt.
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,8 +15,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ota_counter/models/activity_record_media_model.dart';
 import 'package:ota_counter/models/activity_record_model.dart';
 import 'package:ota_counter/models/counter_model.dart';
+import 'package:ota_counter/models/face_sample_model.dart';
 import 'package:ota_counter/models/group_pricing_model.dart';
+import 'package:ota_counter/services/cheki_photo_sync_service.dart';
 import 'package:ota_counter/services/database_service.dart';
+import 'package:ota_counter/services/face/face_models.dart';
+import 'package:ota_counter/services/face/face_sample_service.dart';
 import 'package:ota_counter/services/sync_service.dart';
 
 import '../mcp_server/lib/http_transport.dart';
@@ -29,8 +35,25 @@ String _jpegBase64(int shade) {
   return base64Encode(image.encodeJpg(picture));
 }
 
+FaceAnalysis _face(List<double> embedding) => FaceAnalysis(
+      face: const FaceDetection(
+          x: 0, y: 0, width: 100, height: 100, landmarks: [], score: 0.9),
+      embedding: Float32List.fromList(embedding),
+    );
+
+/// A face whose cosine similarity to [_self] is [similarity].
+FaceAnalysis _nearSelf(double similarity) => _face(
+    [0, math.sqrt(1 - similarity * similarity), similarity]);
+
+const _self = [0.0, 0.0, 1.0];
+const _member = [1.0, 0.0, 0.0];
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  final analyzer = FaceSampleService.analyzer;
+  final orient = ChekiPhotoSyncService.orient;
+  // Faces "seen" on the next attached photo.
+  var detected = <FaceAnalysis>[];
   late Directory dataDir;
   late Directory documents;
   late SyncStore store;
@@ -59,6 +82,10 @@ void main() {
       buildSignature: '',
     );
     await DatabaseService.clearAppData();
+    await FaceSampleService.clearAll();
+    detected = [];
+    FaceSampleService.analyzer = (_) async => detected;
+    ChekiPhotoSyncService.orient = (bytes) async => bytes;
     dataDir = await Directory.systemTemp.createTemp('ota_cheki_photo_app');
     store = SyncStore(dataDir.path);
     protocol = McpProtocol(store);
@@ -79,6 +106,8 @@ void main() {
   });
 
   tearDown(() async {
+    FaceSampleService.analyzer = analyzer;
+    ChekiPhotoSyncService.orient = orient;
     await server.close();
     await DatabaseService.clearAppData();
     if (await dataDir.exists()) await dataDir.delete(recursive: true);
@@ -309,5 +338,135 @@ void main() {
     ]);
     expect(result.failures.single.message, contains('门票'));
     expect(await DatabaseService.getActivityRecordMedia(), isEmpty);
+  });
+
+  group('face samples from attached photos', () {
+    Future<void> enrollSelf() => FaceSampleService.addSamples([
+          FaceSampleService.sampleFromAnalysis(_face(_self),
+              source: FaceSampleSource.self),
+        ]);
+
+    Future<List<FaceSampleModel>> attachedSamples() async =>
+        (await FaceSampleService.getSamples(isSelf: false))
+            .where((s) => s.source == FaceSampleSource.attached)
+            .toList();
+
+    Future<Map<String, dynamic>> attachOne(String name) async {
+      await SyncService.pushSnapshot(settings);
+      final queued = await callTool('attach_cheki_photos', {
+        'name': name,
+        'occurred_at': '2026-11-19',
+        'images': [_jpegBase64(77)],
+      });
+      final result = await SyncService.syncNow(settings);
+      expect(result.failures, isEmpty);
+      return photoStatus(queued['action_id'] as String);
+    }
+
+    test('the one face left after dropping "我" becomes an attached sample',
+        () async {
+      await enrollSelf();
+      final counter = await addCounter('兔兔Miottie', 'ReCream');
+      await addRecord(counter, DateTime(2026, 11, 19));
+      // "我" at 0.30 (> 0.25) is dropped; the member's face is kept.
+      detected = [_nearSelf(0.30), _face(_member)];
+
+      final status = await attachOne('兔兔Miottie');
+      expect(status['status'], 'applied');
+      expect(status['face_samples_added'], 1);
+
+      final sample = (await attachedSamples()).single;
+      expect(sample.counterId, counter.id);
+      expect(sample.isSelf, isFalse);
+      expect(sample.embedding, _member);
+      final media = (await DatabaseService.getActivityRecordMedia()).single;
+      expect(sample.mediaId, media.id);
+      expect(await FaceSampleService.countAttached(), 1);
+    });
+
+    test('a face at or below 0.25 to "我" counts, so two faces are skipped',
+        () async {
+      await enrollSelf();
+      final counter = await addCounter('小羽', '起源');
+      await addRecord(counter, DateTime(2026, 11, 19));
+      detected = [_nearSelf(0.25), _face(_member)];
+
+      final status = await attachOne('小羽');
+      expect(status['status'], 'applied', reason: '照片照样挂上');
+      expect(status['photos_saved'], 1);
+      expect(status['face_samples_added'], 0);
+      expect(status['face_skipped_not_single'], 1);
+      expect(await attachedSamples(), isEmpty);
+    });
+
+    test('a photo with no face, or only "我", teaches nothing', () async {
+      await enrollSelf();
+      final counter = await addCounter('小柠Hinako', '某团');
+      await addRecord(counter, DateTime(2026, 11, 19));
+      detected = [_nearSelf(0.9)];
+
+      final status = await attachOne('小柠Hinako');
+      expect(status['face_samples_added'], 0);
+      expect(status['face_skipped_not_single'], 1);
+      expect(await attachedSamples(), isEmpty);
+    });
+
+    test('a 团切 record has no single owner and teaches nothing', () async {
+      final counter = await addCounter('卡绒Karon', '某团');
+      final recordId = await DatabaseService.insertActivityRecord(
+        ActivityRecordModel.multiCut(
+          participants: [
+            ActivityParticipant(
+                memberName: counter.name, groupName: counter.groupName),
+            const ActivityParticipant(memberName: '别人', groupName: '某团'),
+          ],
+          field: CounterCountField.groupCut,
+          occurredAt: DateTime(2026, 11, 19),
+        ),
+      );
+      detected = [_face(_member)];
+      await SyncService.pushSnapshot(settings);
+      final queued = await callTool('attach_cheki_photos', {
+        'record_id': recordId,
+        'member_id': counter.id,
+        'images': [_jpegBase64(5)],
+      });
+      final result = await SyncService.syncNow(settings);
+      expect(result.failures, isEmpty);
+      final status = await photoStatus(queued['action_id'] as String);
+      expect(status['status'], 'applied');
+      expect(status['face_samples_added'], 0);
+      expect(await attachedSamples(), isEmpty);
+    });
+
+    test('attached samples can be revoked, and go with their photo', () async {
+      final counter = await addCounter('晕酱Mizuyu', '某团');
+      await addRecord(counter, DateTime(2026, 11, 19));
+      detected = [_face(_member)];
+      await attachOne('晕酱Mizuyu');
+      expect(await FaceSampleService.countAttached(), 1);
+
+      // A manual sample of the same member is never touched.
+      await FaceSampleService.addSamples([
+        FaceSampleService.sampleFromAnalysis(_face([0.9, 0.1, 0]),
+            source: FaceSampleSource.manual,
+            owner: null),
+      ]);
+      expect(await FaceSampleService.revokeAttached(), 1);
+      expect(await FaceSampleService.countAttached(), 0);
+      expect(await FaceSampleService.getSamples(isSelf: false), hasLength(1));
+
+      // Learn again, then delete the photo: its sample goes too.
+      await FaceSampleService.addSamples([
+        FaceSampleService.sampleFromAnalysis(_face(_member),
+            source: FaceSampleSource.attached,
+            mediaId: (await DatabaseService.getActivityRecordMedia()).single.id),
+      ]);
+      expect(await FaceSampleService.countAttached(), 1);
+      await DatabaseService.deleteActivityRecordMedia(
+          (await DatabaseService.getActivityRecordMedia()).single.id!);
+      expect(await FaceSampleService.countAttached(), 0);
+      expect(await FaceSampleService.getSamples(isSelf: false), hasLength(1));
+    });
   });
 }

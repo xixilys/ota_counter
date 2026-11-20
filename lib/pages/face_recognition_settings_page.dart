@@ -60,6 +60,7 @@ class _FaceRecognitionSettingsPageState
   bool _busy = false;
   String _busyLabel = '';
   ({int self, int members, int people})? _stats;
+  int _attached = 0;
   List<({FaceMember member, int count})> _members = [];
   String _syncStatus = '还没有同步到本机人脸库';
   String _photoStatus = '还没有同步照片';
@@ -74,6 +75,7 @@ class _FaceRecognitionSettingsPageState
   Future<void> _load() async {
     final enabled = await SettingsService.getFaceRecognitionEnabled();
     final stats = await FaceSampleService.getStats();
+    final attached = await FaceSampleService.countAttached();
     final knownMembers = await FaceSampleService.getKnownMembers();
     final counters = await DatabaseService.getCounters();
     final members = knownMembers.map((item) {
@@ -98,6 +100,7 @@ class _FaceRecognitionSettingsPageState
     setState(() {
       _enabled = enabled;
       _stats = stats;
+      _attached = attached;
       _members = members;
     });
     if (!_autoSyncStarted) {
@@ -349,6 +352,31 @@ class _FaceRecognitionSettingsPageState
     });
   }
 
+  Future<void> _revokeAttached() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('撤销挂图学到的样本'),
+        content: Text('会删除助手挂图时自动学到的 $_attached 个人脸样本，照片和流水不受影响。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('撤销'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await _run('撤销', () async {
+      final removed = await FaceSampleService.revokeAttached();
+      _toast('已撤销 $removed 个样本');
+    });
+  }
+
   Future<void> _clear() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -415,6 +443,14 @@ class _FaceRecognitionSettingsPageState
                     '只用知道是谁、且只有一张非「我」人脸的照片'),
             onTap: _busy ? null : _learn,
           ),
+          if (_attached > 0)
+            ListTile(
+              leading: const Icon(Icons.undo_outlined),
+              title: const Text('撤销挂图学到的样本'),
+              subtitle: Text('助手挂切奇照片时自动学到 $_attached 个样本；'
+                  '只学排除「我」后恰好一张脸的照片'),
+              onTap: _busy ? null : _revokeAttached,
+            ),
           if (_members.isNotEmpty) ...[
             const Padding(
               padding: EdgeInsets.fromLTRB(16, 24, 16, 8),

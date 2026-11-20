@@ -6,10 +6,13 @@ import 'package:image/image.dart' as img;
 import '../models/activity_record_media_model.dart';
 import '../models/activity_record_model.dart';
 import '../models/counter_model.dart';
+import 'album_orientation_service.dart';
 import 'database_service.dart';
 import 'face/face_enrollment_sync_service.dart'
     show FaceEnrollmentImageNotFound;
-import 'face/face_recognition_rules.dart' show dateOnly, recordActivityDay;
+import 'face/face_recognition_rules.dart'
+    show FaceMember, dateOnly, recordActivityDay;
+import 'face/face_sample_service.dart';
 
 /// Outcome of one `attach_cheki_photos` action.
 ///
@@ -40,6 +43,11 @@ class ChekiPhotoSyncResult {
 /// the rectified, de-glared rendition the 切册 shows.
 class ChekiPhotoSyncService {
   static const mcpSource = 'mcp';
+
+  /// Turns a stored card upright before face detection, as 批量拍切 does.
+  /// Tests replace it; the album keeps the archived bytes either way.
+  static Future<Uint8List> Function(Uint8List bytes) orient =
+      AlbumOrientationService.orientScanBytes;
 
   /// [counter] is the member the action names (already resolved by the
   /// caller, null when the action names none or the card is unknown).
@@ -115,9 +123,21 @@ class ChekiPhotoSyncService {
         sourceHash: hash,
       ));
     }
+    Map<String, dynamic> faces = const {};
     if (inputs.isNotEmpty) {
-      await DatabaseService.saveBatchImport(
+      final saved = await DatabaseService.saveBatchImport(
           newRecords: const [], media: inputs);
+      faces = await _learnFaces(
+        record: record,
+        counter: counter ?? resolveCounterForActivityRecord(counters, record),
+        photos: [
+          for (var i = 0; i < inputs.length; i++)
+            (
+              mediaId: saved.mediaIds[i],
+              bytes: Uint8List.fromList(inputs[i].bytes),
+            ),
+        ],
+      );
     }
     return ChekiPhotoSyncResult.applied({
       'record_id': record.id,
@@ -125,7 +145,48 @@ class ChekiPhotoSyncService {
       'duplicates': duplicates,
       'member_name': record.subjectName,
       'occurred_at': _date(record.occurredAt),
+      ...faces,
     });
+  }
+
+  /// The photos are already saved; face learning only adds samples and never
+  /// fails the action. A 团切, or a 多切 without a named member, has no single
+  /// owner, so it teaches nothing.
+  static Future<Map<String, dynamic>> _learnFaces({
+    required ActivityRecordModel record,
+    required CounterModel? counter,
+    required List<({int mediaId, Uint8List bytes})> photos,
+  }) async {
+    if (counter == null ||
+        (record.isMulti &&
+            record.multiCountField == CounterCountField.groupCut)) {
+      return {'face_samples_added': 0, 'face_skipped_no_owner': photos.length};
+    }
+    try {
+      final upright = <({int mediaId, Uint8List bytes})>[];
+      for (final photo in photos) {
+        Uint8List bytes;
+        try {
+          bytes = await orient(photo.bytes);
+        } catch (_) {
+          bytes = photo.bytes;
+        }
+        upright.add((mediaId: photo.mediaId, bytes: bytes));
+      }
+      final result = await FaceSampleService.learnFromAttached(
+        upright,
+        owner: FaceMember(
+          counterId: counter.id,
+          personId: counter.personId,
+          name: counter.name,
+          personName: counter.personName,
+          groupName: counter.groupName,
+        ),
+      );
+      return result.toJson();
+    } catch (_) {
+      return {'face_samples_added': 0, 'face_failed': photos.length};
+    }
   }
 
   static (ActivityRecordModel?, ChekiPhotoSyncResult?) _resolveRecord({

@@ -14,7 +14,11 @@ enum FaceSampleSource {
   confirmed,
 
   /// A face explicitly selected in a member's 「登记人脸」 page.
-  manual;
+  manual,
+
+  /// The only non-"我" face on a cheki photo a chat assistant attached to a
+  /// member's record (attach_cheki_photos). Revocable as a group.
+  attached;
 
   String get dbValue => name;
 
@@ -23,6 +27,7 @@ enum FaceSampleSource {
       'self' => FaceSampleSource.self,
       'bootstrap' => FaceSampleSource.bootstrap,
       'manual' => FaceSampleSource.manual,
+      'attached' => FaceSampleSource.attached,
       _ => FaceSampleSource.confirmed,
     };
   }

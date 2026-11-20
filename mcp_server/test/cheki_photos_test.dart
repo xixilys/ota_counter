@@ -287,6 +287,8 @@ Future<void> testChekiPhotos(void Function(bool, String) check) async {
           'record_id': 70,
           'photos_saved': 1,
           'duplicates': 1,
+          'face_samples_added': 1,
+          'face_skipped_not_single': 0,
         }
       },
     });
@@ -299,7 +301,9 @@ Future<void> testChekiPhotos(void Function(bool, String) check) async {
     check(
         appliedView['attached_record_id'] == 70 &&
             appliedView['photos_saved'] == 1 &&
-            appliedView['duplicates'] == 1,
+            appliedView['duplicates'] == 1 &&
+            appliedView['face_samples_added'] == 1 &&
+            appliedView['face_skipped_not_single'] == 0,
         'list_cheki_photos reports where the photos went');
     final failed = ok(await call('list_cheki_photos', {'status': 'failed'}));
     check(

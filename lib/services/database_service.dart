@@ -2405,6 +2405,20 @@ class DatabaseService {
       where: where,
       whereArgs: whereArgs,
     );
+
+    // A sample learned automatically from an attached photo goes with it.
+    final deletedIds = [
+      for (final row in mediaRows)
+        if (row['id'] is int) row['id'] as int,
+    ];
+    if (deletedIds.isNotEmpty) {
+      final placeholders = List.filled(deletedIds.length, '?').join(', ');
+      await db.delete(
+        faceSamplesTableName,
+        where: "source = 'attached' AND media_id IN ($placeholders)",
+        whereArgs: deletedIds,
+      );
+    }
   }
 
   // A rolled-back database transaction must never lose its photos.

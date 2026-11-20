@@ -69,11 +69,7 @@ cp "$apk" "$tmp/$apk_name"
 [[ "$(digest "$tmp/$apk_name")" == "$accepted" ]] || die 'APK differs from the phone-accepted artifact.'
 : "${ANDROID_HOME:?Set ANDROID_HOME to the Android SDK}"
 sdk="$ANDROID_HOME/build-tools/36.0.0"
-certs="$("$sdk/apksigner" verify --print-certs "$tmp/$apk_name")"
-# Certificate of the currently published v1.6.2 APK; identity, not a signing secret.
-production_cert=e3b7ff5dabbafc1dab652a2893b163547b1fb2c51d8e508ace7945a271581c4f
-[[ "$(awk '/^Signer #[0-9]+ certificate SHA-256 digest:/{print $NF}' <<< "$certs")" == "$production_cert" ]] ||
-  die 'APK does not have the established production signer.'
+tool/verify_android_release_signature.sh "$tmp/$apk_name"
 "$sdk/aapt" dump badging "$tmp/$apk_name" > "$tmp/badging"
 grep -F "package: name='top.huangxuanqi.otacounter' versionCode='$code' versionName='$version'" "$tmp/badging" >/dev/null &&
   grep -Fx "native-code: 'arm64-v8a'" "$tmp/badging" >/dev/null ||
@@ -114,6 +110,8 @@ verify_download() {
   fetch "$1" -o "$tmp/check.apk" &&
     [[ "$(digest "$tmp/check.apk")" == "$accepted" ]] ||
     die "Public download is missing or differs from the accepted APK: $1"
+  tool/verify_android_release_signature.sh "$tmp/check.apk"
+  printf 'Verified public APK (v1 + v2, production certificate, SHA-256 %s): %s\n' "$accepted" "$1"
 }
 if [[ "$live_code" == "$code" ]]; then
   [[ -n "$remote_tag" ]] || die 'OTA version is already live but its GitHub tag is missing.'

@@ -15,6 +15,8 @@
 
 本机使用已登录的 GitHub CLI 和配置好的 `root@bgvps` SSH；Android SDK 由 `ANDROID_HOME` 定位，`apksigner` 需要可用的 Java。无需传入密钥或 token。
 
+上传前两个发布入口都用 `tool/verify_android_release_signature.sh APK` 校验安装包：必须同时通过 v1（部分厂商安装器会检查 JAR 签名文件）和 v2 验签，并且只有原正式证书一个签名者。新版本使用新的 APK 文件名，避免浏览器和 CDN 复用旧包。
+
 发布时先快进 `xixilys/ota_counter` 的 `main` 并推送 tag，再建立正式 GitHub Release 并核对公开下载的 APK。GitHub 备链就绪后才更新 OTA；站点先放 APK 和下载页，最后启用 `latest.json`。入口最后从公众入口核对 APK、页面和 manifest。此次只发 Android，站点原有 iOS 引导不变。
 
 若 GitHub 已成功而 OTA 尚未更新，保留同一个源码提交和 APK，排除报错后重跑同一入口。入口会复用内容一致的正式 Release，不会覆盖不同资产或强推 tag；如遇未完成的 GitHub 草稿，由发布人检查该草稿。更新站点前保存旧页面和 manifest 的路径会打印在终端；旧版本的 APK 不会删除。

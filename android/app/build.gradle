@@ -46,6 +46,9 @@ android {
     signingConfigs {
         release {
             if (keystorePropertiesFile.exists()) {
+                // Some OEM installers also inspect the JAR signature files.
+                enableV1Signing true
+                enableV2Signing true
                 keyAlias keystoreProperties['keyAlias']
                 keyPassword keystoreProperties['keyPassword']
                 storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null

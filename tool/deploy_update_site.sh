@@ -111,6 +111,10 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   exit 0
 fi
 
+if [[ "$SKIP_APK" -eq 0 ]]; then
+  "$SCRIPT_DIR/verify_android_release_signature.sh" "$apk_path"
+fi
+
 ssh "$ssh_target" "mkdir -p '$REMOTE_DIR' '$remote_stage_dir'"
 
 upload_files=("$index_path" "$manifest_path")

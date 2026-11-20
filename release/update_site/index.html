@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>OTA Counter v1.7.13</title>
+    <title>OTA Counter v1.7.14</title>
     <style>
       :root {
         color-scheme: light dark;
@@ -170,28 +170,25 @@
   <body>
     <main class="card">
       <div class="eyebrow">OTA Counter 更新页</div>
-      <h1>OTA Counter v1.7.13</h1>
+      <h1>OTA Counter v1.7.14</h1>
       <p>这里提供当前版本下载，也可以作为 App 内检查更新时跳转的下载页。</p>
 
       <div class="meta">
-        <span>版本号：v1.7.13</span>
-        <span>构建号：42</span>
+        <span>版本号：v1.7.14</span>
+        <span>构建号：43</span>
       </div>
 
       <section class="section">
         <h2>本次更新</h2>
         <ul>
-          <li>更新前建议先在菜单里做一次完整备份。</li>
-          <li>MCP 同步改成自动：打开 App、从后台切回来时会自动同步一次；App 开着时每 90 秒检查一次 AI 排队的操作（记切、挂照片等），有就马上落到手机上，不用再手动点同步。设置在「MCP 同步」里，默认打开。</li>
-          <li>同步时某张照片偶尔下载失败会当场重试一次；仍没挂上的操作，AI 那边能看到原因和已尝试次数。</li>
-          <li>AI 助手现在可以帮你修正切册和流水：删掉挂错的照片；把某张照片换成新图（所属流水和在切册里的位置都不变）；改某条流水的张数、备注和活动信息（改张数会同步调整成员累计）。手机上已经改过的内容不会被覆盖，AI 那边能看到原因。</li>
-          <li>批量拍切：每张卡按外框和画面窗口的比例一起判断是三寸、五寸还是方形，斜着拍的也能认准；证据不够时按卡的实际比例裁，不再硬拉成固定尺寸。</li>
+          <li>安装新版时请直接覆盖安装，不要卸载旧版。更新前可在菜单里做一次完整备份。</li>
+          <li>针对部分手机提示「安装包没有签名文件」的问题，本版在原有 v2 签名之外补上 v1 签名，两者均使用原正式证书。</li>
         </ul>
       </section>
 
       <div class="actions">
-        <a class="button primary" href="./OTA-Counter-v1.7.13.apk">下载 APK</a>
-        <a class="button secondary" href="https://github.com/xixilys/ota_counter/releases/download/v1.7.13/OTA-Counter-v1.7.13.apk" target="_blank" rel="noopener noreferrer">GitHub 备用下载</a>
+        <a class="button primary" href="./OTA-Counter-v1.7.14.apk">下载 APK</a>
+        <a class="button secondary" href="https://github.com/xixilys/ota_counter/releases/download/v1.7.14/OTA-Counter-v1.7.14.apk" target="_blank" rel="noopener noreferrer">GitHub 备用下载</a>
         <a class="button secondary" href="./latest.json">查看 latest.json</a>
       </div>
 

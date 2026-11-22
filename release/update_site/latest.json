@@ -1,23 +1,24 @@
 {
   "appName": "OTA Counter",
-  "versionName": "1.7.14",
-  "versionCode": 43,
-  "versionLabel": "v1.7.14",
-  "title": "OTA Counter v1.7.14",
+  "versionName": "1.7.15",
+  "versionCode": 44,
+  "versionLabel": "v1.7.15",
+  "title": "OTA Counter v1.7.15",
   "notes": [
     "安装新版时请直接覆盖安装，不要卸载旧版。更新前可在菜单里做一次完整备份。",
-    "针对部分手机提示「安装包没有签名文件」的问题，本版在原有 v2 签名之外补上 v1 签名，两者均使用原正式证书。"
+    "批量拍切：裁切贴着卡片真实的白边走，不再带进一条桌面背景，也不会切掉画面。",
+    "批量拍切：横放、倒放的拍立得会按厚白边在哪一侧和人脸朝向一起判断方向并自动转正，红色舞台光下的人脸也能认出；两者对不上或都看不出来时，保持拍摄时的方向。"
   ],
   "publishedAt": null,
   "force": false,
-  "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.7.14.apk",
+  "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.7.15.apk",
   "downloadPageUrl": "https://ota-counter.huangxuanqi.top/ota-counter/",
-  "backupUrl": "https://github.com/xixilys/ota_counter/releases/download/v1.7.14/OTA-Counter-v1.7.14.apk",
+  "backupUrl": "https://github.com/xixilys/ota_counter/releases/download/v1.7.15/OTA-Counter-v1.7.15.apk",
   "platforms": {
     "android": {
-      "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.7.14.apk",
+      "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/OTA-Counter-v1.7.15.apk",
       "downloadPageUrl": "https://ota-counter.huangxuanqi.top/ota-counter/",
-      "backupUrl": "https://github.com/xixilys/ota_counter/releases/download/v1.7.14/OTA-Counter-v1.7.14.apk"
+      "backupUrl": "https://github.com/xixilys/ota_counter/releases/download/v1.7.15/OTA-Counter-v1.7.15.apk"
     },
     "ios": {
       "primaryUrl": "https://ota-counter.huangxuanqi.top/ota-counter/#ios",

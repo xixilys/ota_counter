@@ -133,8 +133,12 @@ class SyncService {
   static const String deletePhotoActionKind = 'delete_cheki_photo';
   static const String replacePhotoActionKind = 'replace_cheki_photo';
   static const String editRecordActionKind = 'edit_record';
+  /// Server gate: apps without it never receive `move_cheki_photo`.
+  static const String chekiMoveCapability = 'cheki-move-v1';
+  static const String movePhotoActionKind = 'move_cheki_photo';
   static const String capabilities =
-      '$faceEnrollmentCapability,$chekiPhotoCapability,$chekiEditCapability';
+      '$faceEnrollmentCapability,$chekiPhotoCapability,$chekiEditCapability,'
+      '$chekiMoveCapability';
 
   static Future<SyncSettings> loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
@@ -351,8 +355,15 @@ class SyncService {
           }
         } else if (kind == deletePhotoActionKind ||
             kind == replacePhotoActionKind ||
-            kind == editRecordActionKind) {
+            kind == editRecordActionKind ||
+            kind == movePhotoActionKind) {
           final result = switch (kind) {
+            movePhotoActionKind => await ChekiEditSyncService.movePhoto(
+                payload,
+                actionId: actionId,
+                counters: counters,
+                counter: _resolveCounter(counters, payload),
+              ),
             deletePhotoActionKind =>
               await ChekiEditSyncService.deletePhoto(payload),
             replacePhotoActionKind => await ChekiEditSyncService.replacePhoto(

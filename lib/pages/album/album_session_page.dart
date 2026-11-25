@@ -10,7 +10,10 @@ import 'album_widgets.dart';
 class AlbumSessionPage extends StatelessWidget {
   final AlbumSession session;
 
-  const AlbumSessionPage({super.key, required this.session});
+  /// Forwarded to the viewer: reloads the album after a photo was changed.
+  final VoidCallback? onChanged;
+
+  const AlbumSessionPage({super.key, required this.session, this.onChanged});
 
   @override
   Widget build(BuildContext context) {
@@ -77,6 +80,7 @@ class AlbumSessionPage extends StatelessWidget {
         builder: (context) => AlbumViewerPage(
           photos: photos,
           initialIndex: index,
+          onChanged: onChanged,
         ),
       ),
     );

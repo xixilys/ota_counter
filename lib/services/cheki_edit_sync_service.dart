@@ -4,13 +4,15 @@ import 'package:crypto/crypto.dart';
 
 import '../models/activity_record_model.dart';
 import '../models/counter_model.dart';
+import 'cheki_photo_move_service.dart';
 import 'cheki_photo_sync_service.dart';
 import 'database_service.dart';
 import 'face/face_enrollment_sync_service.dart'
     show FaceEnrollmentImageNotFound;
 
 /// Applies chat-queued corrections to the 切册 and the ledger:
-/// `delete_cheki_photo`, `replace_cheki_photo` and `edit_record`.
+/// `delete_cheki_photo`, `replace_cheki_photo`, `edit_record` and
+/// `move_cheki_photo`.
 ///
 /// Every action is safe to apply twice (a lost receipt replays it), and
 /// none overwrites something changed on the phone since the assistant
@@ -199,6 +201,100 @@ class ChekiEditSyncService {
       'before': before,
       'after': {for (final key in changes.keys) key: changes[key]},
     });
+  }
+
+  /// Moves a photo to another member or day, through the same
+  /// [ChekiPhotoMoveService] as the album's 「调整信息」 sheet. [counter] is
+  /// the target member resolved from the payload; a record this action has
+  /// to create is tagged with [actionId], so a replay finds the photo there
+  /// and reports it as already done.
+  static Future<ChekiPhotoSyncResult> movePhoto(
+    Map<String, dynamic> payload, {
+    required String actionId,
+    required List<CounterModel> counters,
+    required CounterModel? counter,
+  }) async {
+    final mediaId = _readInt(payload['media_id']);
+    final fromRecordId = _readInt(payload['record_id']);
+    final targetRecordId = _readInt(payload['target_record_id']);
+    final date = DateTime.tryParse((payload['date'] ?? '').toString().trim());
+    if (mediaId == null || fromRecordId == null) {
+      return const ChekiPhotoSyncResult.failed('挪照片缺少照片编号 media_id 或原流水 record_id');
+    }
+    final media = (await DatabaseService.getActivityRecordMedia())
+        .where((m) => m.id == mediaId)
+        .firstOrNull;
+    if (media == null) {
+      return ChekiPhotoSyncResult.failed('照片 #$mediaId 已不在切册里（可能已删除），未挪动');
+    }
+    final records = await DatabaseService.getActivityRecords();
+    if (media.recordId != fromRecordId) {
+      final current = records.where((r) => r.id == media.recordId).firstOrNull;
+      final mine = current != null &&
+          (current.id == targetRecordId ||
+              (current.source == ChekiPhotoSyncService.mcpSource &&
+                  current.sourceRecordId == actionId));
+      if (mine) {
+        // Replayed: this action already moved it.
+        return ChekiPhotoSyncResult.applied({
+          'media_id': mediaId,
+          'moved': false,
+          'already_done': true,
+          'record_id': media.recordId,
+        });
+      }
+      return ChekiPhotoSyncResult.failed(
+          '照片 #$mediaId 在手机上已挪到流水 #${media.recordId}（你看到的是 #$fromRecordId），'
+          '未挪动。请重新查询后再操作');
+    }
+    final expected = (payload['sha1'] ?? '').toString().trim();
+    if (expected.isNotEmpty &&
+        media.sourceHash.isNotEmpty &&
+        media.sourceHash != expected) {
+      return ChekiPhotoSyncResult.failed(
+          '照片 #$mediaId 在手机上已被换过（和你看到的不是同一张），未挪动。请重新查询后再操作');
+    }
+    CounterModel? member = counter;
+    if (targetRecordId != null && member == null) {
+      final target = records.where((r) => r.id == targetRecordId).firstOrNull;
+      if (target != null) {
+        member = resolveCounterForActivityRecord(counters, target);
+      }
+    }
+    if (member?.id == null) {
+      final label = (payload['member_name'] ?? '').toString().trim();
+      return ChekiPhotoSyncResult.failed(
+          '本地找不到成员「${label.isEmpty ? '?' : label}」，请先在 App 里建卡，照片未挪动');
+    }
+    if (date == null && targetRecordId == null) {
+      return const ChekiPhotoSyncResult.failed('挪照片缺少目标日期 date');
+    }
+    final targetRecord = targetRecordId == null
+        ? null
+        : records.where((r) => r.id == targetRecordId).firstOrNull;
+    try {
+      final plan = await ChekiPhotoMoveService.plan(
+        PhotoMoveRequest(
+          mediaId: mediaId,
+          counterId: member!.id!,
+          day: date ?? targetRecord?.occurredAt ?? DateTime.now(),
+          targetRecordId: targetRecordId,
+          activityName: (payload['activity_name'] ?? '').toString(),
+          venueName: (payload['venue_name'] ?? '').toString(),
+          sessionLabel: (payload['session_label'] ?? '').toString(),
+        ),
+        counters: counters,
+        records: records,
+      );
+      final result = await ChekiPhotoMoveService.apply(
+        plan,
+        sourceTag: ChekiPhotoSyncService.mcpSource,
+        sourceActionId: actionId,
+      );
+      return ChekiPhotoSyncResult.applied(result.toJson());
+    } on MediaMoveException catch (error) {
+      return ChekiPhotoSyncResult.failed('${error.message}，照片未挪动');
+    }
   }
 
   static bool _same(Object? a, Object? b) {

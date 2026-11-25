@@ -9,6 +9,7 @@ import '../../services/album_clarity_service.dart';
 import 'album_format.dart';
 import 'album_models.dart';
 import 'album_widgets.dart';
+import 'photo_info_sheet.dart';
 
 /// Full-screen cheki viewer: pinch-to-zoom, horizontal swipe between the
 /// photos of the current view, hero from the tapped print, and a small
@@ -17,10 +18,16 @@ class AlbumViewerPage extends StatefulWidget {
   final List<AlbumPhoto> photos;
   final int initialIndex;
 
+  /// Called after a photo's member, day or activity was changed from the
+  /// 「调整」 sheet, so the opener can reload; the viewer then closes because
+  /// its photo list is out of date.
+  final VoidCallback? onChanged;
+
   const AlbumViewerPage({
     super.key,
     required this.photos,
     this.initialIndex = 0,
+    this.onChanged,
   });
 
   @override
@@ -175,6 +182,17 @@ class _AlbumViewerPageState extends State<AlbumViewerPage> {
     stream.addListener(listener);
   }
 
+  Future<void> _editInfo() async {
+    final mediaId = _photo.mediaId;
+    if (mediaId == null) return;
+    final summary = await showPhotoInfoSheet(context, mediaId: mediaId);
+    if (summary == null || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    widget.onChanged?.call();
+    Navigator.of(context).maybePop();
+    messenger.showSnackBar(SnackBar(content: Text(summary)));
+  }
+
   void _toggleChrome() {
     setState(() => _chromeVisible = !_chromeVisible);
   }
@@ -298,6 +316,7 @@ class _AlbumViewerPageState extends State<AlbumViewerPage> {
               preparing: _preparing,
               failed: _failed,
               onToggleClarity: _toggleClarity,
+              onEdit: photo.mediaId == null ? null : _editInfo,
             )),
           ),
           LayoutId(
@@ -345,8 +364,10 @@ class _ViewerControls extends StatelessWidget {
   final VoidCallback onClose;
   final bool clarity, preparing, failed;
   final VoidCallback onToggleClarity;
+  final VoidCallback? onEdit;
 
   const _ViewerControls({
+    this.onEdit,
     required this.index,
     required this.count,
     required this.onClose,
@@ -378,6 +399,18 @@ class _ViewerControls extends StatelessWidget {
               onPressed: onClose,
             ),
             const Spacer(),
+            if (onEdit != null) ...[
+              TextButton.icon(
+                key: const ValueKey('album-viewer-edit'),
+                onPressed: onEdit,
+                style: TextButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    backgroundColor: Colors.white12),
+                icon: const Icon(Icons.edit_outlined, size: 18),
+                label: const Text('调整'),
+              ),
+              const SizedBox(width: 8),
+            ],
             TextButton.icon(
               onPressed: onToggleClarity,
               style: TextButton.styleFrom(

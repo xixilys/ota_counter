@@ -1787,32 +1787,9 @@ class DatabaseService {
         return existingId;
       }
       final counters = await _getCountersFrom(txn);
-      final prepared = await _prepareRecordForCounterImpact(
-        txn,
-        counters,
-        record,
-      );
-      insertedNewCounter = insertedNewCounter || prepared.insertedNewCounter;
-
-      final values = await _filterValuesForTable(
-        txn,
-        activityRecordTableName,
-        _recordToDatabaseMap(prepared.record),
-      );
-      final insertedId = await txn.insert(
-        activityRecordTableName,
-        values,
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-      final persistedRecord = prepared.record.copyWith(id: insertedId);
-      final createdByImpact = await _applyRecordCounterImpact(
-        txn,
-        counters,
-        persistedRecord,
-        reverse: false,
-      );
-      insertedNewCounter = insertedNewCounter || createdByImpact;
-      return insertedId;
+      final inserted = await _insertRecordWithImpactIn(txn, counters, record);
+      insertedNewCounter = inserted.insertedNewCounter;
+      return inserted.id;
     });
 
     if (insertedNewCounter) {
@@ -1853,35 +1830,76 @@ class DatabaseService {
       }
 
       final counters = await _getCountersFrom(txn);
-      final prepared = await _prepareRecordForCounterImpact(
-        txn,
-        counters,
-        record.copyWith(id: id),
-      );
-      insertedNewCounter = insertedNewCounter || prepared.insertedNewCounter;
-      final values = await _filterValuesForTable(
-        txn,
-        activityRecordTableName,
-        _recordToDatabaseMap(prepared.record.copyWith(id: id)),
-      );
-      await txn.update(
-        activityRecordTableName,
-        values,
-        where: 'id = ?',
-        whereArgs: [id],
-      );
-      final createdByImpact = await _applyRecordsCounterImpact(
-        txn,
-        counters,
-        removed: [existingRecord],
-        added: [prepared.record.copyWith(id: id)],
-      );
-      insertedNewCounter = insertedNewCounter || createdByImpact;
+      insertedNewCounter = await _updateRecordWithImpactIn(
+          txn, counters, existingRecord, record.copyWith(id: id));
     });
 
     if (insertedNewCounter) {
       await autoAssignCounterThemeColors();
     }
+  }
+
+  /// Inserts [record] and adds its counts to the member counters, inside
+  /// the caller's transaction.
+  static Future<({int id, bool insertedNewCounter})> _insertRecordWithImpactIn(
+    Transaction txn,
+    List<CounterModel> counters,
+    ActivityRecordModel record,
+  ) async {
+    final prepared =
+        await _prepareRecordForCounterImpact(txn, counters, record);
+    final values = await _filterValuesForTable(
+      txn,
+      activityRecordTableName,
+      _recordToDatabaseMap(prepared.record),
+    );
+    final insertedId = await txn.insert(
+      activityRecordTableName,
+      values,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    final createdByImpact = await _applyRecordCounterImpact(
+      txn,
+      counters,
+      prepared.record.copyWith(id: insertedId),
+      reverse: false,
+    );
+    return (
+      id: insertedId,
+      insertedNewCounter: prepared.insertedNewCounter || createdByImpact,
+    );
+  }
+
+  /// Replaces [existing] with [updated] (same id) and moves the difference
+  /// of their counts onto the member counters, inside the caller's
+  /// transaction. Returns whether a counter card had to be created.
+  static Future<bool> _updateRecordWithImpactIn(
+    Transaction txn,
+    List<CounterModel> counters,
+    ActivityRecordModel existing,
+    ActivityRecordModel updated,
+  ) async {
+    final id = existing.id!;
+    final prepared = await _prepareRecordForCounterImpact(
+        txn, counters, updated.copyWith(id: id));
+    final values = await _filterValuesForTable(
+      txn,
+      activityRecordTableName,
+      _recordToDatabaseMap(prepared.record.copyWith(id: id)),
+    );
+    await txn.update(
+      activityRecordTableName,
+      values,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    final createdByImpact = await _applyRecordsCounterImpact(
+      txn,
+      counters,
+      removed: [existing],
+      added: [prepared.record.copyWith(id: id)],
+    );
+    return prepared.insertedNewCounter || createdByImpact;
   }
 
   static Future<void> deleteActivityRecord(int id) async {
@@ -2408,6 +2426,171 @@ class DatabaseService {
     await AlbumPhotoFiles.prepare(path, rectifyCut: true, isScan: true);
     return true;
   }
+
+  /// Moves one archived photo onto another record, all in one transaction:
+  ///
+  /// * the photo row points at the target, with [owner] as its owner label
+  ///   (null clears it: on a member's own record the record names the
+  ///   owner) and, when [clearCapturedAt], without its capture time, so the
+  ///   切册 files it under the target's day;
+  /// * with a [countField], one count of that field moves along: the source
+  ///   record loses one, the target gains one, and the member counters
+  ///   follow exactly as an edit of each record would move them;
+  /// * with [forgetFaces], the face samples learned automatically from this
+  ///   photo (everything but "我" and hand-picked faces) are removed;
+  /// * with [removeEmptySource], a source record left with no count, no
+  ///   photo and no note is deleted.
+  ///
+  /// The target is [targetRecordId], or [newTarget] inserted with its own
+  /// counts (already including the moved one) when that is null. Returns
+  /// null when the photo no longer exists; throws [MediaMoveException] when
+  /// the move would break the ledger.
+  static Future<MediaMoveOutcome?> moveActivityRecordMedia(
+    int mediaId, {
+    int? targetRecordId,
+    ActivityRecordModel? newTarget,
+    CounterCountField? countField,
+    ActivityRecordMediaOwnerScope? owner,
+    bool clearCapturedAt = false,
+    bool forgetFaces = false,
+    bool removeEmptySource = false,
+  }) async {
+    if ((targetRecordId == null) == (newTarget == null)) {
+      throw ArgumentError('Give exactly one of targetRecordId / newTarget');
+    }
+    final db = await database;
+    var insertedNewCounter = false;
+    final outcome = await db.transaction<MediaMoveOutcome?>((txn) async {
+      final rows = await txn.query(activityRecordMediaTableName,
+          where: 'id = ?', whereArgs: [mediaId], limit: 1);
+      if (rows.isEmpty) return null;
+      final media = ActivityRecordMediaModel.fromMap(rows.single);
+      final source = await _getActivityRecordFrom(txn, media.recordId);
+      if (source == null) {
+        throw MediaMoveException('照片所在的流水 #${media.recordId} 已不存在');
+      }
+      final counters = await _getCountersFrom(txn);
+      ActivityRecordModel? sourceAfter;
+      if (countField != null) {
+        if (!source.isCounter) {
+          throw MediaMoveException(
+              '原流水 #${source.id} 是${source.isMulti ? '多人切' : '门票'}，张数不能跟着挪');
+        }
+        if (source.countForField(countField) < 1) {
+          throw MediaMoveException(
+              '原流水 #${source.id} 的${countField.label}已经是 0，没有可挪的张数');
+        }
+        sourceAfter = recordWithCountDelta(source, countField, -1);
+        insertedNewCounter = await _updateRecordWithImpactIn(
+                txn, counters, source, sourceAfter) ||
+            insertedNewCounter;
+      }
+
+      ActivityRecordModel target;
+      var created = false;
+      if (targetRecordId != null) {
+        if (targetRecordId == source.id) {
+          throw MediaMoveException('照片已经在流水 #$targetRecordId 上');
+        }
+        final existing = await _getActivityRecordFrom(txn, targetRecordId);
+        if (existing == null) {
+          throw MediaMoveException('目标流水 #$targetRecordId 已不存在');
+        }
+        if (existing.type == ActivityRecordType.ticket) {
+          throw MediaMoveException('目标流水 #$targetRecordId 是门票，切奇照片只能挂到切奇流水');
+        }
+        target = existing;
+        if (countField != null) {
+          if (!existing.isCounter) {
+            throw MediaMoveException(
+                '目标流水 #$targetRecordId 是多人切，张数不能跟着挪');
+          }
+          target = recordWithCountDelta(existing, countField, 1);
+          insertedNewCounter = await _updateRecordWithImpactIn(
+                  txn, counters, existing, target) ||
+              insertedNewCounter;
+        }
+      } else {
+        final inserted =
+            await _insertRecordWithImpactIn(txn, counters, newTarget!);
+        insertedNewCounter = insertedNewCounter || inserted.insertedNewCounter;
+        target = (await _getActivityRecordFrom(txn, inserted.id))!;
+        created = true;
+      }
+
+      await txn.update(
+        activityRecordMediaTableName,
+        {
+          'record_id': target.id,
+          'owner_person_id': owner?.personId,
+          'owner_person_name': owner?.personName ?? '',
+          'owner_group_name': owner?.groupName ?? '',
+          if (clearCapturedAt) 'captured_at': null,
+        },
+        where: 'id = ?',
+        whereArgs: [mediaId],
+      );
+      final facesRemoved = forgetFaces
+          ? await txn.delete(
+              faceSamplesTableName,
+              where: "media_id = ? AND is_self = 0 AND source != 'manual'",
+              whereArgs: [mediaId],
+            )
+          : 0;
+      var sourceRemoved = false;
+      final left = sourceAfter ?? source;
+      if (removeEmptySource &&
+          left.isCounter &&
+          left.counterCountTotal == 0 &&
+          left.note.trim().isEmpty) {
+        final others = await txn.query(activityRecordMediaTableName,
+            columns: ['id'],
+            where: 'record_id = ?',
+            whereArgs: [source.id],
+            limit: 1);
+        if (others.isEmpty) {
+          await _forgetCounterSyncLog(txn, [source]);
+          await txn.delete(activityRecordTableName,
+              where: 'id = ?', whereArgs: [source.id]);
+          sourceRemoved = true;
+        }
+      }
+      return MediaMoveOutcome(
+        mediaId: mediaId,
+        source: left,
+        target: target,
+        createdTarget: created,
+        facesRemoved: facesRemoved,
+        sourceRemoved: sourceRemoved,
+      );
+    });
+    if (insertedNewCounter) {
+      await autoAssignCounterThemeColors();
+    }
+    return outcome;
+  }
+
+  /// [record] with one count field moved by [delta], its total amount
+  /// moved by that field's unit price (never below zero).
+  static ActivityRecordModel recordWithCountDelta(
+    ActivityRecordModel record,
+    CounterCountField field,
+    int delta,
+  ) {
+    final map = record.toMap();
+    final column = countColumnFor(field);
+    final count = record.countForField(field) + delta;
+    final total = record.totalAmount + delta * record.priceForField(field);
+    return ActivityRecordModel.fromMap({
+      ...map,
+      column: count < 0 ? 0 : count,
+      'total_amount': total < 0 ? 0.0 : total,
+    });
+  }
+
+  /// Ledger column of a count field, e.g. three_inch_count.
+  static String countColumnFor(CounterCountField field) => field.key
+      .replaceAllMapped(RegExp('[A-Z]'), (m) => '_${m[0]!.toLowerCase()}');
 
   static Future<void> deleteActivityRecordMedia(int id) async {
     final pendingFileDeletes = <String>[];
@@ -3404,6 +3587,34 @@ class BatchSaveResult {
   final List<int> mediaIds;
 
   const BatchSaveResult({required this.recordIds, required this.mediaIds});
+}
+
+/// Why a photo move was refused; the message is shown to the user as is.
+class MediaMoveException implements Exception {
+  final String message;
+  const MediaMoveException(this.message);
+  @override
+  String toString() => message;
+}
+
+/// What [DatabaseService.moveActivityRecordMedia] did. [source] and
+/// [target] are the records as they are after the move.
+class MediaMoveOutcome {
+  final int mediaId;
+  final ActivityRecordModel source;
+  final ActivityRecordModel target;
+  final bool createdTarget;
+  final int facesRemoved;
+  final bool sourceRemoved;
+
+  const MediaMoveOutcome({
+    required this.mediaId,
+    required this.source,
+    required this.target,
+    required this.createdTarget,
+    required this.facesRemoved,
+    this.sourceRemoved = false,
+  });
 }
 
 class _PreparedActivityRecord {

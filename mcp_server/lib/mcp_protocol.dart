@@ -228,6 +228,8 @@ class McpProtocol {
         return _replaceChekiPhoto(arguments);
       case 'edit_record':
         return _editRecord(arguments);
+      case 'move_cheki_photo':
+        return _moveChekiPhoto(arguments);
       case 'list_cheki_edits':
         final status = readString(arguments, ['status']);
         if (status.isNotEmpty &&
@@ -770,6 +772,151 @@ class McpProtocol {
       'photo': target,
       'message': '已排队把照片 #$mediaId 换成新图（位置和所属流水不变），'
           '手机打开 OTA Counter 同步后才会换；尚未完成。结果用 list_cheki_edits 查。',
+    };
+  }
+
+  /// Queues moving one photo to another member, day or record. The app
+  /// picks (or creates) the target record and moves the count along with
+  /// the same rules as its 「调整信息」 sheet; the snapshot only previews it.
+  Future<Map<String, dynamic>> _moveChekiPhoto(
+      Map<String, dynamic> arguments) async {
+    final mediaId = _requireId(arguments['media_id'], 'media_id');
+    final view = await _requireSnapshot();
+    final photo = _photoTarget(view, mediaId);
+    _checkSha1(arguments, photo);
+    final sourceId = photo['record_id'] as int;
+    final source =
+        view.records.where((r) => readInt(r, ['id']) == sourceId).firstOrNull;
+    if (source == null) {
+      throw ToolException('照片 #$mediaId 所在的流水 #$sourceId 不在快照里，请先在 App 同步');
+    }
+
+    Map<dynamic, dynamic>? targetRecord;
+    if (arguments['record_id'] != null) {
+      final targetId = _requireId(arguments['record_id'], 'record_id');
+      if (targetId == sourceId) {
+        throw ToolException('照片 #$mediaId 已经在流水 #$targetId 上');
+      }
+      targetRecord = view.records
+          .where((r) => readInt(r, ['id']) == targetId)
+          .firstOrNull;
+      if (targetRecord == null) {
+        throw ToolException('record_id $targetId 不在最新快照里，请用 list_records 核对');
+      }
+      if (recordType(targetRecord) == 'ticket') {
+        throw ToolException('record_id $targetId 是门票流水，切奇照片只能挂到切奇流水');
+      }
+    }
+
+    final rawName = readString(arguments, ['member', 'name']).trim();
+    final hasMember = arguments['member_id'] != null || rawName.isNotEmpty;
+    final rawDate = readString(arguments, ['date', 'occurred_at']).trim();
+    if (!hasMember && rawDate.isEmpty && targetRecord == null) {
+      throw ToolException('没有要改的：给出新的 member（或 member_id）、date，或目标流水 record_id。'
+          '只改活动名 / 场地请用 edit_record');
+    }
+
+    Map<String, dynamic> member;
+    if (hasMember) {
+      member = await _faceTarget({
+        ...arguments,
+        if (arguments['member'] == null && rawName.isNotEmpty)
+          'member': rawName,
+      });
+    } else {
+      final basis = targetRecord ?? source;
+      if (recordType(basis) != 'counter') {
+        throw ToolException('流水 #${readInt(basis, ['id'])} 是多人切，'
+            '请用 member（或 member_id）说明照片是谁的');
+      }
+      member = {
+        'counter_id': readInt(basis, ['counter_id', 'counterId']),
+        'member_name': readString(basis, ['subject_name', 'subjectName']),
+        'group_name': readString(basis, ['group_name', 'groupName']),
+      };
+    }
+
+    final String date;
+    if (rawDate.isNotEmpty) {
+      date = formatDate(_parseOccurredAt(rawDate));
+    } else {
+      date = recordDate(targetRecord ?? source);
+    }
+    if (targetRecord != null && rawDate.isNotEmpty &&
+        recordDate(targetRecord) != date) {
+      throw ToolException('record_id ${readInt(targetRecord, ['id'])} 是 '
+          '${recordDate(targetRecord)} 的流水，和给的 date $date 不一致');
+    }
+    final activity =
+        readString(arguments, ['activity_name', 'activityName']).trim();
+    final counterId = member['counter_id'];
+    if (targetRecord == null &&
+        date == recordDate(source) &&
+        counterId == readInt(source, ['counter_id', 'counterId'])) {
+      throw ToolException('照片已经在${member['member_name']} $date 的流水上了。'
+          '要改这条流水的活动名 / 场地请用 edit_record');
+    }
+
+    // Preview from the snapshot: the record the app will most likely pick.
+    var likely = targetRecord;
+    if (likely == null) {
+      var candidates = view.records
+          .where((r) =>
+              readInt(r, ['id']) != sourceId &&
+              recordType(r) == 'counter' &&
+              readInt(r, ['counter_id', 'counterId']) == counterId &&
+              recordDate(r) == date)
+          .toList();
+      final wanted = normalizePart(activity);
+      if (wanted.isNotEmpty) {
+        final named = candidates.where((r) {
+          final name =
+              normalizePart(readString(r, ['activity_name', 'activityName']));
+          return name.isNotEmpty &&
+              (name.contains(wanted) || wanted.contains(name));
+        }).toList();
+        if (named.isNotEmpty) candidates = named;
+      }
+      candidates.sort((a, b) {
+        final byTime = readString(b, ['occurred_at'])
+            .compareTo(readString(a, ['occurred_at']));
+        return byTime != 0
+            ? byTime
+            : readInt(b, ['id']).compareTo(readInt(a, ['id']));
+      });
+      likely = candidates.firstOrNull;
+    }
+
+    final payload = <String, dynamic>{
+      'media_id': mediaId,
+      'record_id': sourceId,
+      'sha1': photo['sha1'],
+      ...member,
+      'date': date,
+      if (targetRecord != null) 'target_record_id': readInt(targetRecord, ['id']),
+      'activity_name': activity,
+      'venue_name': readString(arguments, ['venue_name', 'venueName']).trim(),
+      'session_label':
+          readString(arguments, ['session_label', 'sessionLabel']).trim(),
+    };
+    final queued = await _queueEdit(kMovePhotoActionKind, payload);
+    final whereTo = likely == null
+        ? '${member['member_name']} $date 还没有流水，同步时会新建一条'
+        : '预计挂到流水 #${readInt(likely, ['id'])}（${recordDisplayName(likely)}，'
+            '${recordDate(likely)}${readString(likely, ['activity_name']).isEmpty ? '' : '，${readString(likely, ['activity_name'])}'}）';
+    return {
+      ...queued,
+      'photo': photo,
+      'to': {
+        ...member,
+        'date': date,
+        if (likely != null) 'likely_record': _recordBrief(likely),
+        'will_create_record': likely == null,
+      },
+      'message': '已排队把照片 #$mediaId 从流水 #$sourceId 挪走：$whereTo。'
+          '张数自动跟着走（原流水 −1、目标 +1，成员累计同步调整）；纪念照、多人切、'
+          '张数少于照片数的流水只挪照片。换了成员时，这张图学到的人脸样本会撤掉重学。'
+          '手机打开 OTA Counter 同步后才会挪；尚未完成。结果用 list_cheki_edits 查。',
     };
   }
 
@@ -1899,8 +2046,46 @@ class McpProtocol {
       },
     },
     {
+      'name': 'move_cheki_photo',
+      'description': '把切册里的一张照片挪到另一个成员、另一天或另一条流水（例如手写日期写错、挂错了人）。'
+          '先用 list_record_photos 确认 media_id。给 member/member_id 换成员，给 date 换日期，'
+          '或直接给目标流水 record_id；没给的沿用照片现在的成员和日期。'
+          'App 会挂到该成员当天的流水（有 activity_name 时优先同名活动），当天没有就新建一条，'
+          'activity_name / venue_name / session_label 用于新建的那条。'
+          '张数自动跟着走：原流水减一张、目标加一张，成员累计同步调整；纪念照、多人切、'
+          '张数少于切图数的流水只挪照片；原流水挪空（0 张、无照片、无备注）会删掉。'
+          '换了成员时，这张图学到的人脸样本撤掉，按新成员重学。'
+          '只改流水的活动名 / 场地用 edit_record。App 同步后才会生效，只能回复「已排队」；结果用 list_cheki_edits 查。',
+      'inputSchema': {
+        'type': 'object',
+        'properties': {
+          'media_id': {
+            'type': ['integer', 'string'],
+            'description': '照片编号（list_record_photos 的 media_id）',
+          },
+          'sha1': {'type': 'string', 'description': '可选：期望的照片 SHA-1，不一致就不排队'},
+          'member_id': {
+            'type': ['integer', 'string'],
+            'description': '新成员的卡片编号（list_members 的 id，优先）',
+          },
+          'member': {'type': 'string', 'description': '新成员名（重名时加 group）'},
+          'group': {'type': 'string', 'description': '团名，用于区分重名或兼任'},
+          'date': {'type': 'string', 'description': '新日期 YYYY-MM-DD'},
+          'record_id': {
+            'type': ['integer', 'string'],
+            'description': '可选：直接指定目标流水（list_records 的 id）',
+          },
+          'activity_name': {'type': 'string', 'description': '活动名：优先挂同名活动的流水，新建时写入'},
+          'venue_name': {'type': 'string', 'description': '场地（新建流水时写入）'},
+          'session_label': {'type': 'string', 'description': '场次（新建流水时写入）'},
+        },
+        'required': ['media_id'],
+        'additionalProperties': false,
+      },
+    },
+    {
       'name': 'list_cheki_edits',
-      'description': '查询删图、换图、改流水的状态和 App 回执：pending 等待同步（attempts / last_error 是重试情况）；'
+      'description': '查询删图、换图、挪图、改流水的状态和 App 回执：pending 等待同步（attempts / last_error 是重试情况）；'
           'applied 已完成（result 里有 before / after 或 deleted / replaced）；failed 带中文原因（failure）。',
       'inputSchema': {
         'type': 'object',

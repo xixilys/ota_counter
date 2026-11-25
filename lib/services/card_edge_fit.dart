@@ -46,14 +46,19 @@ class CardEdgeFit {
   /// Re-fits all four sides near their current position (within 24 % of the
   /// shortest side), slope and offset together. Sides without a coherent
   /// paper step keep their line.
-  static List<Pt> refineQuad(PaperSignalImage signal, List<Pt> quad) {
+  ///
+  /// [reach] is the search range as a share of the shortest side; a quad
+  /// already on its paper edges ([CardLocator]) is only polished with a
+  /// small one.
+  static List<Pt> refineQuad(PaperSignalImage signal, List<Pt> quad,
+      {double reach = 0.24}) {
     final shortest = [
       for (var i = 0; i < 4; i++) quad[i].distanceTo(quad[(i + 1) % 4])
     ].reduce(math.min);
     if (shortest < 24) return quad;
     final lines = [
       for (var i = 0; i < 4; i++)
-        _fitBorder(signal, quad[i], quad[(i + 1) % 4], shortest)
+        _fitBorder(signal, quad[i], quad[(i + 1) % 4], shortest, reach)
     ];
     final candidate = _corners(lines);
     if (candidate == null ||
@@ -67,7 +72,8 @@ class CardEdgeFit {
   }
 
   static (Pt, Pt) _fitBorder(
-      PaperSignalImage signal, Pt start, Pt end, double shortSide) {
+      PaperSignalImage signal, Pt start, Pt end, double shortSide,
+      [double reachShare = 0.24]) {
     final dx = end.x - start.x, dy = end.y - start.y;
     final length = math.sqrt(dx * dx + dy * dy);
     final ax = dx / length, ay = dy / length; // along
@@ -78,7 +84,10 @@ class CardEdgeFit {
     for (var j = 0; j < count; j++) {
       distance[j] = (-0.41 + 0.82 * j / (count - 1)) * length;
     }
-    final reach = 0.24 * shortSide;
+    final reach = reachShare * shortSide;
+    // The move penalty keeps the full search's scale: a narrow polish must
+    // still settle on the paper step, not stay where it started.
+    final penaltyScale = 0.24 * shortSide;
     final depth = (shortSide * 0.01).clamp(2.0, 5.0);
 
     // Scores of every offset at one slope: paper-to-background step support
@@ -103,7 +112,7 @@ class CardEdgeFit {
         }
         support /= count;
         supports[o] = support;
-        scores[o] = support - 0.12 * (moved / count) / reach;
+        scores[o] = support - 0.12 * (moved / count) / penaltyScale;
       }
       return (scores, supports);
     }

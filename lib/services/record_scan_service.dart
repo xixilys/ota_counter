@@ -7,6 +7,7 @@ import 'package:image/image.dart' as img;
 
 import '../models/activity_record_media_model.dart';
 import 'card_edge_fit.dart';
+import 'card_locator.dart';
 import 'card_format_meter.dart';
 
 class RecordScanOutput {
@@ -1958,12 +1959,60 @@ class RecordScanService {
       final signal = located.isEmpty
           ? null
           : PaperSignalImage.fromRgb(source.data, source.width, source.height);
+      // The scanner's quads are seeds: refit each to a whole mini / wide card
+      // (outer paper edge + photo window), drop the duplicates and fragments
+      // the complete cards cover, and add cards seen only by their window.
+      final whole = <bool>[];
+      if (signal != null) {
+        final fits =
+            CardLocator.locate(signal, [for (final c in located) c.quad]);
+        final seeds = [...located];
+        located
+          ..clear()
+          ..addAll([
+            for (final fit in fits)
+              (
+                quad: fit.quad,
+                ratio: _quadRatio(fit.quad),
+                sizeClass: fit.seedIndex == null
+                    ? _classifyCardRatio(_quadRatio(fit.quad))
+                    : seeds[fit.seedIndex!].sizeClass,
+                planned: fit.seedIndex == null
+                    ? _PlannedCard(
+                        candidate: null,
+                        sourceQuad: fit.quad,
+                        confidence: fit.score.clamp(0.0, 1.0),
+                        splitFromMerged: false,
+                      )
+                    : seeds[fit.seedIndex!].planned,
+              ),
+          ]);
+        whole.addAll([for (final fit in fits) fit.complete]);
+      }
       for (var i = 0; i < located.length; i++) {
         final card = located[i];
+        final isWhole = i < whole.length && whole[i];
         // A card split out of a touching block has an inferred side with
         // paper on both sides of it; the fit could slide onto the neighbour.
-        if (card.planned.splitFromMerged) continue;
-        final fitted = CardEdgeFit.refineQuad(signal!, card.quad);
+        // A whole located card already sits on its paper edges.
+        if (card.planned.splitFromMerged && !isWhole) continue;
+        final fitted = CardEdgeFit.refineQuad(signal!, card.quad,
+            reach: isWhole ? 0.035 : 0.24);
+        // The polish only re-seats edges of a located card; one weak side
+        // re-fitted on its own must not skew it (a tilted edge reads as
+        // strong perspective and stretches the crop).
+        if (isWhole && !identical(fitted, card.quad)) {
+          double ratio(List<Pt> q) {
+            final (x, y) = CardLocator.metricAxes(
+                q, signal.width, signal.height,
+                trustLimit: false);
+            return x / y;
+          }
+
+          if ((math.log(ratio(fitted) / ratio(card.quad))).abs() > 0.05) {
+            continue;
+          }
+        }
         if (!identical(fitted, card.quad) && safeQuad(fitted)) {
           located[i] = (
             quad: fitted,

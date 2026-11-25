@@ -335,7 +335,8 @@ class _AlbumPageState extends State<AlbumPage> {
   void _openSession(AlbumSession session) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (context) => AlbumSessionPage(session: session),
+        builder: (context) =>
+            AlbumSessionPage(session: session, onChanged: _load),
       ),
     );
   }
@@ -360,6 +361,7 @@ class _AlbumPageState extends State<AlbumPage> {
         builder: (context) => AlbumViewerPage(
           photos: photos,
           initialIndex: index,
+          onChanged: _load,
         ),
       ),
     );

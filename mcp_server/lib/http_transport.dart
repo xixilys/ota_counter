@@ -184,6 +184,8 @@ class SyncHttpServer {
             kChekiPhotoActionKind,
           if (!_hasCapability(request, kChekiEditCapability))
             ...kChekiEditActionKinds,
+          if (!_hasCapability(request, kChekiMoveCapability))
+            kMovePhotoActionKind,
         };
         final actions = await store.actions(
           status: status.isEmpty ? null : status,

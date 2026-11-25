@@ -29,10 +29,22 @@ const String kChekiEditCapability = 'cheki-edit-v1';
 const String kDeletePhotoActionKind = 'delete_cheki_photo';
 const String kReplacePhotoActionKind = 'replace_cheki_photo';
 const String kEditRecordActionKind = 'edit_record';
+/// Moving a photo to another member / day. A separate gate: apps that only
+/// know cheki-edit-v1 never receive it.
+const String kChekiMoveCapability = 'cheki-move-v1';
+const String kMovePhotoActionKind = 'move_cheki_photo';
 const Set<String> kChekiEditActionKinds = {
   kDeletePhotoActionKind,
   kReplacePhotoActionKind,
   kEditRecordActionKind,
+  kMovePhotoActionKind,
+};
+
+/// Edit kinds that act on one photo: only one may be pending per photo.
+const Set<String> _photoEditKinds = {
+  kDeletePhotoActionKind,
+  kReplacePhotoActionKind,
+  kMovePhotoActionKind,
 };
 
 /// Actions whose receipt carries a result, and whose failure needs a reason.
@@ -120,7 +132,8 @@ class SyncStore {
     }
     if (kChekiEditActionKinds.contains(action['kind'])) {
       throw FaceImageException(
-          '删图、换图、改流水请使用 delete_cheki_photo / replace_cheki_photo / edit_record');
+          '删图、换图、挪图、改流水请使用 delete_cheki_photo / replace_cheki_photo / '
+          'move_cheki_photo / edit_record');
     }
     return _locked((state) async {
       final actions = _ensureList(state, 'actions');
@@ -417,8 +430,7 @@ class SyncStore {
                 '${other['id']}，等 App 同步后再改',
                 status: 409);
           }
-        } else if ((other['kind'] == kDeletePhotoActionKind ||
-                other['kind'] == kReplacePhotoActionKind) &&
+        } else if (_photoEditKinds.contains(other['kind']) &&
             otherPayload['media_id'] == payload['media_id']) {
           throw FaceImageException(
               '照片 #${payload['media_id']} 已有待同步的操作 ${other['id']}'
@@ -972,6 +984,11 @@ Map<String, dynamic> _chekiEditView(Map<dynamic, dynamic> action) {
     if (payload['media_id'] != null) 'media_id': payload['media_id'],
     if (payload['changes'] != null) 'changes': payload['changes'],
     if (payload['expected'] != null) 'expected': payload['expected'],
+    if (action['kind'] == kMovePhotoActionKind) ...{
+      'target_record_id': payload['target_record_id'],
+      'member_name': payload['member_name'],
+      'date': payload['date'],
+    },
     'result': action['result'],
     if (action['kind'] == kReplacePhotoActionKind)
       'image_cleanup_pending': action['image_cleanup_pending'] == true,

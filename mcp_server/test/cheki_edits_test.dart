@@ -1,7 +1,8 @@
 // ignore_for_file: avoid_relative_lib_imports
 //
 // Checks list_record_photos / delete_cheki_photo / replace_cheki_photo /
-// edit_record / list_cheki_edits and their sync REST contract. Run with:
+// edit_record / move_cheki_photo / list_cheki_edits and their sync REST
+// contract. Run with:
 //
 //   dart mcp_server/test/cheki_edits_test.dart
 import 'dart:convert';
@@ -156,8 +157,9 @@ Future<void> testChekiEdits(void Function(bool, String) check) async {
             (photos.last['record'] as Map)['subject'] == '兔兔Miottie',
         'each photo carries position, sha1 and its record');
     final byMember = ok(await call('list_record_photos', {'member': '小羽'}));
-    check(byMember['count'] == 1 &&
-        ((byMember['photos'] as List).single as Map)['media_id'] == 950,
+    check(
+        byMember['count'] == 1 &&
+            ((byMember['photos'] as List).single as Map)['media_id'] == 950,
         'list_record_photos filters by member');
     final unscoped = await call('list_record_photos', {});
     check(unscoped['isError'] == true, 'list_record_photos needs a scope');
@@ -171,8 +173,9 @@ Future<void> testChekiEdits(void Function(bool, String) check) async {
     check(wrongHash['isError'] == true && error(wrongHash).contains('不一致'),
         'a sha1 mismatch is refused before queueing');
     final deleted = ok(await call('delete_cheki_photo', {'media_id': 900}));
-    check(deleted['status'] == 'pending' &&
-        (deleted['photo'] as Map)['position'] == 1,
+    check(
+        deleted['status'] == 'pending' &&
+            (deleted['photo'] as Map)['position'] == 1,
         'delete_cheki_photo queues and echoes the photo');
     final twice = await call('delete_cheki_photo', {'media_id': 900});
     check(twice['isError'] == true && error(twice).contains('待同步'),
@@ -231,7 +234,8 @@ Future<void> testChekiEdits(void Function(bool, String) check) async {
       'note': ' 补签一张 ',
     }));
     check(
-        jsonEncode(edited['before']) == jsonEncode({'three_inch_count': 2, 'note': ''}) &&
+        jsonEncode(edited['before']) ==
+                jsonEncode({'three_inch_count': 2, 'note': ''}) &&
             jsonEncode(edited['after']) ==
                 jsonEncode({'three_inch_count': 3, 'note': '补签一张'}),
         'edit_record returns the old and new values of changed fields only');
@@ -239,8 +243,8 @@ Future<void> testChekiEdits(void Function(bool, String) check) async {
         await call('edit_record', {'record_id': 227, 'three_inch': 4});
     check(overlap['isError'] == true && error(overlap).contains('待同步'),
         'a second pending edit of the same field is refused');
-    final otherField =
-        ok(await call('edit_record', {'record_id': 227, 'venue_name': 'Livehouse'}));
+    final otherField = ok(await call(
+        'edit_record', {'record_id': 227, 'venue_name': 'Livehouse'}));
     check(otherField['status'] == 'pending',
         'a pending edit of a different field is allowed');
 
@@ -255,9 +259,8 @@ Future<void> testChekiEdits(void Function(bool, String) check) async {
     check(pending.length == 5, 'apps with cheki-edit-v1 receive all five');
     final replaceAction =
         pending.singleWhere((a) => a['kind'] == kReplacePhotoActionKind);
-    final imageId =
-        (((replaceAction['payload'] as Map)['images'] as List).single
-            as Map)['imageId'];
+    final imageId = (((replaceAction['payload'] as Map)['images'] as List)
+        .single as Map)['imageId'];
     final (imageStatus, _) =
         await rest('GET', '/api/v1/face-images/$imageId', capabilities: _caps);
     check(imageStatus == 200, 'the staged replacement image is downloadable');
@@ -269,8 +272,10 @@ Future<void> testChekiEdits(void Function(bool, String) check) async {
             jsonEncode({'three_inch_count': 2, 'note': ''}),
         'the edit payload carries the values the assistant saw');
 
-    final (rawStatus, _) = await rest('POST', '/api/v1/actions',
-        body: {'kind': kDeletePhotoActionKind, 'payload': {'media_id': 1}});
+    final (rawStatus, _) = await rest('POST', '/api/v1/actions', body: {
+      'kind': kDeletePhotoActionKind,
+      'payload': {'media_id': 1}
+    });
     check(rawStatus >= 400 && rawStatus < 500,
         'generic POST cannot queue the new kinds');
 
@@ -289,7 +294,8 @@ Future<void> testChekiEdits(void Function(bool, String) check) async {
         edited['action_id'],
       ],
       'failures': {
-        edited['action_id']: '流水 #227 在手机上已改过，未覆盖：three_inch_count 现在是 5，你看到的是 2',
+        edited['action_id']:
+            '流水 #227 在手机上已改过，未覆盖：three_inch_count 现在是 5，你看到的是 2',
       },
       'results': {
         deleted['action_id']: {'media_id': 900, 'deleted': true},
@@ -297,15 +303,16 @@ Future<void> testChekiEdits(void Function(bool, String) check) async {
       },
       'deferred': {otherField['action_id']: '数据库忙，下次同步重试'},
     });
-    check(ackStatus == 200 &&
-        ack['applied'] == 2 &&
-        ack['failed'] == 1 &&
-        ack['deferred'] == 1,
+    check(
+        ackStatus == 200 &&
+            ack['applied'] == 2 &&
+            ack['failed'] == 1 &&
+            ack['deferred'] == 1,
         'receipts: applied, failed and deferred are counted');
     check(await stagedFiles() == 0,
         'the replacement image is removed once the receipt arrives');
 
-    final edits = ok(await call('list_cheki_edits', {})) ;
+    final edits = ok(await call('list_cheki_edits', {}));
     final views = (edits['edits'] as List).cast<Map>();
     Map view(Object? id) => views.singleWhere((v) => v['id'] == id);
     check(
@@ -332,6 +339,71 @@ Future<void> testChekiEdits(void Function(bool, String) check) async {
     final again = await call('delete_cheki_photo', {'media_id': 901});
     check(again['isError'] != true,
         'a photo is free again once its action has a receipt');
+
+    // move_cheki_photo
+    check(names.contains('move_cheki_photo'),
+        'tools/list exposes move_cheki_photo');
+    final nothing = await call('move_cheki_photo', {'media_id': 900});
+    check(nothing['isError'] == true && error(nothing).contains('没有要改'),
+        'a move without member, date or record is refused');
+    final sameDay =
+        await call('move_cheki_photo', {'media_id': 900, 'date': '2026-11-19'});
+    check(sameDay['isError'] == true && error(sameDay).contains('edit_record'),
+        'a move to where the photo already is points to edit_record');
+    final toTicket =
+        await call('move_cheki_photo', {'media_id': 900, 'record_id': 228});
+    check(toTicket['isError'] == true && error(toTicket).contains('门票'),
+        'a move onto a ticket record is refused');
+    final badHash = await call('move_cheki_photo',
+        {'media_id': 900, 'date': '2026-11-22', 'sha1': 'zzz'});
+    check(badHash['isError'] == true && error(badHash).contains('不一致'),
+        'move checks the sha1 before queueing');
+    final moved = ok(await call('move_cheki_photo',
+        {'media_id': 900, 'date': '2026-11-22', 'activity_name': '青岛公演'}));
+    check(
+        moved['status'] == 'pending' &&
+            (moved['to'] as Map)['will_create_record'] == true &&
+            (moved['to'] as Map)['counter_id'] == 1,
+        'move_cheki_photo keeps the member and previews a new record');
+    final movedTwice =
+        await call('move_cheki_photo', {'media_id': 900, 'date': '2026-11-23'});
+    check(movedTwice['isError'] == true && error(movedTwice).contains('待同步'),
+        'a second pending action on the moved photo is refused');
+    final toMember = ok(await call('move_cheki_photo',
+        {'media_id': 950, 'member': '兔兔Miottie', 'record_id': 227}));
+    check(
+        (toMember['to'] as Map)['likely_record'] is Map &&
+            ((toMember['to'] as Map)['likely_record'] as Map)['id'] == 227,
+        'a move to a named record previews that record');
+
+    final (_, editOnly) =
+        await rest('GET', '/api/v1/actions', capabilities: _caps);
+    check(
+        !(editOnly['actions'] as List)
+            .cast<Map>()
+            .any((a) => a['kind'] == kMovePhotoActionKind),
+        'apps without cheki-move-v1 never receive move_cheki_photo');
+    final (_, withMove) = await rest('GET', '/api/v1/actions',
+        capabilities: '$_caps,cheki-move-v1');
+    final moveActions = (withMove['actions'] as List)
+        .cast<Map>()
+        .where((a) => a['kind'] == kMovePhotoActionKind)
+        .toList();
+    final movePayload = moveActions
+        .singleWhere((a) => a['id'] == moved['action_id'])['payload'] as Map;
+    check(
+        moveActions.length == 2 &&
+            movePayload['record_id'] == 227 &&
+            movePayload['sha1'] == 'aaa' &&
+            movePayload['date'] == '2026-11-22' &&
+            movePayload['activity_name'] == '青岛公演',
+        'apps with cheki-move-v1 receive the move with what the assistant saw');
+    final moveViews = ok(await call('list_cheki_edits', {'media_id': 900}));
+    check(
+        ((moveViews['edits'] as List).first as Map)['kind'] ==
+                kMovePhotoActionKind &&
+            ((moveViews['edits'] as List).first as Map)['date'] == '2026-11-22',
+        'list_cheki_edits lists moves with their target');
   } finally {
     client.close(force: true);
     await server.close();

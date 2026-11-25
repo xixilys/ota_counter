@@ -190,7 +190,8 @@ Grok Bot / Hermes 若只支持其中一种，按客户端的 MCP 配置 schema �
 | `delete_cheki_photo` | **排队**按 `media_id` 删除一张切册照片（可带 `sha1` 防删错）；不改计数 |
 | `replace_cheki_photo` | **排队**把 `media_id` 那张换成新图（`image_base64` / `image_url`，一张），位置和所属流水不变 |
 | `edit_record` | **排队**改一条流水的张数（新值，不是增量）、`note`、`activity_name`、`venue_name`、`session_label`；返回 `before` / `after` |
-| `list_cheki_edits` | 查删图 / 换图 / 改流水的状态和 App 回执，可按 `status`、`record_id`、`media_id` 筛选 |
+| `move_cheki_photo` | **排队**把 `media_id` 那张挪到另一个成员（`member` / `member_id`）、另一天（`date`）或指定流水（`record_id`）；张数自动跟着走 |
+| `list_cheki_edits` | 查删图 / 换图 / 挪图 / 改流水的状态和 App 回执，可按 `status`、`record_id`、`media_id` 筛选 |
 
 资源：`ota://overview`、`ota://members`、`ota://recent-records`、
 `ota://sync-status`、`ota://snapshot`。
@@ -257,7 +258,7 @@ Grok Bot / Hermes 若只支持其中一种，按客户端的 MCP 配置 schema �
 
 ## 从聊天修正切册和流水
 
-需要 App 1.7.13 起（快照带 `photos` 照片清单，请求头带 `cheki-edit-v1`）；旧 App 不会收到这些操作。
+需要 App 1.7.13 起（快照带 `photos` 照片清单，请求头带 `cheki-edit-v1`）；旧 App 不会收到这些操作。挪图另需 `cheki-move-v1`（本版 App 起）。
 
 - 先 `list_record_photos` 确认是哪一张。通过 MCP 发的照片，`sha1` 就是当时所发
   图片字节的 SHA-1；`list_cheki_photos` 的回执也带 `media_ids`（新照片编号）。
@@ -270,6 +271,20 @@ Grok Bot / Hermes 若只支持其中一种，按客户端的 MCP 配置 schema �
   改后的新值（0–999 的整数），只能改单人切奇流水的张数，门票和多人切只能改备注和
   活动信息。改张数时 App 同步调整成员累计。返回快照里的旧值 `before` 和 `after`；
   值已经相同时不排队。
+- `move_cheki_photo {media_id, sha1?, member? | member_id?, group?, date?,
+  record_id?, activity_name?, venue_name?, session_label?}`：需要 App 带
+  `cheki-move-v1`（旧 App 不会收到）。口径和 App 切册里「调整信息」一样：
+  - 目标：`record_id` 指定的流水；否则该成员 `date` 当天的单人切奇流水（有
+    `activity_name` 时优先同名活动）；当天没有就新建一条（当前团价、只记日期，
+    `activity_name` / `venue_name` / `session_label` 写进新流水）。
+  - 张数自动跟着走：照片是切图、原流水是单人切奇且张数不少于切图数时，原流水
+    减一张、目标加一张（按 3寸、5寸、无签…顺序取第一个非 0 的规格），成员累计
+    同步调整。纪念照、多人切 / 门票流水、张数少于切图数（多出来的照片本来就没
+    计数）只挪照片，回执写明 `count_not_moved_reason`。
+  - 原流水挪完 0 张、没有别的照片、没有备注时删掉（`from_record_removed`）。
+  - 换了成员：这张图自动学到的人脸样本（不含「我」和手动登记）撤掉，按新成员
+    重学。照片的拍摄时间若落在别的日子会清掉，切册按新日期归档。
+  - 重放安全：照片已在本动作新建 / 指定的流水上时回 `already_done`。
 - 防覆盖：动作里带着 AI 看到的旧值（照片的 `sha1`、流水的 `expected`）。手机上
   若已改过，App 不覆盖，回 `failed` 并写明现在的值。同一张照片、或同一流水的同一
   字段已有待同步的操作时，服务端拒绝再排。

@@ -88,6 +88,7 @@ class CardFormatDecision {
     required this.outerRatio,
     required this.windowRatio,
     required this.best,
+    this.layoutConfident = false,
   });
 
   /// Null when the evidence does not settle a film format: the card is then
@@ -105,6 +106,21 @@ class CardFormatDecision {
 
   /// The winning fit (after the peer-scale vote), matched or not.
   final FilmFormatCandidate best;
+
+  /// The card's own border settles its direction: within the matched mini
+  /// format (wide pictures are composed either way across the frame), [best]'s turn leads every other quarter turn, its thick
+  /// border is clearly the widest and that border's window edge shows. The
+  /// thick border then goes to the bottom whatever the picture shows.
+  final bool layoutConfident;
+
+  /// Score lead of the layout over the format's other turns...
+  static const double layoutTurnSeparation = 0.08;
+
+  /// ...thick border over the widest other border...
+  static const double layoutThickRatio = 1.6;
+
+  /// ...and paper-to-print step along the thick border.
+  static const double layoutThickStrength = 0.3;
 
   /// Quarter turns counter-clockwise that bring the card, as it lies in the
   /// quad, into the manufacturer's upright layout (thick border at the
@@ -404,6 +420,25 @@ class CardFormatMeter {
     final matched = best.strengths.reduce(math.min) >= 0.21 &&
         best.error <= 0.24 &&
         separation >= 0.045;
+    var layoutConfident = false;
+    if (matched && best.format == FilmFormat.mini) {
+      final lead = best.score -
+          candidates
+              .where((c) => c.format == best.format && c.turns != best.turns)
+              .map((c) => c.score)
+              .reduce(math.max);
+      final thick = (2 + best.turns) % 4;
+      var widestOther = 0.0;
+      for (var side = 0; side < 4; side++) {
+        if (side != thick) {
+          widestOther = math.max(widestOther, best.margins[side]);
+        }
+      }
+      layoutConfident = lead >= CardFormatDecision.layoutTurnSeparation &&
+          best.margins[thick] >=
+              CardFormatDecision.layoutThickRatio * widestOther &&
+          best.strengths[thick] >= CardFormatDecision.layoutThickStrength;
+    }
     var width = card.axisWidth, height = card.axisHeight;
     if (matched) {
       width = best.format.width;
@@ -419,6 +454,7 @@ class CardFormatMeter {
           math.min(card.axisWidth, card.axisHeight),
       windowRatio: best.windowRatio,
       best: best,
+      layoutConfident: layoutConfident,
     );
   }
 }

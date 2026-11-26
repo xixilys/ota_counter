@@ -651,6 +651,8 @@ class BatchImportService {
           (bytes, orientation) = await AlbumOrientationService.orientCardBytes(
             card.bytes,
             layoutTurns: card.layoutTurns!,
+            miniFilm: card.miniFilm,
+            layoutConfident: card.layoutConfident,
           );
         } else {
           final (oriented, angle) =

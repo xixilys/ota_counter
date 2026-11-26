@@ -198,6 +198,8 @@ class AlbumOrientationService {
   static Future<(Uint8List, CardOrientation)> orientCardBytes(
     Uint8List bytes, {
     required int layoutTurns,
+    bool miniFilm = false,
+    bool layoutConfident = false,
   }) async {
     final (width, height, windows) = await Isolate.run(() {
       final card = img.decodeImage(bytes)!;
@@ -233,6 +235,8 @@ class AlbumOrientationService {
       width: width,
       height: height,
       layoutTurns: layoutTurns,
+      miniFilm: miniFilm,
+      layoutConfident: layoutConfident,
       faceTurns: faceTurns,
     );
     if (orientation.turns == 0) return (bytes, orientation);

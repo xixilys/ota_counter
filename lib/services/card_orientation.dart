@@ -2,7 +2,8 @@ import 'dart:math' as math;
 
 /// Why a cut card got its orientation.
 enum CardOrientationBasis {
-  /// The thick border already lies at the bottom.
+  /// The thick border lies at the bottom: already, or after a turn the
+  /// border settles on its own (see [CardOrientationDecider.decide]).
   filmLayout,
 
   /// A portrait cut whose thick border lies on a side (e.g. a portrait
@@ -49,11 +50,16 @@ class CardOrientation {
 /// upright, and (when available) which way margin handwriting reads.
 ///
 /// The film format and its layout are settled first and independently (a
-/// WIDE card standing on its short side is still WIDE). The picture may be
-/// composed sideways on the film, so the border alone never turns a card;
-/// a face or handwriting must corroborate it. When the signals contradict
-/// each other or are all missing, the card keeps the photographed direction
-/// and is marked [CardOrientation.lowConfidence].
+/// WIDE card standing on its short side is still WIDE). Instax mini and
+/// wide film has one border far wider than the others, and it is the
+/// bottom. Mini ([miniFilm]) is a portrait frame, so its border decides:
+/// alone when it reads clearly ([layoutConfident]); when it is unclear,
+/// faces only choose between wide-border-down and its opposite, and
+/// without them the border's reading stands, marked
+/// [CardOrientation.lowConfidence]. Wide pictures are composed either way
+/// across the frame: there the border alone never turns a card; a face or
+/// handwriting must corroborate it, and contradicting or missing signals
+/// keep the photographed direction, marked low-confidence.
 class CardOrientationDecider {
   CardOrientationDecider._();
 
@@ -66,9 +72,34 @@ class CardOrientationDecider {
     required int width,
     required int height,
     required int? layoutTurns,
+    bool miniFilm = false,
+    bool layoutConfident = false,
     int? faceTurns,
     int? textTurns,
   }) {
+    // Instax mini is a portrait frame whose one wide border is the bottom,
+    // so the paper decides its direction. A clear border needs nothing
+    // else; an unclear one lets faces choose only between wide-border-down
+    // and its opposite, and without faces the border's best reading stands,
+    // marked low-confidence. Wide film keeps the rules below.
+    if (layoutTurns != null && miniFilm) {
+      final layout = layoutTurns % 4;
+      final face = faceTurns == null ? null : faceTurns % 4;
+      if (face == layout) {
+        return CardOrientation(layout, CardOrientationBasis.filmLayoutAndFace,
+            lowConfidence: false);
+      }
+      if (layoutConfident) {
+        return CardOrientation(layout, CardOrientationBasis.filmLayout,
+            lowConfidence: false);
+      }
+      if (face != null && (face - layout) % 4 == 2) {
+        return CardOrientation(face, CardOrientationBasis.face,
+            lowConfidence: false);
+      }
+      return CardOrientation(layout, CardOrientationBasis.filmLayout,
+          lowConfidence: true);
+    }
     if (layoutTurns == null) {
       return faceTurns == null || faceTurns == 0
           ? CardOrientation(0, CardOrientationBasis.face,

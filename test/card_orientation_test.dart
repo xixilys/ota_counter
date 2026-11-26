@@ -59,6 +59,56 @@ double _worst(List<_Pt> a, List<_Pt> b) =>
     [for (var i = 0; i < 4; i++) a[i].distanceTo(b[i])].reduce(math.max);
 
 void main() {
+  group('mini: the thick border goes down', () {
+    CardOrientation mini(int layout,
+            {bool confident = false, int? face, int w = 1360, int h = 854}) =>
+        CardOrientationDecider.decide(
+            width: w,
+            height: h,
+            layoutTurns: layout,
+            miniFilm: true,
+            layoutConfident: confident,
+            faceTurns: face);
+
+    test('a clear border stands a sideways mini up without a face', () {
+      final o = mini(1, confident: true);
+      expect(o.turns, 1);
+      expect(o.basis, CardOrientationBasis.filmLayout);
+      expect(o.lowConfidence, isFalse);
+    });
+
+    test('a sideways composition does not overrule a clear border', () {
+      final o = mini(3, confident: true, face: 0);
+      expect(o.turns, 3);
+      expect(o.basis, CardOrientationBasis.filmLayout);
+    });
+
+    test('an unclear border without a face still turns, low-confidence', () {
+      final o = mini(1);
+      expect(o.turns, 1);
+      expect(o.basis, CardOrientationBasis.filmLayout);
+      expect(o.lowConfidence, isTrue);
+    });
+
+    test('on an unclear border a face picks the opposite side down', () {
+      final o = mini(1, face: 3);
+      expect(o.turns, 3);
+      expect(o.basis, CardOrientationBasis.face);
+    });
+
+    test('on an unclear border a sideways face is ignored', () {
+      final o = mini(1, face: 0);
+      expect(o.turns, 1);
+      expect(o.lowConfidence, isTrue);
+    });
+  });
+
+  test('wide film keeps its picture direction (portrait 五寸 stays)', () {
+    final o = CardOrientationDecider.decide(
+        width: 1083, height: 1360, layoutTurns: 1, faceTurns: 0);
+    expect(o.turns, 0);
+  });
+
   group('orientation from thick border + faces', () {
     test('a portrait cut with the border at the bottom stays', () {
       final o = _decide(854, 1360, 0);

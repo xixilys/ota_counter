@@ -52,11 +52,10 @@ class CardOrientation {
 /// The film format and its layout are settled first and independently (a
 /// WIDE card standing on its short side is still WIDE). Instax mini and
 /// wide film has one border far wider than the others, and it is the
-/// bottom. Mini ([miniFilm]) is a portrait frame, so its border decides:
-/// alone when it reads clearly ([layoutConfident]); when it is unclear,
-/// faces only choose between wide-border-down and its opposite, and
-/// without them the border's reading stands, marked
-/// [CardOrientation.lowConfidence]. Wide pictures are composed either way
+/// bottom. A mini card ([miniFilm]) is turned so its faces stand upright,
+/// in any of the four turns; without a reliable face its wide border goes
+/// to the bottom, marked [CardOrientation.lowConfidence] unless the border
+/// reads clearly ([layoutConfident]). Wide pictures are composed either way
 /// across the frame: there the border alone never turns a card; a face or
 /// handwriting must corroborate it, and contradicting or missing signals
 /// keep the photographed direction, marked low-confidence.
@@ -77,11 +76,11 @@ class CardOrientationDecider {
     int? faceTurns,
     int? textTurns,
   }) {
-    // Instax mini is a portrait frame whose one wide border is the bottom,
-    // so the paper decides its direction. A clear border needs nothing
-    // else; an unclear one lets faces choose only between wide-border-down
-    // and its opposite, and without faces the border's best reading stands,
-    // marked low-confidence. Wide film keeps the rules below.
+    // A mini card is turned so the people in it stand upright: a card shot
+    // sideways lies sideways. Faces pick among all four turns; only without
+    // a reliable face does the paper decide, putting the one wide border at
+    // the bottom (low-confidence when the border is unclear too). Wide film
+    // keeps the rules below.
     if (layoutTurns != null && miniFilm) {
       final layout = layoutTurns % 4;
       final face = faceTurns == null ? null : faceTurns % 4;
@@ -89,16 +88,12 @@ class CardOrientationDecider {
         return CardOrientation(layout, CardOrientationBasis.filmLayoutAndFace,
             lowConfidence: false);
       }
-      if (layoutConfident) {
-        return CardOrientation(layout, CardOrientationBasis.filmLayout,
-            lowConfidence: false);
-      }
-      if (face != null && (face - layout) % 4 == 2) {
+      if (face != null) {
         return CardOrientation(face, CardOrientationBasis.face,
             lowConfidence: false);
       }
       return CardOrientation(layout, CardOrientationBasis.filmLayout,
-          lowConfidence: true);
+          lowConfidence: !layoutConfident);
     }
     if (layoutTurns == null) {
       return faceTurns == null || faceTurns == 0

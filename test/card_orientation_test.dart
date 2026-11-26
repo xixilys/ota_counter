@@ -59,7 +59,7 @@ double _worst(List<_Pt> a, List<_Pt> b) =>
     [for (var i = 0; i < 4; i++) a[i].distanceTo(b[i])].reduce(math.max);
 
 void main() {
-  group('mini: the thick border goes down', () {
+  group('mini: faces upright, else the thick border goes down', () {
     CardOrientation mini(int layout,
             {bool confident = false, int? face, int w = 1360, int h = 854}) =>
         CardOrientationDecider.decide(
@@ -70,17 +70,18 @@ void main() {
             layoutConfident: confident,
             faceTurns: face);
 
-    test('a clear border stands a sideways mini up without a face', () {
+    test('without a face a clear border stands a sideways mini up', () {
       final o = mini(1, confident: true);
       expect(o.turns, 1);
       expect(o.basis, CardOrientationBasis.filmLayout);
       expect(o.lowConfidence, isFalse);
     });
 
-    test('a sideways composition does not overrule a clear border', () {
+    test('a sideways composition stays sideways: faces upright', () {
       final o = mini(3, confident: true, face: 0);
-      expect(o.turns, 3);
-      expect(o.basis, CardOrientationBasis.filmLayout);
+      expect(o.turns, 0);
+      expect(o.basis, CardOrientationBasis.face);
+      expect(o.lowConfidence, isFalse);
     });
 
     test('an unclear border without a face still turns, low-confidence', () {
@@ -96,10 +97,10 @@ void main() {
       expect(o.basis, CardOrientationBasis.face);
     });
 
-    test('on an unclear border a sideways face is ignored', () {
+    test('on an unclear border a sideways face is followed', () {
       final o = mini(1, face: 0);
-      expect(o.turns, 1);
-      expect(o.lowConfidence, isTrue);
+      expect(o.turns, 0);
+      expect(o.basis, CardOrientationBasis.face);
     });
   });
 

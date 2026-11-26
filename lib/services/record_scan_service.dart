@@ -250,11 +250,21 @@ class RecordScanMultiCard {
   /// （相纸的出厂摆放）。规格不确定时为 null。只是证据，不代表要转。
   final int? layoutTurns;
 
+  /// 三寸（mini）且纸边本身足以定方向（厚白边明确、比其它方向明显更吻合）：
+  /// 此时按 [layoutTurns] 把厚白边转到下方，不看人脸。
+  final bool layoutConfident;
+
+  /// 相纸是三寸（mini）竖版画幅：方向以厚白边朝下为准，人脸只在纸边不明确时
+  /// 决定「厚边朝下 / 对边朝下」。五寸（wide）不套这条。
+  final bool miniFilm;
+
   /// 相纸规格确定时，画面窗口在 [bytes] 里的上、右、下、左边距（占边长的比例）。
   final List<double>? windowMargins;
 
   const RecordScanMultiCard({
     this.layoutTurns,
+    this.layoutConfident = false,
+    this.miniFilm = false,
     this.windowMargins,
     required this.bytes,
     required this.fileExtension,
@@ -2175,6 +2185,8 @@ class RecordScanService {
   }) {
     return RecordScanMultiCard(
       layoutTurns: layout?.layoutTurns,
+      layoutConfident: layout?.layoutTurns != null && layout!.layoutConfident,
+      miniFilm: layout?.format == FilmFormat.mini,
       windowMargins: layout?.layoutTurns == null ? null : layout!.best.margins,
       bytes: bytes,
       fileExtension: '.jpg',
